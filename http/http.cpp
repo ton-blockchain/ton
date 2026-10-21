@@ -631,6 +631,10 @@ tl_object_ptr<ton_api::http_payloadPart> HttpPayload::store_tl(size_t max_size) 
     max_size -= s;
   }
 
+  if (!parse_completed() || ready_bytes() != 0) {
+    return obj;
+  }
+
   written_trailer_ = true;
   obj->last_ = true;
   return obj;
@@ -827,6 +831,18 @@ td::Status HttpResponse::add_header(HttpHeader header) {
 
   auto S = td::trim(td::Slice(lc_value));
 
+  if (lc_name == "connection" || lc_name == "proxy-connection") {
+    auto tokens = S;
+    while (!tokens.empty()) {
+      auto comma = tokens.find(',');
+      closes_connection_ |= td::trim(tokens.substr(0, comma)) == "close";
+      if (comma == td::Slice::npos) {
+        break;
+      }
+      tokens.remove_prefix(comma + 1);
+    }
+  }
+
   if (lc_name == "content-length") {
     TRY_RESULT(len, td::to_integer_safe<td::uint32>(S));
     if (found_transfer_encoding_ || found_content_length_) {
@@ -884,7 +900,7 @@ tl_object_ptr<ton_api::http_response> HttpResponse::store_tl() {
   } else {
     headers.push_back(HttpHeader{"Connection", "Close"}.store_tl());
   }
-  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers), false);
+  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers), !need_payload());
 }
 
 td::Status HttpHeader::basic_check() {

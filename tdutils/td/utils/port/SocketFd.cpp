@@ -90,6 +90,18 @@ class SocketFdImpl final : private Iocp::Callback {
     }
   }
 
+  Status shutdown_write() {
+    auto lock = lock_.lock();
+    if (is_write_waiting_) {
+      if (::shutdown(get_native_fd().socket(), SD_SEND) != 0) {
+        return OS_SOCKET_ERROR("Failed to shut down socket write direction");
+      }
+    } else {
+      need_shutdown_after_write_ = true;
+    }
+    return Status::OK();
+  }
+
   void close() {
     if (!is_write_waiting_ && is_connected_) {
       VLOG(fd) << get_native_fd() << " will close after ongoing write";
@@ -182,6 +194,7 @@ class SocketFdImpl final : private Iocp::Callback {
   std::atomic<int> refcnt_{1};
   bool close_flag_{false};
   bool need_close_after_write_{false};
+  bool need_shutdown_after_write_{false};
 
   std::atomic<bool> is_connected_{false};
   bool is_read_active_{false};
@@ -238,6 +251,15 @@ class SocketFdImpl final : private Iocp::Callback {
       to_write = output_reader_.prepare_read();
       if (to_write.empty()) {
         is_write_waiting_ = true;
+        if (need_shutdown_after_write_) {
+          need_shutdown_after_write_ = false;
+          if (::shutdown(get_native_fd().socket(), SD_SEND) != 0) {
+            auto error = OS_SOCKET_ERROR("Failed to shut down socket write direction");
+            lock.reset();
+            on_error(std::move(error));
+            return;
+          }
+        }
         if (need_close_after_write_) {
           notify_iocp_close();
         }
@@ -737,6 +759,18 @@ Result<SocketFd> SocketFd::open_vsock(uint32 svm_cid, int32 svm_port) {
     }
   }
   return SocketFd(make_unique<detail::SocketFdImpl>(std::move(native_fd)));
+#endif
+}
+
+Status SocketFd::shutdown_write() {
+  CHECK(!empty());
+#if TD_PORT_WINDOWS
+  return impl_->shutdown_write();
+#else
+  if (detail::skip_eintr([&] { return ::shutdown(get_native_fd().socket(), SHUT_WR); }) != 0) {
+    return OS_SOCKET_ERROR("Failed to shut down socket write direction");
+  }
+  return Status::OK();
 #endif
 }
 

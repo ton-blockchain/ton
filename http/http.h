@@ -308,6 +308,17 @@ class HttpResponse {
   td::Result<std::shared_ptr<HttpPayload>> create_empty_payload();
   bool need_payload() const;
 
+  void set_cancel_request_payload(bool value) {
+    cancel_request_payload_ = value;
+  }
+  bool cancel_request_payload() const {
+    return cancel_request_payload_;
+  }
+
+  bool closes_connection() const {
+    return closes_connection_;
+  }
+
   auto code() const {
     return code_;
   }
@@ -348,6 +359,8 @@ class HttpResponse {
 
   bool parse_header_completed_ = false;
   bool keep_alive_ = false;
+  bool closes_connection_ = false;
+  bool cancel_request_payload_ = false;
 
   std::vector<HttpHeader> options_;
   bool is_tunnel_ = false;

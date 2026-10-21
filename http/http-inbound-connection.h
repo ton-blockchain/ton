@@ -66,6 +66,9 @@ class HttpInboundConnection : public HttpConnection {
   void payload_written() override {
     writing_payload_ = nullptr;
     response_sent_ = true;
+    if (tunnel_write_pending_) {
+      return;
+    }
     if (!close_after_write_) {
       read_next_request_ = !reading_payload_;
       if (found_eof_) {
@@ -77,6 +80,9 @@ class HttpInboundConnection : public HttpConnection {
   void payload_read() override {
     reading_payload_ = nullptr;
     read_next_request_ = response_sent_;
+    if (tunnel_write_closed_) {
+      stop();
+    }
   }
 
   td::Status receive(td::ChainBufferReader &input) override;

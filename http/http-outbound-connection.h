@@ -52,8 +52,17 @@ class HttpOutboundConnection : public HttpConnection {
         return td::Status::Error("unexpected EOF");
       } else {
         LOG(INFO) << "stopping (EOF payload)";
+        bool tunnel = reading_payload_->payload_type() == HttpPayload::PayloadType::pt_tunnel;
         reading_payload_->complete_parse();
-        stop();
+        if (tunnel) {
+          reading_payload_ = nullptr;
+          if (tunnel_write_closed_) {
+            stop();
+          }
+        } else {
+          close_after_read_ = true;
+          payload_read();
+        }
         return td::Status::OK();
       }
     } else {
@@ -87,7 +96,7 @@ class HttpOutboundConnection : public HttpConnection {
       std::shared_ptr<HttpClient::Callback> callback_;
     };
 
-    callback_ = std::make_unique<Cb>(std::move(http_callback_));
+    callback_ = std::make_unique<Cb>(http_callback_);
 
     HttpConnection::start_up();
   }
@@ -111,7 +120,7 @@ class HttpOutboundConnection : public HttpConnection {
   }
   void payload_written() override {
     writing_payload_ = nullptr;
-    if (!reading_payload_ && !promise_ && !close_after_read_) {
+    if (!reading_payload_ && !promise_ && !tunnel_write_pending_ && !close_after_read_) {
       alarm_timestamp() = td::Timestamp::never();
       send_next_query();
     }

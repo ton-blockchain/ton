@@ -36,6 +36,7 @@
 #include "common/errorcode.h"
 #include "dht/dht.h"
 #include "http/http-client.h"
+#include "http/http-connection.h"
 #include "http/http-server.h"
 #include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
@@ -59,6 +60,10 @@
 
 class RldpHttpProxy;
 
+bool should_cancel_upload(const ton::http::HttpResponse &response) {
+  return response.code() >= 400 || response.closes_connection();
+}
+
 class HttpRemote : public td::actor::Actor {
  public:
   struct Query {
@@ -79,6 +84,9 @@ class HttpRemote : public td::actor::Actor {
       }
       void on_stop_ready() override {
         td::actor::send_closure(id_, &HttpRemote::set_ready, false);
+      }
+      bool should_cancel_upload(const ton::http::HttpResponse &response) const override {
+        return ::should_cancel_upload(response);
       }
 
      private:
@@ -103,7 +111,7 @@ class HttpRemote : public td::actor::Actor {
               promise.set_error(R.move_as_error());
             } else {
               auto v = R.move_as_ok();
-              v.first->set_keep_alive(keep);
+              v.first->set_keep_alive(keep && !v.first->closes_connection() && v.first->code() < 400);
               if (v.second->payload_type() != ton::http::HttpPayload::PayloadType::pt_empty &&
                   !v.first->found_content_length() && !v.first->found_transfer_encoding()) {
                 v.first->add_header(ton::http::HttpHeader{"Transfer-Encoding", "Chunked"});
@@ -170,6 +178,10 @@ class HttpRldpPayloadReceiver : public td::actor::Actor {
       }
       void completed() override {
       }
+      void failed() override {
+        td::actor::send_closure(self_id_, &HttpRldpPayloadReceiver::abort_query,
+                                td::Status::Error("HTTP consumer closed"));
+      }
 
      private:
       size_t watermark_ = watermark();
@@ -182,6 +194,10 @@ class HttpRldpPayloadReceiver : public td::actor::Actor {
   }
 
   void request_more_data() {
+    if (payload_->is_error() || payload_->parse_completed()) {
+      stop();
+      return;
+    }
     LOG(INFO) << "HttpPayloadReceiver: sent=" << sent_ << " completed=" << payload_->parse_completed()
               << " ready=" << payload_->ready_bytes() << " watermark=" << watermark();
     if (sent_ || payload_->parse_completed()) {
@@ -207,6 +223,10 @@ class HttpRldpPayloadReceiver : public td::actor::Actor {
   }
 
   void add_data(td::BufferSlice data) {
+    if (payload_->is_error()) {
+      stop();
+      return;
+    }
     LOG(INFO) << "HttpPayloadReceiver: received answer (size " << data.size() << ")";
     auto F = ton::fetch_tl_object<ton::ton_api::http_payloadPart>(data, true);
     if (F.is_error()) {
@@ -307,10 +327,11 @@ class HttpRldpPayloadSender : public td::actor::Actor {
     if (from_timer) {
       active_timer_ = false;
     }
-    if (!cur_query_promise_) {
+    if (payload_->is_error()) {
+      abort_query(td::Status::Error("HTTP producer closed"));
       return;
     }
-    if (payload_->is_error()) {
+    if (!cur_query_promise_) {
       return;
     }
     if (payload_->parse_completed() || payload_->ready_bytes() >= ton::http::HttpRequest::low_watermark()) {
@@ -388,10 +409,19 @@ class HttpRldpPayloadSender : public td::actor::Actor {
 
   void abort_query(td::Status error) {
     LOG(INFO) << error;
+    if (cur_query_promise_) {
+      cur_query_promise_.set_error(std::move(error));
+    }
     stop();
   }
 
  private:
+  void tear_down() override {
+    if (!payload_->written()) {
+      payload_->set_error();
+    }
+  }
+
   static constexpr size_t watermark() {
     return (1 << 21) - (1 << 11);
   }
@@ -477,6 +507,7 @@ class TcpToRldpRequestSender : public td::actor::Actor {
       return;
     }
 
+    response_->set_cancel_request_payload(should_cancel_upload(*response_));
     response_payload_ = response_->create_empty_payload().move_as_ok();
 
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -568,7 +599,7 @@ class RldpTcpTunnel : public td::actor::Actor, private td::ObserverBase {
   }
 
   void request_data() {
-    if (close_ || sent_request_) {
+    if (got_last_part_ || sent_request_) {
       return;
     }
     sent_request_ = true;
@@ -623,23 +654,32 @@ class RldpTcpTunnel : public td::actor::Actor, private td::ObserverBase {
   }
 
   void process() {
-    if (!close_) {
-      auto status = [&] {
-        TRY_STATUS(fd_.flush_read());
-        TRY_STATUS(fd_.flush_write());
-        close_ = td::can_close(fd_);
-        return td::Status::OK();
-      }();
-      if (status.is_error()) {
-        abort(std::move(status));
-        return;
+    auto status = [&] {
+      if (!read_closed_) {
+        TRY_RESULT_ASSIGN(read_closed_, ton::http::read_tunnel(fd_));
       }
-    }
-    if (got_last_part_) {
-      close_ = true;
+      if (!write_closed_) {
+        if (read_closed_ && td::can_close(fd_)) {
+          fd_.get_poll_info().clear_flags(td::PollFlags::Close());
+          fd_.get_poll_info().add_flags(td::PollFlags::Write());
+        }
+        TRY_STATUS(fd_.flush_write());
+        if (got_last_part_ && !fd_.left_unwritten()) {
+          TRY_STATUS(fd_.shutdown_write());
+          write_closed_ = true;
+        }
+      }
+      return td::Status::OK();
+    }();
+    if (status.is_error()) {
+      abort(std::move(status));
+      return;
     }
     answer_query();
     request_data();
+    if (sent_last_part_ && write_closed_) {
+      stop();
+    }
   }
 
   void answer_query(bool allow_empty = false, bool from_timer = false) {
@@ -647,8 +687,8 @@ class RldpTcpTunnel : public td::actor::Actor, private td::ObserverBase {
       active_timer_ = false;
     }
     auto &input = fd_.input_buffer();
-    if (cur_promise_ && (!input.empty() || close_ || allow_empty)) {
-      if (!from_timer && !close_ && !allow_empty && input.size() < ton::http::HttpRequest::low_watermark()) {
+    if (cur_promise_ && (!input.empty() || read_closed_ || allow_empty)) {
+      if (!from_timer && !read_closed_ && !allow_empty && input.size() < ton::http::HttpRequest::low_watermark()) {
         if (!active_timer_) {
           active_timer_ = true;
           ton::delay_action(
@@ -663,12 +703,13 @@ class RldpTcpTunnel : public td::actor::Actor, private td::ObserverBase {
       td::BufferSlice data(s);
       LOG(INFO) << "RldpTcpTunnel: sending data to rldp: size=" << data.size();
       input.advance(s, td::as_mutable_slice(data));
+      sent_last_part_ = read_closed_ && input.empty();
       cur_promise_.set_result(ton::create_serialize_tl_object<ton::ton_api::http_payloadPart>(
-          std::move(data), std::vector<ton::tl_object_ptr<ton::ton_api::http_header>>(), close_));
+          std::move(data), std::vector<ton::tl_object_ptr<ton::ton_api::http_header>>(), sent_last_part_));
       ++cur_seqno_;
       cur_promise_.reset();
       alarm_timestamp() = td::Timestamp::never();
-      if (close_) {
+      if (sent_last_part_ && write_closed_) {
         stop();
         return;
       }
@@ -716,7 +757,8 @@ class RldpTcpTunnel : public td::actor::Actor, private td::ObserverBase {
   td::int32 cur_seqno_ = 0, cur_max_chunk_size_ = 0;
   td::Promise<td::BufferSlice> cur_promise_;
   td::int32 out_seqno_ = 0;
-  bool close_ = false, sent_request_ = false, got_last_part_ = false;
+  bool read_closed_ = false, write_closed_ = false, sent_last_part_ = false;
+  bool sent_request_ = false, got_last_part_ = false;
   bool active_timer_ = false;
 };
 
@@ -758,9 +800,11 @@ class RldpToTcpRequestSender : public td::actor::Actor {
   }
 
   void got_result(std::pair<std::unique_ptr<ton::http::HttpResponse>, std::shared_ptr<ton::http::HttpPayload>> R) {
-    td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
-                                                   rldp_, proxy_)
-        .release();
+    if (R.first->need_payload()) {
+      td::actor::create_actor<HttpRldpPayloadSender>("HttpPayloadSender(R)", std::move(R.second), id_, local_id_, adnl_,
+                                                     rldp_, proxy_)
+          .release();
+    }
     R.first->add_header({PROXY_SITE_VERISON_HEADER_NAME, PROXY_VERSION_HEADER});
     auto f = ton::serialize_tl_object(R.first->store_tl(), true);
     promise_.set_value(std::move(f));

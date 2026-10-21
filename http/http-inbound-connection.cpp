@@ -105,6 +105,13 @@ td::Status HttpInboundConnection::receive(td::ChainBufferReader &input) {
 
 void HttpInboundConnection::send_answer(std::unique_ptr<HttpResponse> response, std::shared_ptr<HttpPayload> payload) {
   CHECK(payload);
+  if (reading_payload_ && reading_payload_->payload_type() != HttpPayload::PayloadType::pt_tunnel &&
+      response->cancel_request_payload()) {
+    auto upload = std::move(reading_payload_);
+    upload->set_error();
+    close_after_write_ = true;
+    read_next_request_ = false;
+  }
   response->store_http(buffered_fd_.output_buffer());
   write_payload(std::move(payload));
   loop();

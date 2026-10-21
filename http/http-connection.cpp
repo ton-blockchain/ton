@@ -34,17 +34,21 @@ void HttpConnection::loop() {
       }
       LOG(DEBUG) << "loop(): in=" << buffered_fd_.left_unread() << " out=" << buffered_fd_.left_unwritten();
       bool is_eof = td::can_close(buffered_fd_);
-      bool read_eof = false;
+      bool read_eof = tunnel_mode_ && tunnel_read_eof_;
 
       bool written = false;
       bool read = false;
       if (is_eof || buffered_fd_.left_unread() <= fd_low_watermark()) {
         allow_read_ = true;
       }
-      if (allow_read_ && buffered_fd_.left_unread() < fd_high_watermark()) {
-        TRY_RESULT(r, buffered_fd_.flush_read(fd_high_watermark() - buffered_fd_.left_unread()));
-        if (r == 0 && is_eof) {
-          read_eof = true;
+      if (!(tunnel_mode_ && tunnel_read_eof_) && allow_read_ && buffered_fd_.left_unread() < fd_high_watermark()) {
+        if (tunnel_mode_) {
+          TRY_RESULT_ASSIGN(tunnel_read_eof_,
+                            read_tunnel(buffered_fd_, fd_high_watermark() - buffered_fd_.left_unread()));
+          read_eof = tunnel_read_eof_;
+        } else {
+          TRY_RESULT(r, buffered_fd_.flush_read(fd_high_watermark() - buffered_fd_.left_unread()));
+          read_eof = r == 0 && is_eof;
         }
       }
       if (buffered_fd_.left_unread() >= fd_high_watermark()) {
@@ -59,9 +63,22 @@ void HttpConnection::loop() {
       if (buffered_fd_.left_unread() == 0 && read_eof) {
         TRY_STATUS(receive_eof());
       }
+      if ((found_eof_ || (tunnel_mode_ && tunnel_read_eof_)) && td::can_close(buffered_fd_)) {
+        buffered_fd_.get_poll_info().clear_flags(td::PollFlags::Close());
+        buffered_fd_.get_poll_info().add_flags(td::PollFlags::Write());
+      }
       TRY_STATUS(buffered_fd_.flush_write());
       if (writing_payload_ && buffered_fd_.left_unwritten() < fd_high_watermark()) {
         written = continue_payload_write();
+      }
+      if (tunnel_write_pending_ && !buffered_fd_.need_flush_write()) {
+        TRY_STATUS(buffered_fd_.shutdown_write());
+        tunnel_write_pending_ = false;
+        tunnel_write_closed_ = true;
+        if (found_eof_) {
+          stop();
+          break;
+        }
       }
       if (close_after_write_ && !writing_payload_ && !buffered_fd_.need_flush_write()) {
         LOG(INFO) << "close after write";
@@ -114,6 +131,7 @@ void HttpConnection::write_payload(std::shared_ptr<HttpPayload> payload) {
   CHECK(!writing_payload_);
 
   writing_payload_ = std::move(payload);
+  tunnel_mode_ |= writing_payload_->payload_type() == HttpPayload::PayloadType::pt_tunnel;
 
   if (writing_payload_->parse_completed()) {
     continue_payload_write();
@@ -182,12 +200,15 @@ bool HttpConnection::continue_payload_write() {
         }
       }
     }
-    if (is_tunnel && writing_payload_->ready_bytes() == 0) {
+    if (is_tunnel && writing_payload_->ready_bytes() == 0 && !writing_payload_->parse_completed()) {
       return wrote;
     }
     wrote |= writing_payload_->store_http(buffered_fd_.output_buffer(), chunk_size(), t);
   }
   if (writing_payload_->parse_completed() && writing_payload_->written()) {
+    if (t == HttpPayload::PayloadType::pt_tunnel) {
+      tunnel_write_pending_ = true;
+    }
     payload_written();
   }
   return wrote;
