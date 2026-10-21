@@ -1274,8 +1274,7 @@ void NewCellStorageStat::dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_st
           }
         }
         if (add) {
-          // Tentative statistics must not leave committed path marks in the tree.
-          tree->add_path_to_proof_stat(tree_node.node_id(), *merkle_update_left_stat_, parent_ == nullptr);
+          tree->add_path_to_proof_stat(tree_node.node_id(), *merkle_update_left_stat_);
         }
       }
       need_left_mu_stat = false;
@@ -1419,8 +1418,28 @@ td::uint64 ProofStorageStat::estimate_serialized_size(const Ref<DataCell>& cell)
   return cell->get_serialized_size() + cell->size_refs() * 3 + 3;
 }
 
+bool MerkleUpdateLeftStat::visit_node(const CellUsageTree* tree, CellUsageTree::NodeId node_id) {
+  auto key = std::make_pair(tree, node_id);
+  for (auto* stat = parent_; stat; stat = stat->parent_) {
+    if (stat->visited_nodes_.contains(key)) {
+      return false;
+    }
+  }
+  return visited_nodes_.insert(key).second;
+}
+
+MerkleUpdateLeftStat::CellInfo MerkleUpdateLeftStat::get_cell_info(const Cell::Hash& hash, unsigned merkle_depth) const {
+  for (auto* stat = this; stat; stat = stat->parent_) {
+    auto it = stat->cells_.find({hash, merkle_depth});
+    if (it != stat->cells_.end()) {
+      return it->second;
+    }
+  }
+  return {};
+}
+
 void MerkleUpdateLeftStat::add_loaded_cell(const Ref<Cell>& cell, unsigned merkle_depth) {
-  auto& info = cells_[{cell->get_hash(), merkle_depth}];
+  auto info = get_cell_info(cell->get_hash(), merkle_depth);
   if (info.status == c_loaded) {
     return;
   }
@@ -1429,16 +1448,18 @@ void MerkleUpdateLeftStat::add_loaded_cell(const Ref<Cell>& cell, unsigned merkl
   proof_size_ -= info.size;
   info.status = c_loaded;
   proof_size_ += info.size = ProofStorageStat::estimate_serialized_size(data_cell);
+  cells_[{cell->get_hash(), merkle_depth}] = info;
   if (data_cell->special_type() == CellTraits::SpecialType::MerkleProof ||
       data_cell->special_type() == CellTraits::SpecialType::MerkleUpdate) {
     ++merkle_depth;
   }
   for (unsigned i = 0; i < data_cell->size_refs(); ++i) {
     auto child = data_cell->get_ref(i);
-    auto& child_info = cells_[{child->get_hash(), merkle_depth}];
+    auto child_info = get_cell_info(child->get_hash(), merkle_depth);
     if (child_info.status == c_none) {
       child_info.status = c_prunned;
       proof_size_ += child_info.size = ProofStorageStat::estimate_prunned_size(child->get_level_mask());
+      cells_[{child->get_hash(), merkle_depth}] = child_info;
     }
   }
 }

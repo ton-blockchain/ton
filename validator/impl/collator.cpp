@@ -5809,8 +5809,10 @@ td::actor::Task<bool> Collator::create_shard_state() {
       cs.print_rec(sb);
     };
   }
-  LOG(INFO) << "updating block profile statistics";
-  block_limit_status_->add_proof(state_root);
+  if (!virtual_shards_) {
+    LOG(INFO) << "updating block profile statistics";
+    block_limit_status_->add_proof(state_root);
+  }
   LOG(INFO) << "new ShardState and corresponding Merkle update created";
   co_return true;
 }

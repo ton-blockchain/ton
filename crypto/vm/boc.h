@@ -43,7 +43,6 @@ class NewCellStorageStat {
  public:
   NewCellStorageStat() {
   }
-  // The parent must outlive this statistic and remain unchanged while it is used.
   explicit NewCellStorageStat(const NewCellStorageStat* parent) : parent_(parent) {
     if (parent) {
       additional_usage_trees_ = parent->additional_usage_trees_;
@@ -239,6 +238,12 @@ class ProofStorageStat::Recorder {
 
 class MerkleUpdateLeftStat {
  public:
+  MerkleUpdateLeftStat() = default;
+  explicit MerkleUpdateLeftStat(const MerkleUpdateLeftStat* parent)
+      : proof_size_(parent ? parent->estimate_proof_size() : 0), parent_(parent) {
+  }
+
+  bool visit_node(const CellUsageTree* tree, CellUsageTree::NodeId node_id);
   void add_loaded_cell(const Ref<Cell>& cell, unsigned merkle_depth);
   td::uint64 estimate_proof_size() const;
 
@@ -249,7 +254,11 @@ class MerkleUpdateLeftStat {
     td::uint64 size = 0;
   };
   td::HashMap<std::pair<Cell::Hash, unsigned>, CellInfo> cells_;
+  td::HashSet<std::pair<const CellUsageTree*, CellUsageTree::NodeId>> visited_nodes_;
   td::uint64 proof_size_ = 0;
+  const MerkleUpdateLeftStat* parent_ = nullptr;
+
+  CellInfo get_cell_info(const Cell::Hash& hash, unsigned merkle_depth) const;
 };
 
 struct CellSerializationInfo {

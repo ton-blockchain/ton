@@ -68,7 +68,7 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
   bool has_mark(NodeId node_id) const;
   void set_mark(NodeId node_id, bool mark = true);
   void mark_path(NodeId node_id);
-  void add_path_to_proof_stat(NodeId node_id, MerkleUpdateLeftStat& stat, bool mark = true);
+  void add_path_to_proof_stat(NodeId node_id, MerkleUpdateLeftStat& stat) const;
   NodeId get_parent(NodeId node_id) const;
   NodeId get_child(NodeId node_id, unsigned ref_id) const;
   NodeId create_child(NodeId node_id, unsigned ref_id, td::Ref<Cell> cell);
@@ -87,7 +87,6 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
   struct Node {
     bool is_loaded{false};
     bool has_mark{false};
-    bool has_stat_mark{false};
     NodeId parent{0};
     std::array<td::uint32, CellTraits::max_refs> children{};
     td::Ref<Cell> cell;

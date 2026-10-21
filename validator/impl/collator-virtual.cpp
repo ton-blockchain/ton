@@ -292,7 +292,7 @@ void Collator::VirtualShards::Worker::prepare(const LimitUsage& budget) {
   }
   begin_epoch();
   vm::NewCellStorageStat st_stat(&block_limit_status_->st_stat);
-  auto merkle_update_left_stat = block_limit_status_->merkle_update_left_stat;
+  vm::MerkleUpdateLeftStat merkle_update_left_stat(&block_limit_status_->merkle_update_left_stat);
   for (auto* request : pending) {
     if (timeout_.is_in_past()) {
       break;
@@ -1030,11 +1030,10 @@ td::actor::Task<> Collator::finalize_virtual_accounts() {
   co_await VirtualShards::run_all(*this, VirtualShards::Phase::Finish);
   vm::AugmentedDictionary merged_accounts(256, block::tlb::aug_ShardAccounts);
   vm::AugmentedDictionary merged_blocks(256, block::tlb::aug_ShardAccountBlocks);
-  // create_shard_state() will account for the merged new-state proof. Ordinary
-  // transaction cells and already marked old-state paths remain accounted by workers.
+  // Keep the workers' proof estimates instead of rescanning the merged state in create_shard_state().
   block_limit_status_->additional_stat.set_zero();
   for (auto& worker : virtual_shards_->workers) {
-    block_limit_status_->additional_stat += worker->block_limit_status_->st_stat.get_stat();
+    block_limit_status_->additional_stat += worker->block_limit_status_->st_stat.get_total_stat();
     block_limit_status_->additional_stat.bits +=
         worker->block_limit_status_->merkle_update_left_stat.estimate_proof_size() * 8;
     vm::AugmentedDictionary blocks(vm::load_cell_slice_ref(worker->shard_account_blocks_), 256,
