@@ -234,4 +234,4 @@ target_link_libraries(validator-disk PRIVATE validator-common validator-db)
 
 target_link_libraries(validator-hardfork PRIVATE validator-common validator-db)
 
-target_link_libraries(full-node PRIVATE tdactor adnl rldp2 tl_api dht tdfec overlay ton_db)
+target_link_libraries(full-node PRIVATE tdactor adnl tl_api dht tdfec overlay ton_db)

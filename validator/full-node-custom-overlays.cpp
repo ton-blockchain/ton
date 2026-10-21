@@ -223,7 +223,7 @@ td::actor::Task<QuerySender> FullNodeCustomOverlay::get_query_sender() {
     co_return td::Status::Error(ErrorCode::notready, "no nodes");
   }
   auto proto_version = peers_info_[*peer].proto_version;
-  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, adnl_sender_, actor_id(this),
+  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, quic_, actor_id(this),
                                               proto_version);
 }
 
@@ -256,7 +256,7 @@ void FullNodeCustomOverlay::try_init() {
 }
 
 void FullNodeCustomOverlay::init() {
-  td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
+  td::actor::send_closure(quic_, &adnl::AdnlSenderEx::add_id, local_id_);
 
   VLOG(full_node, WARNING) << "Creating custom overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
                            << nodes_.size() << " nodes, " << msg_senders_.size() << " msg senders, "
@@ -294,15 +294,7 @@ void FullNodeCustomOverlay::init() {
   overlay_options.name_ = "custom." + name_;
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
   overlay_options.send_twostep_broadcast_ = true;
-  overlay_options.twostep_broadcast_sender_ = adnl_sender_;
-
-  // Allow receiving messages from both quic and rldp2
-  // This is a temporary solution for transitioning from rldp2 to quic before completely removing rldp2
-  auto other_sender = (use_quic_ ? td::actor::ActorId<adnl::AdnlSenderEx>{rldp2_} : quic_);
-  td::actor::send_closure(other_sender, &adnl::AdnlSenderEx::add_id, local_id_);
-  td::uint64 mtu = rules.max_broadcast_size() + 1024;
-  std::vector<adnl::AdnlNodeIdShort> peers;
-  peers_mtu_guard_ = adnl::PeersMtuGuard{other_sender, local_id_, nodes_, mtu, true};
+  overlay_options.twostep_broadcast_sender_ = quic_;
 
   td::actor::send_closure(
       overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(), nodes_,
@@ -353,7 +345,7 @@ td::actor::Task<> FullNodeCustomOverlay::ping_peer(adnl::AdnlNodeIdShort peer_id
   td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
   auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id, local_id_, overlay_id_, "q",
-                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, adnl_sender_);
+                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, quic_);
   auto r_response = co_await std::move(task).wrap();
   PeerInfo &peer_info = peers_info_[peer_id];
   if (r_response.is_error()) {

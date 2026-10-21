@@ -2291,11 +2291,10 @@ void ValidatorEngine::start_dht() {
 }
 
 void ValidatorEngine::started_dht() {
-  start_rldp();
+  start_quic();
 }
 
-void ValidatorEngine::start_rldp() {
-  rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
+void ValidatorEngine::start_quic() {
   auto peer_table = td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl_.get());
   CHECK(!peer_table.empty());
   CHECK(!keyring_.empty());
@@ -2303,13 +2302,10 @@ void ValidatorEngine::start_rldp() {
   td::actor::send_closure(quic_.get(), &ton::quic::QuicSender::set_quic_options, quic_options_);
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_.get(),
                           &ton::quic::QuicSender::collect);
-  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::rldp2::Rldp>, rldp2_.get(),
-                          &ton::rldp2::Rldp::collect);
-  td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::set_default_mtu, 2048);
-  started_rldp();
+  started_quic();
 }
 
-void ValidatorEngine::started_rldp() {
+void ValidatorEngine::started_quic() {
   start_overlays();
 }
 
@@ -2399,7 +2395,7 @@ void ValidatorEngine::start_full_node() {
     full_node_options.config_ = config_.full_node_config;
     full_node_ = ton::validator::fullnode::FullNode::create(
         full_node_id_, validator_options_->zero_block_id().file_hash, full_node_options, keyring_.get(), adnl_.get(),
-        rldp2_.get(), quic_.get(),
+        quic_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
     for (auto &v : config_.validators) {
