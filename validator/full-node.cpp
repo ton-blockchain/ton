@@ -1292,7 +1292,6 @@ CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_c
     c.sender_shards_.push_back(create_shard_id(shard));
   }
   c.skip_public_msg_send_ = f.skip_public_msg_send_;
-  c.use_quic_ = f.use_quic_;
   c.send_queries_ = f.send_queries_;
   return c;
 }
