@@ -101,15 +101,20 @@ class HttpOutboundConnection : public HttpConnection {
   void payload_read() override {
     reading_payload_ = nullptr;
 
+    if (writing_payload_) {
+      return;
+    }
     if (!close_after_read_) {
       alarm_timestamp() = td::Timestamp::never();
       send_next_query();
-    } else {
-      stop();
     }
   }
   void payload_written() override {
     writing_payload_ = nullptr;
+    if (!reading_payload_ && !promise_ && !close_after_read_) {
+      alarm_timestamp() = td::Timestamp::never();
+      send_next_query();
+    }
   }
 
  private:

@@ -101,6 +101,9 @@ class HttpPayload {
    public:
     virtual void run(size_t ready_bytes) = 0;
     virtual void completed() = 0;
+    virtual void failed() {
+      completed();
+    }
     virtual void flush() {
     }
     virtual ~Callback() = default;
@@ -130,7 +133,10 @@ class HttpPayload {
     return error_;
   }
   void set_error() {
-    error_ = true;
+    const std::lock_guard<std::mutex> lock{mutex_};
+    if (!error_.exchange(true)) {
+      run_callbacks();
+    }
   }
   PayloadType payload_type() const {
     return type_;

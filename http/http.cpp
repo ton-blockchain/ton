@@ -260,7 +260,8 @@ tl_object_ptr<ton_api::http_request> HttpRequest::store_tl(td::Bits256 req_id) {
 td::Status HttpPayload::parse(td::ChainBufferReader &input) {
   CHECK(!parse_completed());
   while (true) {
-    if (high_watermark_reached()) {
+    if (high_watermark_reached() && !(type_ == PayloadType::pt_content_length &&
+                                      state_ == ParseState::reading_chunk_data && cur_chunk_size_ == 0)) {
       return td::Status::OK();
     }
     switch (state_) {
@@ -473,7 +474,9 @@ HttpHeader HttpPayload::get_header() {
 
 void HttpPayload::run_callbacks() {
   for (auto &x : callbacks_) {
-    if (state_.load(std::memory_order_relaxed) == ParseState::completed) {
+    if (error_) {
+      x->failed();
+    } else if (state_.load(std::memory_order_relaxed) == ParseState::completed) {
       x->completed();
     } else {
       x->run(ready_bytes_);
@@ -712,6 +715,10 @@ tl_object_ptr<ton_api::http_PayloadInfo> HttpPayload::store_info(size_t max_size
 
 void HttpPayload::add_callback(std::unique_ptr<HttpPayload::Callback> callback) {
   const std::lock_guard<std::mutex> lock{mutex_};
+  if (error_) {
+    callback->failed();
+    return;
+  }
   callbacks_.push_back(std::move(callback));
 }
 

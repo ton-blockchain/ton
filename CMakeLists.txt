@@ -708,6 +708,10 @@ add_executable(test-ton-collator test/test-ton-collator.cpp)
 target_link_libraries(test-ton-collator overlay tdutils tdactor adnl tl_api dht
   validator-disk ton_validator validator-disk )
 
+add_executable(test-http-payload test/test-td-main.cpp test/test-http-payload.cpp test/test-http-connection.cpp)
+target_link_libraries(test-http-payload PRIVATE tonhttp)
+ton_test(test-http-payload)
+
 add_executable(test-http test/test-http.cpp)
 target_link_libraries(test-http PRIVATE tonhttp)
 

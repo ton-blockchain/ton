@@ -29,6 +29,9 @@ void HttpConnection::loop() {
   in_loop_ = true;
   auto status = [&] {
     while (true) {
+      if ((reading_payload_ && reading_payload_->is_error()) || (writing_payload_ && writing_payload_->is_error())) {
+        return td::Status::Error("HTTP body cancelled");
+      }
       LOG(DEBUG) << "loop(): in=" << buffered_fd_.left_unread() << " out=" << buffered_fd_.left_unwritten();
       bool is_eof = td::can_close(buffered_fd_);
       bool read_eof = false;
@@ -60,12 +63,13 @@ void HttpConnection::loop() {
       if (writing_payload_ && buffered_fd_.left_unwritten() < fd_high_watermark()) {
         written = continue_payload_write();
       }
-      if (close_after_write_ && !writing_payload_ && !buffered_fd_.left_unwritten()) {
+      if (close_after_write_ && !writing_payload_ && !buffered_fd_.need_flush_write()) {
         LOG(INFO) << "close after write";
         stop();
         break;
       }
-      if (close_after_read_ && !reading_payload_ && !buffered_fd_.left_unread()) {
+      if (close_after_read_ && !reading_payload_ && !writing_payload_ && !buffered_fd_.left_unread() &&
+          !buffered_fd_.need_flush_write()) {
         LOG(INFO) << "close after read";
         stop();
         break;
@@ -270,8 +274,7 @@ td::Status HttpConnection::continue_payload_read(td::ChainBufferReader &input) {
 
 td::Status HttpConnection::receive_payload(td::ChainBufferReader &input) {
   CHECK(reading_payload_);
-  continue_payload_read(input);
-  return td::Status::OK();
+  return continue_payload_read(input);
 }
 
 }  // namespace http

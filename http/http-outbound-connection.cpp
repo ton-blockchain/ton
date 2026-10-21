@@ -79,9 +79,9 @@ void HttpOutboundConnection::send_query(
   keep_alive_ = request->keep_alive();
   force_no_payload_ = request->no_payload_in_answer();
   request->store_http(buffered_fd_.output_buffer());
-  write_payload(std::move(payload));
   promise_ = std::move(promise);
   alarm_timestamp() = timeout;
+  write_payload(std::move(payload));
 
   loop();
 }
@@ -98,9 +98,9 @@ void HttpOutboundConnection::send_next_query() {
   force_no_payload_ = p.request->no_payload_in_answer();
 
   p.request->store_http(buffered_fd_.output_buffer());
-  write_payload(std::move(p.payload));
   alarm_timestamp() = p.timeout;
   promise_ = std::move(p.promise);
+  write_payload(std::move(p.payload));
 
   loop();
 }

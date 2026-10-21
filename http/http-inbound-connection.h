@@ -65,8 +65,9 @@ class HttpInboundConnection : public HttpConnection {
 
   void payload_written() override {
     writing_payload_ = nullptr;
+    response_sent_ = true;
     if (!close_after_write_) {
-      read_next_request_ = true;
+      read_next_request_ = !reading_payload_;
       if (found_eof_) {
         stop();
         return;
@@ -75,7 +76,7 @@ class HttpInboundConnection : public HttpConnection {
   }
   void payload_read() override {
     reading_payload_ = nullptr;
-    read_next_request_ = false;
+    read_next_request_ = response_sent_;
   }
 
   td::Status receive(td::ChainBufferReader &input) override;
@@ -87,6 +88,7 @@ class HttpInboundConnection : public HttpConnection {
   }
 
   bool read_next_request_ = true;
+  bool response_sent_ = false;
 
   std::shared_ptr<HttpServer::Callback> http_callback_;
   std::unique_ptr<HttpRequest> cur_request_;

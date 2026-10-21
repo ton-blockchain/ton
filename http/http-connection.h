@@ -124,6 +124,12 @@ class HttpConnection : public td::actor::Actor, public td::ObserverBase {
   }
 
   void tear_down() override {
+    if (reading_payload_ && !reading_payload_->parse_completed()) {
+      reading_payload_->set_error();
+    }
+    if (writing_payload_ && !writing_payload_->written()) {
+      writing_payload_->set_error();
+    }
     if (callback_) {
       callback_->on_close(actor_id(this));
       callback_ = nullptr;
