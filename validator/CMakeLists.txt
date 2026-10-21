@@ -57,8 +57,6 @@ set(VALIDATOR_HEADERS
   queue-size-counter.hpp
   validator-telemetry.hpp
   storage-stat-cache.hpp
-  shard-block-verifier.hpp
-  shard-block-retainer.hpp
   global-balance-calculator.hpp
   impl/global-balance-calculator-internal.hpp
 
@@ -86,8 +84,6 @@ set(VALIDATOR_SOURCE
   validate-broadcast.cpp
   validator-telemetry.cpp
   storage-stat-cache.cpp
-  shard-block-verifier.cpp
-  shard-block-retainer.cpp
   collator-scoreboard.cpp
   validator-registry-watcher.cpp
   impl/applied-ext-message-cleanup.cpp
