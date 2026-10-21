@@ -510,11 +510,14 @@ class OverlayImpl : public Overlay {
 
   std::unique_ptr<Overlays::Callback> callback_;
 
-  // Reassembled broadcast content, accounted here on the overlay thread and drained into the manager's
-  // aggregate on scrape and on tear_down.
-  metrics::TlTrafficBucket delivered_;
-  metrics::TlTrafficBucket drain_metrics() {
-    return std::exchange(delivered_, {});
+  // Actor-local metrics, drained into the manager's aggregate on scrape and tear_down.
+  OverlayMetrics pending_metrics_;
+  OverlayMetrics drain_metrics() {
+    auto result = std::exchange(pending_metrics_, {});
+    if (overlay_type_ == OverlayType::Public) {
+      result.public_chain = opts_.overlay_chain_;
+    }
+    return result;
   }
 
   BroadcastsSimple broadcasts_simple_;

@@ -700,11 +700,22 @@ void OverlayManager::forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort 
   td::actor::send_closure(it2->second.overlay, &Overlay::forget_peer, peer_id);
 }
 
+void PublicOverlayMetrics::collect(metrics::Context ctx) const {
+  ctx.collect(metrics::Gauge<td::uint64>{peers}, "peer_memberships");
+  ctx.collect(metrics::Gauge<td::uint64>{alive_whitelisted_peers}, "alive_whitelisted_peer_memberships");
+  double trees = static_cast<double>(eager_peers.trees);
+  ctx.collect(metrics::Gauge<double>{trees == 0.0 ? 0.0 : static_cast<double>(eager_peers.peers) / trees},
+              "plumtree_eager_peers_avg");
+  ctx.collect(metrics::Gauge<double>{trees == 0.0 ? 0.0 : static_cast<double>(eager_peers.whitelisted_peers) / trees},
+              "plumtree_whitelisted_eager_peers_avg");
+}
+
 td::actor::Task<> OverlayManager::collect(metrics::Context ctx) {
   // Ask every overlay for its inbound delta first (synchronous loop — no iterator into overlays_
   // outlives it), then wait for the round-trips. An overlay that dies mid-drain has already flushed
   // in its tear_down, so a failed ask is harmless.
   std::vector<td::actor::StartedTask<td::Unit>> drains;
+  public_metrics_ = {};
   for (const auto &[local_id, by_overlay] : overlays_) {
     for (const auto &[overlay_id, desc] : by_overlay) {
       drains.push_back(td::actor::ask(desc.overlay.get(), &Overlay::collect_metrics));
@@ -712,12 +723,18 @@ td::actor::Task<> OverlayManager::collect(metrics::Context ctx) {
   }
   co_await td::actor::all_wrap(std::move(drains));
 
-  ctx.with_name("overlay").collect(broadcasts_, "broadcast");
+  auto overlay = ctx.with_name("overlay");
+  overlay.collect(broadcasts_, "broadcast");
+  auto public_overlay = overlay.with_name("public");
+  public_overlay.collect(public_metrics_);
   co_return {};
 }
 
-void OverlayManager::absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) {
-  broadcasts_.at(metrics::Direction::in) += delta;
+void OverlayManager::absorb_metrics(OverlayMetrics delta, td::Promise<td::Unit> done) {
+  broadcasts_.at(metrics::Direction::in) += delta.broadcasts;
+  if (delta.public_chain) {
+    public_metrics_.at(*delta.public_chain) += delta.public_overlay;
+  }
   done.set_value(td::Unit());
 }
 

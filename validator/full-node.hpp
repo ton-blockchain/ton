@@ -45,6 +45,16 @@ namespace validator {
 
 namespace fullnode {
 
+enum class PublicRebroadcastType { candidate, finality };
+inline constexpr metrics::LabelEnum<PublicRebroadcastType, 2> ton_metric_label(PublicRebroadcastType) {
+  return {"type", {{"candidate", "finality"}}};
+}
+
+enum class ExternalRelayResult { relayed, no_fast_sync_route };
+inline constexpr metrics::LabelEnum<ExternalRelayResult, 2> ton_metric_label(ExternalRelayResult) {
+  return {"result", {{"relayed", "no_fast_sync_route"}}};
+}
+
 class FullNodeImpl : public FullNode {
  public:
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
@@ -132,6 +142,8 @@ class FullNodeImpl : public FullNode {
   td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
                                                 QuerySource source) override;
 
+  td::actor::Task<> collect(metrics::Context ctx) override;
+
   void start_up() override;
 
   FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
@@ -143,6 +155,19 @@ class FullNodeImpl : public FullNode {
                td::Promise<td::Unit> started_promise);
 
  private:
+  struct RebroadcasterMetrics {
+    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType> broadcasts;
+    metrics::Labeled<metrics::Gauge<double>, overlay::OverlayChain, PublicRebroadcastType>
+        last_broadcast_timestamp_seconds;
+    metrics::Labeled<metrics::Counter, ExternalRelayResult> external_messages;
+
+    void collect(metrics::Context ctx) const {
+      ctx.collect(broadcasts, "broadcasts");
+      ctx.collect(last_broadcast_timestamp_seconds, "last_broadcast_timestamp_seconds");
+      ctx.collect(external_messages, "external_messages");
+    }
+  } rebroadcaster_metrics_;
+
   struct ShardInfo {
     td::actor::ActorOwn<FullNodeShard> actor;
     PublicKeyHash local_id = PublicKeyHash::zero();
@@ -156,6 +181,7 @@ class FullNodeImpl : public FullNode {
   void set_public_overlays_enabled(bool enabled);
   void update_public_overlay_mode(double fast_sync_authority_until);
   void update_fast_sync_and_public_overlays();
+  void record_public_rebroadcast(const BlockIdExt& block_id, PublicRebroadcastType type);
 
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;

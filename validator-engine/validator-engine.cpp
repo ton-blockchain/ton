@@ -2424,12 +2424,6 @@ void ValidatorEngine::start_validator() {
     }
   }
 
-  // The last collector any configuration registers is the one above: start_adnl -> ... ->
-  // start_validator runs unconditionally in one turn, and the start-up steps after it register
-  // none. They can also wait on the full node coming up, so sealing at the end of the chain would
-  // keep /metrics answering 503 for the whole database warm-up instead of just for start-up.
-  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::ready);
-
   started_validator();
 }
 
@@ -2465,6 +2459,8 @@ void ValidatorEngine::start_full_node() {
         rldp2_.get(), quic_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
+    td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::validator::fullnode::FullNode>,
+                            full_node_.get(), &ton::validator::fullnode::FullNode::collect);
     for (auto &v : config_.validators) {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
                               [](td::Result<>) {});
@@ -2491,6 +2487,9 @@ void ValidatorEngine::start_full_node() {
   } else {
     started_full_node();
   }
+  // FullNode is the last optional collector. Seal immediately after creating it rather than waiting
+  // for its database warm-up callback.
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::ready);
 }
 
 void ValidatorEngine::started_full_node() {

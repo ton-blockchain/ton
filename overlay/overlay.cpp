@@ -563,7 +563,7 @@ void OverlayImpl::start_up() {
 
 void OverlayImpl::tear_down() {
   // Whatever hasn't been scraped yet would otherwise be lost with this overlay (fire-and-forget).
-  td::actor::send_closure(manager_, &Overlays::absorb_broadcasts, drain_metrics(), td::Promise<td::Unit>());
+  td::actor::send_closure(manager_, &Overlays::absorb_metrics, drain_metrics(), td::Promise<td::Unit>());
 }
 
 void OverlayImpl::update_peers_mtu() {
@@ -949,12 +949,23 @@ void OverlayImpl::receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, t
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra) {
-  delivered_.account(data.as_slice());
+  pending_metrics_.broadcasts.account(data.as_slice());
   callback_->receive_broadcast_with_extra(source, overlay_id_, std::move(data), std::move(extra));
 }
 
 void OverlayImpl::collect_metrics(td::Promise<td::Unit> done) {
-  td::actor::send_closure(manager_, &Overlays::absorb_broadcasts, drain_metrics(), std::move(done));
+  auto metrics = drain_metrics();
+  if (metrics.public_chain) {
+    metrics.public_overlay.peers = peer_list_.peers_.size();
+    for (const auto &peer : public_whitelisted_peer_ids_) {
+      if (peer != local_id_) {
+        auto *entry = peer_list_.peers_.get(peer);
+        metrics.public_overlay.alive_whitelisted_peers += entry != nullptr && entry->is_alive();
+      }
+    }
+    metrics.public_overlay.eager_peers = broadcasts_plumtree_.eager_peer_stats(public_whitelisted_peer_ids_);
+  }
+  td::actor::send_closure(manager_, &Overlays::absorb_metrics, std::move(metrics), std::move(done));
 }
 
 void OverlayImpl::register_delivered_broadcast(const BroadcastHash &hash) {

@@ -109,6 +109,7 @@ void FullNodeShardImpl::create_overlay() {
   };
   overlay::OverlayOptions opts;
   opts.name_ = "shard" + shard_.to_str();
+  opts.overlay_chain_ = shard_.is_masterchain() ? overlay::OverlayChain::master : overlay::OverlayChain::shard;
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
   opts.enable_plumtree_broadcast_ = enable_plumtree_broadcast_;

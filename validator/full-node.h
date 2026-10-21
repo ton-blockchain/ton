@@ -181,6 +181,8 @@ class FullNode : public td::actor::Actor {
   virtual td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
                                                         QuerySource source) = 0;
 
+  virtual td::actor::Task<> collect(metrics::Context ctx) = 0;
+
   static constexpr td::uint32 max_block_size() {
     return 4 << 20;
   }

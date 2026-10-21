@@ -285,6 +285,7 @@ class BroadcastsPlumtree::Impl {
   td::actor::Task<> process_stats_push(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                        tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg);
   std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> stats_collect_records() const;
+  PlumtreeEagerPeerStats eager_peer_stats(const std::set<adnl::AdnlNodeIdShort> &whitelisted_peers) const;
 
   void alarm(OverlayImpl *overlay);
   td::Timestamp next_alarm_at();
@@ -1884,6 +1885,18 @@ std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> BroadcastsPlumt
   return records;
 }
 
+PlumtreeEagerPeerStats BroadcastsPlumtree::Impl::eager_peer_stats(
+    const std::set<adnl::AdnlNodeIdShort> &whitelisted_peers) const {
+  PlumtreeEagerPeerStats result{.trees = slots_.size()};
+  for (const auto &slot : slots_) {
+    result.peers += slot.eager.size();
+    for (const auto &peer : slot.eager) {
+      result.whitelisted_peers += whitelisted_peers.contains(peer);
+    }
+  }
+  return result;
+}
+
 void BroadcastsPlumtree::Impl::stats_forward(OverlayImpl *overlay, const ton_api::overlay_plumtreeStatsRecord &record,
                                              const adnl::AdnlNodeIdShort &from) {
   for (const auto &dst : slots_[PLUMTREE_SIMPLE_TREE_INDEX].eager) {
@@ -2096,6 +2109,11 @@ td::actor::Task<> BroadcastsPlumtree::process_stats_push(OverlayImpl *overlay, a
 
 std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> BroadcastsPlumtree::collect_stats_records() const {
   return impl_->stats_collect_records();
+}
+
+PlumtreeEagerPeerStats BroadcastsPlumtree::eager_peer_stats(
+    const std::set<adnl::AdnlNodeIdShort> &whitelisted_peers) const {
+  return impl_->eager_peer_stats(whitelisted_peers);
 }
 
 void BroadcastsPlumtree::alarm(OverlayImpl *overlay) {

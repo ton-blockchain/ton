@@ -19,6 +19,7 @@
 #pragma once
 
 #include <memory>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -100,6 +101,7 @@ class BroadcastsPlumtree {
   td::actor::Task<> process_stats_push(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                        tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg);
   std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> collect_stats_records() const;
+  PlumtreeEagerPeerStats eager_peer_stats(const std::set<adnl::AdnlNodeIdShort> &whitelisted_peers) const;
 
   void alarm(OverlayImpl *overlay);
   td::Timestamp next_alarm_at();
