@@ -84,6 +84,87 @@ struct QuicSenderTest : QuicSender {
     ASSERT_TRUE(sender.outbound_.empty());
     co_return {};
   }
+
+  td::actor::Task<> expired_inbound_waiter_preserves_connection() {
+    AdnlPath path{};
+    auto inbound = std::make_shared<Connection>();
+    inbound->path = path;
+    inbound->is_ready = true;
+    inbound_[path] = inbound;
+    auto outbound = get_or_create_connection(path);
+    ASSERT_TRUE(outbound != inbound);
+    ASSERT_TRUE(outbound->is_outbound);
+
+    ASSERT_TRUE(!bidirectional_queries_);
+    enable_bidirectional_queries();
+    outbound->is_ready = true;
+    ASSERT_TRUE(get_or_create_connection(path, bidirectional_queries_) == outbound);
+    outbound->is_ready = false;
+    auto connection = get_or_create_connection(path, bidirectional_queries_);
+    ASSERT_TRUE(connection == inbound);
+    auto result = co_await wait_connection_ready(connection, td::Timestamp::in(-1)).wrap();
+    ASSERT_TRUE(result.is_error());
+    ASSERT_EQ(ErrorCode::timeout, result.error().code());
+    ASSERT_TRUE(inbound_.at(path) == inbound);
+    ASSERT_TRUE(outbound_.at(path) == outbound);
+    ASSERT_TRUE(connection->waiting_ready.empty());
+    ASSERT_TRUE(waiter_timeouts_.empty());
+    co_return {};
+  }
+
+  td::actor::Task<> closed_connection_finishes_retained_queries() {
+    auto connection = std::make_shared<Connection>();
+    connection->cid = QuicConnectionId::random();
+    connection->is_ready = true;
+    inbound_[connection->path] = connection;
+    by_cid_.emplace(connection->cid, connection);
+    int finished = 0;
+    for (auto sid : {0, 4}) {
+      auto promise = td::make_promise([&](td::Result<td::BufferSlice> result) {
+        ASSERT_TRUE(result.is_error());
+        ASSERT_EQ(result.error().message(), td::Slice("connection closed"));
+        ASSERT_TRUE(connection->responses.empty());
+        ASSERT_TRUE(by_cid_.empty());
+        ASSERT_TRUE(inbound_.empty());
+        ++finished;
+      });
+      connection->responses.emplace(sid, Connection::PendingQuery{std::move(promise), Trust::untrusted});
+    }
+    on_closed(connection->cid);
+    ASSERT_EQ(finished, 2);
+    ASSERT_TRUE(!connection->is_ready);
+    ASSERT_TRUE(connection->responses.empty());
+    co_return {};
+  }
+
+  td::actor::Task<> stale_close_preserves_replacement() {
+    auto old_connection = std::make_shared<Connection>();
+    old_connection->cid = QuicConnectionId::random();
+    old_connection->is_outbound = true;
+    old_connection->is_ready = true;
+    auto replacement = std::make_shared<Connection>();
+    replacement->path = old_connection->path;
+    replacement->cid = QuicConnectionId::random();
+    replacement->is_outbound = true;
+    replacement->is_ready = true;
+    by_cid_.emplace(old_connection->cid, old_connection);
+    by_cid_.emplace(replacement->cid, replacement);
+    outbound_[replacement->path] = replacement;
+    bool finished = false;
+    auto promise = td::make_promise([&](td::Result<td::BufferSlice> result) {
+      ASSERT_TRUE(result.is_error());
+      ASSERT_TRUE(old_connection->responses.empty());
+      ASSERT_TRUE(outbound_.at(replacement->path) == replacement);
+      finished = true;
+    });
+    old_connection->responses.emplace(0, Connection::PendingQuery{std::move(promise), Trust::untrusted});
+    on_closed(old_connection->cid);
+    ASSERT_TRUE(finished);
+    ASSERT_TRUE(outbound_.at(replacement->path) == replacement);
+    ASSERT_TRUE(by_cid_.find(replacement->cid) != by_cid_.end());
+    ASSERT_TRUE(replacement->is_ready);
+    co_return {};
+  }
 };
 
 }  // namespace ton::quic
@@ -301,7 +382,8 @@ class TestRunner : public td::actor::Actor {
 
   td::actor::Task<TestNode> create_node(std::string name, int port, std::optional<ton::PrivateKey> key = std::nullopt,
                                         std::string ip = "127.0.0.1",
-                                        ton::quic::QuicServer::Options options = quic_test_options()) {
+                                        ton::quic::QuicServer::Options options = quic_test_options(),
+                                        bool client_only = false) {
     TestNode node;
     node.ip = ip;
     node.port = port;
@@ -318,16 +400,18 @@ class TestRunner : public td::actor::Actor {
 
     td::actor::send_closure(node.adnl, &ton::adnl::Adnl::register_network_manager, node.network_manager.get());
 
-    ton::adnl::AdnlCategoryMask cat_mask;
-    cat_mask[0] = true;
-    td::IPAddress addr;
-    addr.init_host_port(PSTRING() << ip << ":" << port).ensure();
-    td::actor::send_closure(node.network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, addr,
-                            std::move(cat_mask), 0);
+    if (!client_only) {
+      ton::adnl::AdnlCategoryMask cat_mask;
+      cat_mask[0] = true;
+      td::IPAddress addr;
+      addr.init_host_port(PSTRING() << ip << ":" << port).ensure();
+      td::actor::send_closure(node.network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, addr,
+                              std::move(cat_mask), 0);
+    }
 
     co_await td::actor::ask(node.keyring, &ton::keyring::Keyring::add_key, node.key, true);
 
-    auto addr_list = make_addr_list(ip, port);
+    auto addr_list = client_only ? ton::adnl::AdnlAddressList{} : make_addr_list(ip, port);
     td::actor::send_closure(node.adnl, &ton::adnl::Adnl::add_id,
                             ton::adnl::AdnlNodeIdFull{node.key.compute_public_key()}, addr_list, td::uint8(0));
 
@@ -341,7 +425,11 @@ class TestRunner : public td::actor::Actor {
         "quic-" + name, td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get(),
         options);
 
-    co_await td::actor::ask(node.quic_sender, &ton::quic::QuicSender::add_id_and_wait, node.id);
+    if (client_only) {
+      co_await td::actor::ask(node.quic_sender, &ton::quic::QuicSender::add_client_id, node.id);
+    } else {
+      co_await td::actor::ask(node.quic_sender, &ton::quic::QuicSender::add_id_and_wait, node.id);
+    }
     co_return std::move(node);
   }
 
@@ -934,6 +1022,57 @@ TEST(QuicSender, BasicQuery) {
     ASSERT_EQ(resp2.as_slice(), td::Slice("Qb-to-a"));
 
     co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, BidirectionalClientWithoutAddress) {
+  run_test([](TestRunner& t) -> td::actor::Task<> {
+    auto client =
+        co_await t.create_node("bidi-client", next_port(), std::nullopt, "127.0.0.1", quic_test_options(), true);
+    auto server = co_await t.create_node("bidi-server", next_port());
+    co_await td::actor::ask(client.quic_sender, &ton::quic::QuicSender::enable_bidirectional_queries);
+    co_await td::actor::ask(server.quic_sender, &ton::quic::QuicSender::enable_bidirectional_queries);
+    co_await td::actor::ask(client.quic_sender, &ton::quic::QuicSender::add_client_id, client.id);
+    auto node = co_await td::actor::ask(client.adnl, &ton::adnl::Adnl::get_self_node, client.id);
+    ASSERT_TRUE(node.addr_list().adnl_addrs().empty());
+    ASSERT_TRUE(node.addr_list().quic_addrs().empty());
+
+    t.add_peer(client, server);
+    auto forward = co_await t.send_query(client, server, "forward");
+    ASSERT_EQ(forward.as_slice(), td::Slice("Qforward"));
+    auto reverse = t.send_query_ex(server, client, "reverse", 5.0, 1024).start_immediate();
+    auto parallel = co_await t.send_query(client, server, "parallel");
+    ASSERT_EQ(parallel.as_slice(), td::Slice("Qparallel"));
+    auto answer = co_await std::move(reverse);
+    ASSERT_EQ(answer.as_slice(), td::Slice("Qreverse"));
+    co_return {};
+  });
+}
+
+TEST(QuicSender, BidirectionalApplicationErrorResetsOnlyItsStream) {
+  run_test([](TestRunner& t) -> td::actor::Task<> {
+    auto client =
+        co_await t.create_node("bidi-error-client", next_port(), std::nullopt, "127.0.0.1", quic_test_options(), true);
+    auto server = co_await t.create_node("bidi-error-server", next_port());
+    co_await td::actor::ask(client.quic_sender, &ton::quic::QuicSender::enable_bidirectional_queries);
+    co_await td::actor::ask(server.quic_sender, &ton::quic::QuicSender::enable_bidirectional_queries);
+    td::actor::send_closure(client.adnl, &ton::adnl::Adnl::subscribe, client.id, "E",
+                            std::make_unique<LimitedEchoCallback>(0));
+    t.set_slow_echo(server, 0.2);
+    t.add_peer(client, server);
+    auto warmup = co_await t.send_query(client, server, "warmup");
+    ASSERT_EQ(warmup.as_slice(), td::Slice("Qwarmup"));
+
+    auto pending = t.send_slow_query_ex(client, server, "parallel", 10.0, 1024).start_immediate();
+    td::Timer timer;
+    auto failure = co_await t.send_prefixed_query_ex(server, client, "E", "error", 10.0, 1024).wrap();
+    ASSERT_TRUE(failure.is_error());
+    ASSERT_TRUE(timer.elapsed() < 5.0);
+    auto answer = co_await std::move(pending);
+    ASSERT_EQ(answer.as_slice(), td::Slice("Sparallel"));
+    auto after = co_await t.send_query(server, client, "after");
+    ASSERT_EQ(after.as_slice(), td::Slice("Qafter"));
+    co_return {};
   });
 }
 
@@ -2293,6 +2432,30 @@ TEST(QuicSender, ExpiredWaiterReleasesOnlyUnstartedConnection) {
   run_test([](TestRunner&) -> td::actor::Task<> {
     auto sender = td::actor::create_actor<ton::quic::QuicSenderTest>("waiter-ownership");
     co_await td::actor::ask(sender, &ton::quic::QuicSenderTest::expired_waiter_ownership);
+    co_return {};
+  });
+}
+
+TEST(QuicSender, ExpiredInboundWaiterPreservesConnection) {
+  run_test([](TestRunner&) -> td::actor::Task<> {
+    auto sender = td::actor::create_actor<ton::quic::QuicSenderTest>("inbound-waiter-ownership");
+    co_await td::actor::ask(sender, &ton::quic::QuicSenderTest::expired_inbound_waiter_preserves_connection);
+    co_return {};
+  });
+}
+
+TEST(QuicSender, ClosedConnectionFinishesQueriesWhileReferenced) {
+  run_test([](TestRunner&) -> td::actor::Task<> {
+    auto sender = td::actor::create_actor<ton::quic::QuicSenderTest>("close-retained-queries");
+    co_await td::actor::ask(sender, &ton::quic::QuicSenderTest::closed_connection_finishes_retained_queries);
+    co_return {};
+  });
+}
+
+TEST(QuicSender, StaleClosePreservesReplacementConnection) {
+  run_test([](TestRunner&) -> td::actor::Task<> {
+    auto sender = td::actor::create_actor<ton::quic::QuicSenderTest>("stale-close");
+    co_await td::actor::ask(sender, &ton::quic::QuicSenderTest::stale_close_preserves_replacement);
     co_return {};
   });
 }

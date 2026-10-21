@@ -36,8 +36,10 @@ class QuicSender : public adnl::AdnlSenderEx {
                        td::Promise<td::string> promise) override;
 
   void set_quic_options(QuicServer::Options options);
+  void enable_bidirectional_queries();
   void add_id(adnl::AdnlNodeIdShort local_id) override;
   td::actor::Task<> add_id_and_wait(adnl::AdnlNodeIdShort local_id);
+  td::actor::Task<> add_client_id(adnl::AdnlNodeIdShort local_id);
   void log_stats(std::string reason = "stats");
 
   td::actor::Task<> collect(metrics::Context ctx);
@@ -97,6 +99,7 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   QuicServer::Options server_options_;
+  bool bidirectional_queries_ = false;
 
   metrics::Labeled<PeerMetrics, Trust> peer_metrics_;
 
@@ -124,9 +127,9 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::Task<td::BufferSlice> send_query_coro_inner(std::shared_ptr<Connection> conn, StreamOptions options,
                                                          td::BufferSlice data, Trust trust);
   td::actor::Task<std::string> get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id);
-  td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
+  td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id, bool client_only = false);
 
-  std::shared_ptr<Connection> get_or_create_connection(AdnlPath path);
+  std::shared_ptr<Connection> get_or_create_connection(AdnlPath path, bool allow_inbound = false);
   td::actor::Task<std::shared_ptr<Connection>> wait_connection_ready(std::shared_ptr<Connection> connection,
                                                                      td::Timestamp timeout = {});
   td::Promise<td::Unit> take_waiter(Waiter& waiter);
