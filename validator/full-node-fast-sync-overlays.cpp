@@ -390,8 +390,6 @@ void FullNodeFastSyncOverlay::init() {
     td::actor::ActorId<FullNodeFastSyncOverlay> node_;
   };
 
-  td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
-  // Enable quic server even if use_quic is not set
   td::actor::send_closure(quic_, &quic::QuicSender::add_id, local_id_);
 
   std::map<PublicKeyHash, td::uint32> authorized_keys;
@@ -411,7 +409,7 @@ void FullNodeFastSyncOverlay::init() {
       receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
-  options.twostep_broadcast_sender_ = adnl_sender_;
+  options.twostep_broadcast_sender_ = quic_;
   options.send_twostep_broadcast_ = true;
   options.enable_plumtree_broadcast_ = true;
   options.is_original_sender_ = is_original_sender;
@@ -473,11 +471,9 @@ void FullNodeFastSyncOverlay::set_member_certificate(overlay::OverlayMemberCerti
   }
 }
 
-void FullNodeFastSyncOverlay::set_params(bool receive_plumtree_broadcasts,
-                                         td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender) {
-  bool recreate_overlay = adnl_sender != adnl_sender_ || receive_plumtree_broadcasts != receive_plumtree_broadcasts_;
+void FullNodeFastSyncOverlay::set_params(bool receive_plumtree_broadcasts) {
+  bool recreate_overlay = receive_plumtree_broadcasts != receive_plumtree_broadcasts_;
   receive_plumtree_broadcasts_ = receive_plumtree_broadcasts;
-  adnl_sender_ = adnl_sender;
   if (inited_ && recreate_overlay) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
@@ -540,7 +536,7 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
     co_return td::Status::Error(ErrorCode::notready, "no nodes");
   }
   auto proto_version = peers_info_[*peer].proto_version;
-  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, adnl_sender_, actor_id(this),
+  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, quic_, actor_id(this),
                                               proto_version);
 }
 
@@ -586,7 +582,7 @@ td::actor::Task<> FullNodeFastSyncOverlay::ping_peer(adnl::AdnlNodeIdShort peer_
   td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
   auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id, local_id_, overlay_id_, "q",
-                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, adnl_sender_);
+                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, quic_);
   auto r_response = co_await std::move(task).wrap();
   if (!is_validator_adnl(peer_id)) {
     co_return {};
@@ -864,9 +860,9 @@ double FullNodeFastSyncOverlays::update_overlays(
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_plumtree_broadcasts, config_,
-            broadcast_speed_multiplier, keyring, adnl, quic, quic, overlays, validator_manager, full_node);
+            broadcast_speed_multiplier, keyring, adnl, quic, overlays, validator_manager, full_node);
       } else {
-        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_plumtree_broadcasts, quic);
+        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_plumtree_broadcasts);
         if (changed_certificate) {
           td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
                                   overlays_info.current_certificate_);
