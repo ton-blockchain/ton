@@ -29,6 +29,8 @@
 #include "dht/dht.h"
 #include "keys/encryptor.h"
 #include "overlay/overlay.h"
+#include "quic/quic-sender.h"
+#include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/JsonBuilder.h"
 #include "td/utils/OptionParser.h"
@@ -76,7 +78,8 @@ class StorageCli : public td::actor::Actor {
   td::actor::ActorOwn<ton::adnl::Adnl> adnl_;
   td::actor::ActorOwn<ton::dht::Dht> dht_;
   td::actor::ActorOwn<ton::overlay::Overlays> overlays_;
-  td::actor::ActorOwn<ton_rldp::Rldp> rldp_;
+  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
+  td::actor::ActorOwn<ton::quic::QuicSender> quic_;
   //ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
   ton::PublicKey public_key_;
 
@@ -107,6 +110,17 @@ class StorageCli : public td::actor::Actor {
   }
 
   void start_up() override {
+    start_up_coro().start_immediate().detach("storage-cli:init");
+  }
+
+  td::actor::Task<> start_up_coro() {
+    if (!options_.config.empty()) {
+      auto result = co_await init_network().wrap();
+      if (result.is_error()) {
+        LOG(FATAL) << "Failed to initialize QUIC: " << result.move_as_error();
+      }
+    }
+
     class Cb : public td::TerminalIO::Callback {
      public:
       void line_cb(td::BufferSlice line) override {
@@ -127,12 +141,10 @@ class StorageCli : public td::actor::Actor {
       td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
     }
 
-    if (!options_.config.empty()) {
-      init_network();
-    }
+    co_return {};
   }
 
-  void init_network() {
+  td::actor::Task<> init_network() {
     load_global_config().ensure();
 
     td::mkdir(options_.db_root).ignore();
@@ -140,7 +152,11 @@ class StorageCli : public td::actor::Actor {
     adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create();
     adnl_ = ton::adnl::Adnl::create(options_.db_root, keyring_.get());
     td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
-    rldp_ = ton_rldp::Rldp::create(adnl_.get());
+    auto peer_table = td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl_.get());
+    CHECK(!peer_table.empty());
+    rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
+    quic_ = td::actor::create_actor<ton::quic::QuicSender>("QuicSender", peer_table, keyring_.get());
+    td::actor::send_closure(quic_, &ton::quic::QuicSender::enable_bidirectional_queries);
 
     auto key_path = options_.db_root + "/key.pub";
     auto r_public_key = td::read_file(key_path).move_fmap([](auto raw) { return ton::PublicKey::import(raw); });
@@ -181,8 +197,6 @@ class StorageCli : public td::actor::Actor {
     for (auto cat : cats) {
       td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{public_key_}, addr_lists_[cat],
                               static_cast<td::uint8>(cat));
-      td::actor::send_closure(rldp_, &ton_rldp::Rldp::add_id,
-                              ton::adnl::AdnlNodeIdFull{public_key_}.compute_short_id());
     }
 
     dht_ =
@@ -192,6 +206,12 @@ class StorageCli : public td::actor::Actor {
 
     send_closure(adnl_, &ton::Adnl::register_dht_node, dht_.get());
     overlays_ = ton::overlay::Overlays::create(options_.db_root, keyring_.get(), adnl_.get(), dht_.get());
+    auto local_id = ton::adnl::AdnlNodeIdShort{short_id};
+    td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::add_id, local_id);
+    td::actor::send_closure(quic_, &ton::adnl::AdnlSenderEx::set_local_id_mtu, local_id,
+                            ton::rldp2::Rldp::default_mtu());
+    co_await td::actor::ask(quic_, &ton::quic::QuicSender::add_id_and_wait, local_id);
+    co_return {};
   }
 
   void exit(td::Result<td::Unit> res) {
@@ -407,7 +427,7 @@ class StorageCli : public td::actor::Actor {
     ton::overlay::OverlayIdFull overlay_id(std::move(hash_str));
     auto adnl_id = ton::adnl::AdnlNodeIdShort{public_key_.compute_short_id()};
     return td::actor::create_actor<PeerManager>("PeerManager", adnl_id, std::move(overlay_id), false, overlays_.get(),
-                                                adnl_.get(), rldp_.get());
+                                                adnl_.get(), rldp2_.get(), quic_.get());
   }
 
   void torrent_start(td::Slice id_raw, bool wait_download, bool should_download, td::Promise<td::Unit> promise) {

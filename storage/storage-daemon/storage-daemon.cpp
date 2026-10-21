@@ -19,6 +19,7 @@
 #include "common/delay.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
+#include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/actor.h"
@@ -86,6 +87,15 @@ class StorageDaemon : public td::actor::Actor {
     }
 
     init_adnl();
+    init_storage().start_immediate().detach("storage-daemon:init");
+  }
+
+  td::actor::Task<> init_storage() {
+    auto result = client_mode_ ? co_await td::actor::ask(quic_, &quic::QuicSender::add_client_id, local_id_).wrap()
+                               : co_await td::actor::ask(quic_, &quic::QuicSender::add_id_and_wait, local_id_).wrap();
+    if (result.is_error()) {
+      LOG(FATAL) << "Failed to initialize QUIC: " << result.move_as_error();
+    }
 
     class Callback : public StorageManager::Callback {
      public:
@@ -100,7 +110,8 @@ class StorageDaemon : public td::actor::Actor {
     };
     manager_ = td::actor::create_actor<StorageManager>("storage", local_id_, db_root_ + "/torrent",
                                                        td::make_unique<Callback>(actor_id(this)), client_mode_,
-                                                       adnl_.get(), rldp_.get(), overlays_.get());
+                                                       adnl_.get(), rldp2_.get(), quic_.get(), overlays_.get());
+    co_return {};
   }
 
   td::Status load_global_config() {
@@ -195,8 +206,13 @@ class StorageDaemon : public td::actor::Actor {
     }
     td::actor::send_closure(adnl_, &adnl::Adnl::register_dht_node, dht_.get());
 
-    rldp_ = ton_rldp::Rldp::create(adnl_.get());
-    td::actor::send_closure(rldp_, &ton_rldp::Rldp::add_id, local_id_);
+    auto peer_table = td::actor::actor_dynamic_cast<adnl::AdnlPeerTable>(adnl_.get());
+    CHECK(!peer_table.empty());
+    rldp2_ = rldp2::Rldp::create(adnl_.get());
+    td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
+    quic_ = td::actor::create_actor<quic::QuicSender>("QuicSender", peer_table, keyring_.get());
+    td::actor::send_closure(quic_, &quic::QuicSender::enable_bidirectional_queries);
+    td::actor::send_closure(quic_, &adnl::AdnlSenderEx::set_local_id_mtu, local_id_, rldp2::Rldp::default_mtu());
     overlays_ = overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_.get());
   }
 
@@ -912,7 +928,8 @@ class StorageDaemon : public td::actor::Actor {
   td::actor::ActorOwn<adnl::AdnlNetworkManager> adnl_network_manager_;
   td::actor::ActorOwn<adnl::Adnl> adnl_;
   td::actor::ActorOwn<dht::Dht> dht_;
-  td::actor::ActorOwn<ton_rldp::Rldp> rldp_;
+  td::actor::ActorOwn<rldp2::Rldp> rldp2_;
+  td::actor::ActorOwn<quic::QuicSender> quic_;
   td::actor::ActorOwn<overlay::Overlays> overlays_;
   td::actor::ActorOwn<adnl::AdnlExtServer> ext_server_;
 
