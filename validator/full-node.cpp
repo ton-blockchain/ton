@@ -967,8 +967,11 @@ void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast final
   if (send_to_custom) {
     send_block_finality_broadcast_to_custom_overlays(finality);
   }
-  if (opts_.public_rebroadcast_enabled_ && source == BroadcastSource::fast_sync_overlay) {
-    record_public_rebroadcast(finality.block_id, PublicRebroadcastType::finality);
+  if (opts_.public_rebroadcast_enabled_ &&
+      (source == BroadcastSource::fast_sync_overlay || source == BroadcastSource::custom_overlay)) {
+    auto rebroadcast_source = source == BroadcastSource::fast_sync_overlay ? PublicRebroadcastSource::fast_sync
+                                                                           : PublicRebroadcastSource::custom;
+    record_public_rebroadcast(finality.block_id, PublicRebroadcastType::finality, rebroadcast_source);
     send_block_finality_broadcast(finality.clone(), broadcast_mode_public);
   }
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_finality_broadcast, std::move(finality),
@@ -982,8 +985,11 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
   if (send_to_custom) {
     send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   }
-  if (opts_.public_rebroadcast_enabled_ && source == BroadcastSource::fast_sync_overlay) {
-    record_public_rebroadcast(block_id, PublicRebroadcastType::candidate);
+  if (opts_.public_rebroadcast_enabled_ &&
+      (source == BroadcastSource::fast_sync_overlay || source == BroadcastSource::custom_overlay)) {
+    auto rebroadcast_source = source == BroadcastSource::fast_sync_overlay ? PublicRebroadcastSource::fast_sync
+                                                                           : PublicRebroadcastSource::custom;
+    record_public_rebroadcast(block_id, PublicRebroadcastType::candidate, rebroadcast_source);
     send_block_candidate(block_id, cc_seqno, validator_set_hash, data.clone(), broadcast_mode_public);
   }
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id, cc_seqno,
@@ -1000,9 +1006,10 @@ void FullNodeImpl::process_shard_block_info_broadcast(BlockIdExt block_id, Catch
                           block_id, cc_seqno, std::move(data));
 }
 
-void FullNodeImpl::record_public_rebroadcast(const BlockIdExt &block_id, PublicRebroadcastType type) {
+void FullNodeImpl::record_public_rebroadcast(const BlockIdExt &block_id, PublicRebroadcastType type,
+                                             PublicRebroadcastSource source) {
   auto chain = block_id.is_masterchain() ? overlay::OverlayChain::master : overlay::OverlayChain::shard;
-  rebroadcaster_metrics_.broadcasts.at(chain, type).inc();
+  rebroadcaster_metrics_.broadcasts.at(chain, type, source).inc();
   rebroadcaster_metrics_.last_broadcast_timestamp_seconds.at(chain, type).set(td::Clocks::system());
 }
 
