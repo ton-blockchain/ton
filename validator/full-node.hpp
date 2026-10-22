@@ -163,12 +163,14 @@ class FullNodeImpl : public FullNode {
   struct RebroadcasterMetrics {
     metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType, PublicRebroadcastSource>
         broadcasts;
+    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType, PublicRebroadcastSource> arrivals;
     metrics::Labeled<metrics::Gauge<double>, overlay::OverlayChain, PublicRebroadcastType>
         last_broadcast_timestamp_seconds;
     metrics::Labeled<metrics::Counter, ExternalRelayResult> external_messages;
 
     void collect(metrics::Context ctx) const {
       ctx.collect(broadcasts, "broadcasts");
+      ctx.collect(arrivals, "arrivals");
       ctx.collect(last_broadcast_timestamp_seconds, "last_broadcast_timestamp_seconds");
       ctx.collect(external_messages, "external_messages");
     }
@@ -187,6 +189,8 @@ class FullNodeImpl : public FullNode {
   void set_public_overlays_enabled(bool enabled);
   void update_public_overlay_mode(double fast_sync_authority_until);
   void update_fast_sync_and_public_overlays();
+  void record_public_rebroadcast_arrival(const BlockIdExt& block_id, PublicRebroadcastType type,
+                                         PublicRebroadcastSource source);
   void record_public_rebroadcast(const BlockIdExt& block_id, PublicRebroadcastType type,
                                  PublicRebroadcastSource source);
 
@@ -240,6 +244,8 @@ class FullNodeImpl : public FullNode {
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{10000};
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_finality_{10000};
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_shard_block_desc_{10000};
+  td::LRUCache<BlockIdExt, td::Unit> public_rebroadcasted_candidates_{1024};
+  td::LRUCache<BlockIdExt, td::Unit> public_rebroadcasted_finalities_{1024};
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);

@@ -463,7 +463,8 @@ topology.
 | `ton_rebroadcaster_enabled` | gauge | — | 1 when `--public-rebroadcast` is enabled. |
 | `ton_rebroadcaster_configured_fanout` | gauge | — | Configured original-sender Plumtree eager limit. |
 | `ton_rebroadcaster_configured_whitelisted_peers` | gauge | — | Effective whitelist size after entries beyond the configured fanout have been discarded. |
-| `ton_rebroadcaster_broadcasts_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=fast_sync\|custom` | Fast-sync and custom-overlay broadcasts scheduled for forwarding into the corresponding public overlay. |
+| `ton_rebroadcaster_broadcasts_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=fast_sync\|custom` | Unique broadcasts scheduled for forwarding into the corresponding public overlay. `source` is the first arrival to win rebroadcaster deduplication. |
+| `ton_rebroadcaster_arrivals_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=fast_sync\|custom` | All eligible fast-sync and custom-overlay arrivals observed by the rebroadcaster, including the first arrival and later duplicates. |
 | `ton_rebroadcaster_last_broadcast_timestamp_seconds` | gauge | `chain=master\|shard`, `type=candidate\|finality` | Unix timestamp of the latest forwarding decision from either source; 0 until the first one. |
 | `ton_rebroadcaster_external_messages_total` | counter | `result=relayed\|no_fast_sync_route` | Validated public external messages reaching the relay stage. `relayed` means submission to the matching fast-sync overlay; `no_fast_sync_route` means no matching overlay was available. |
 

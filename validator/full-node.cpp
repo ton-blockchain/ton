@@ -971,8 +971,12 @@ void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast final
       (source == BroadcastSource::fast_sync_overlay || source == BroadcastSource::custom_overlay)) {
     auto rebroadcast_source = source == BroadcastSource::fast_sync_overlay ? PublicRebroadcastSource::fast_sync
                                                                            : PublicRebroadcastSource::custom;
-    record_public_rebroadcast(finality.block_id, PublicRebroadcastType::finality, rebroadcast_source);
-    send_block_finality_broadcast(finality.clone(), broadcast_mode_public);
+    record_public_rebroadcast_arrival(finality.block_id, PublicRebroadcastType::finality, rebroadcast_source);
+    if (!public_rebroadcasted_finalities_.contains(finality.block_id)) {
+      public_rebroadcasted_finalities_.put(finality.block_id, {});
+      record_public_rebroadcast(finality.block_id, PublicRebroadcastType::finality, rebroadcast_source);
+      send_block_finality_broadcast(finality.clone(), broadcast_mode_public);
+    }
   }
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_finality_broadcast, std::move(finality),
                  source)
@@ -989,8 +993,12 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
       (source == BroadcastSource::fast_sync_overlay || source == BroadcastSource::custom_overlay)) {
     auto rebroadcast_source = source == BroadcastSource::fast_sync_overlay ? PublicRebroadcastSource::fast_sync
                                                                            : PublicRebroadcastSource::custom;
-    record_public_rebroadcast(block_id, PublicRebroadcastType::candidate, rebroadcast_source);
-    send_block_candidate(block_id, cc_seqno, validator_set_hash, data.clone(), broadcast_mode_public);
+    record_public_rebroadcast_arrival(block_id, PublicRebroadcastType::candidate, rebroadcast_source);
+    if (!public_rebroadcasted_candidates_.contains(block_id)) {
+      public_rebroadcasted_candidates_.put(block_id, {});
+      record_public_rebroadcast(block_id, PublicRebroadcastType::candidate, rebroadcast_source);
+      send_block_candidate(block_id, cc_seqno, validator_set_hash, data.clone(), broadcast_mode_public);
+    }
   }
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id, cc_seqno,
                  std::move(data), source)
@@ -1004,6 +1012,12 @@ void FullNodeImpl::process_shard_block_info_broadcast(BlockIdExt block_id, Catch
   }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block_description_broadcast,
                           block_id, cc_seqno, std::move(data));
+}
+
+void FullNodeImpl::record_public_rebroadcast_arrival(const BlockIdExt &block_id, PublicRebroadcastType type,
+                                                     PublicRebroadcastSource source) {
+  auto chain = block_id.is_masterchain() ? overlay::OverlayChain::master : overlay::OverlayChain::shard;
+  rebroadcaster_metrics_.arrivals.at(chain, type, source).inc();
 }
 
 void FullNodeImpl::record_public_rebroadcast(const BlockIdExt &block_id, PublicRebroadcastType type,
