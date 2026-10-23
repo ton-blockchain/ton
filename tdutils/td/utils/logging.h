@@ -31,11 +31,22 @@
  * int VERBOSITY_NAME(custom) = VERBOSITY_NAME(WARNING);
  * VLOG(custom) << "Hello custom world!"
  *
+ * Rate-limited logging: per thread per call site, at most one line per std::chrono duration
+ * or one line per N calls (integer), prefixed with "[skipped N]" when lines were dropped.
+ * chrono literals work without any using-declaration at the call site. Default is 10s:
+ * LOG_EVERY(ERROR) << "Flood!";
+ * LOG_EVERY(ERROR, 60s) << "Flood!";
+ * LOG_EVERY(ERROR, 100) << "Flood!";  // every 100th call
+ * VLOG_EVERY(custom) << "Flood!";
+ * VLOG_EVERY(category, INFO) << "Flood!";
+ * VLOG_EVERY(category, INFO, 60s) << "Flood!";
+ *
  * LOG(FATAL) << "Power is off";
  * CHECK(condition) <===> LOG_IF(FATAL, !(condition))
  */
 
 #include <atomic>
+#include <chrono>
 #include <type_traits>
 
 #include "td/utils/Slice.h"
@@ -95,6 +106,28 @@
   LOG_IMPL_CAT(category, DEBUG, level, condition, TD_DEFINE_STR(level) " " #condition)
 #define VLOG_IF_PICK_(_1, _2, _3, NAME, ...) NAME
 #define VLOG_IF(...) VLOG_IF_PICK_(__VA_ARGS__, VLOG_IF_CAT_, VLOG_IF_GLOBAL_)(__VA_ARGS__)
+
+#define LOG_EVERY_PASS_(period)                                      \
+  ([&] {                                                             \
+    using namespace ::std::chrono_literals;                          \
+    static thread_local ::td::detail::LogEveryState log_every_state; \
+    return ::td::detail::log_every_pass(log_every_state, (period));  \
+  }())
+
+#define LOG_EVERY_2_(level, period) \
+  LOG_IMPL(level, level, LOG_EVERY_PASS_(period), ::td::Slice()) << ::td::detail::LogEverySkipped()
+#define LOG_EVERY_1_(level) LOG_EVERY_2_(level, 10s)
+#define LOG_EVERY_PICK_(_1, _2, NAME, ...) NAME
+#define LOG_EVERY(...) LOG_EVERY_PICK_(__VA_ARGS__, LOG_EVERY_2_, LOG_EVERY_1_)(__VA_ARGS__)
+
+#define VLOG_EVERY_GLOBAL_(level) \
+  LOG_IMPL(DEBUG, level, LOG_EVERY_PASS_(10s), TD_DEFINE_STR(level)) << ::td::detail::LogEverySkipped()
+#define VLOG_EVERY_CAT_(category, level) VLOG_EVERY_CAT_PERIOD_(category, level, 10s)
+#define VLOG_EVERY_CAT_PERIOD_(category, level, period) \
+  LOG_IMPL_CAT(category, DEBUG, level, LOG_EVERY_PASS_(period), TD_DEFINE_STR(level)) << ::td::detail::LogEverySkipped()
+#define VLOG_EVERY_PICK_(_1, _2, _3, NAME, ...) NAME
+#define VLOG_EVERY(...) \
+  VLOG_EVERY_PICK_(__VA_ARGS__, VLOG_EVERY_CAT_PERIOD_, VLOG_EVERY_CAT_, VLOG_EVERY_GLOBAL_)(__VA_ARGS__)
 
 #define LOG_ROTATE() ::td::log_interface->rotate()
 
@@ -381,6 +414,32 @@ class Voidify {
   void operator&(const T &) {
   }
 };
+
+struct LogEveryState {
+  double next_time = 0;
+  uint64 counter = 0;
+  uint32 skipped = 0;
+};
+bool log_every_pass_time(LogEveryState &state, double period);
+bool log_every_pass_count(LogEveryState &state, uint64 count);
+
+template <class T>
+struct is_chrono_duration : std::false_type {};
+template <class Rep, class Period>
+struct is_chrono_duration<std::chrono::duration<Rep, Period>> : std::true_type {};
+
+template <class T>
+bool log_every_pass(LogEveryState &state, T period) {
+  if constexpr (is_chrono_duration<T>::value) {
+    return log_every_pass_time(state, std::chrono::duration<double>(period).count());
+  } else {
+    static_assert(std::is_integral_v<T>, "LOG_EVERY expects an integer count or a duration, e.g. 100 or 10s");
+    return log_every_pass_count(state, period < T(1) ? uint64{1} : static_cast<uint64>(period));
+  }
+}
+
+struct LogEverySkipped {};
+StringBuilder &operator<<(StringBuilder &sb, LogEverySkipped);
 
 class Slicify {
  public:
