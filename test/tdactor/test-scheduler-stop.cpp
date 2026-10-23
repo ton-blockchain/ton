@@ -514,6 +514,219 @@ TEST(SchedulerStop, SchedulerStopInTearDown) {
 
 }  // namespace test_scheduler_stops_in_tear_down
 
+namespace test_undelivered_coroutine {
+
+Task<> tracked_task(std::shared_ptr<Unit> lifetime, bool *ran) {
+  *ran = true;
+  co_return {};
+}
+
+TEST(SchedulerStop, RetainedUndeliveredCoroutineWithoutContext) {
+  ASSERT_TRUE(!SchedulerContext::get_ptr());
+  bool ran = false;
+  auto lifetime = std::make_shared<Unit>();
+  std::weak_ptr<Unit> observed = lifetime;
+  auto task = tracked_task(std::move(lifetime), &ran);
+  task.set_executor(Executor::on_actor(ActorId<>{}));
+
+  {
+    auto retained = std::move(task).start();
+    // Sending to an empty actor drops the message; the retained task must still see cancellation.
+    ASSERT_TRUE(retained.await_ready());
+    auto result = retained.await_resume();
+    ASSERT_TRUE(result.is_error());
+    EXPECT_EQ(result.error().code(), 653);
+    EXPECT(!ran);
+    EXPECT(!observed.expired());
+  }
+  EXPECT(observed.expired());
+}
+
+class MailboxActor : public Actor {
+ public:
+  explicit MailboxActor(bool *destroyed) : destroyed_(destroyed) {
+  }
+  ~MailboxActor() override {
+    *destroyed_ = true;
+  }
+
+ private:
+  bool *destroyed_;
+};
+
+TEST(SchedulerStop, RetainedMailboxCoroutineDuringShutdown) {
+  bool ran = false;
+  bool actor_destroyed = false;
+  std::weak_ptr<Unit> observed;
+  {
+    StartedTask<> retained;
+    {
+      // Stop before running so hard shutdown deterministically discards the queued message.
+      Scheduler scheduler({0});
+      scheduler.run_in_context([&] {
+        auto receiver = create_actor<MailboxActor>("PendingCoroutine", &actor_destroyed);
+        auto lifetime = std::make_shared<Unit>();
+        observed = lifetime;
+        auto task = tracked_task(std::move(lifetime), &ran);
+        // Scheduler-affine: an actor-affine task cannot outlive the scheduler that owns its ActorInfo.
+        retained = std::move(task).start_external();
+        receiver.get().actor_info().mailbox().push(detail::ActorExecutor::to_message(retained.h));
+        receiver.release();
+        SchedulerContext::get().stop();
+      });
+    }
+    ASSERT_TRUE(!SchedulerContext::get_ptr());
+    EXPECT(actor_destroyed);
+    ASSERT_TRUE(retained.await_ready());
+    auto result = retained.await_resume();
+    ASSERT_TRUE(result.is_error());
+    EXPECT_EQ(result.error().code(), 653);
+    EXPECT(!ran);
+    EXPECT(!observed.expired());
+  }
+  EXPECT(observed.expired());
+}
+
+TEST(SchedulerStop, DetachedUndeliveredCoroutineWithoutContext) {
+  ASSERT_TRUE(!SchedulerContext::get_ptr());
+  bool ran = false;
+  auto lifetime = std::make_shared<Unit>();
+  std::weak_ptr<Unit> observed = lifetime;
+  auto retained = tracked_task(std::move(lifetime), &ran).start_external();
+  auto handle = retained.h;
+  retained.detach_silent();
+  {
+    auto message = detail::ActorExecutor::to_message(handle);
+  }
+  EXPECT(!ran);
+  EXPECT(observed.expired());
+}
+
+}  // namespace test_undelivered_coroutine
+
+namespace test_suspended_waiter_release {
+
+// A coroutine holds an actor reference (ActorOwn) and suspends awaiting a message that is never
+// delivered. When the scheduler tears the message's mailbox down outside a scheduler context, the
+// finalizing ~ActorMessageCoroutineSafe must resume the suspended waiter inline so it unwinds and
+// releases the actor reference it holds. If the waiter is dropped instead, its ActorOwn leaks and
+// SharedObjectPool's teardown CHECK (free_cnt == allocated_.size()) fires.
+
+class CountedActor : public Actor {
+ public:
+  explicit CountedActor(bool *destroyed) : destroyed_(destroyed) {
+  }
+  ~CountedActor() override {
+    *destroyed_ = true;
+  }
+
+ private:
+  bool *destroyed_;
+};
+
+Task<Unit> idle_task(bool *ran) {
+  *ran = true;
+  co_return Unit{};
+}
+
+Task<Unit> guarded_waiter(ActorOwn<CountedActor> guard, StartedTask<Unit> inner, bool *observed_cancel) {
+  *observed_cancel = (co_await std::move(inner).wrap()).is_error();
+  co_return {};
+}
+
+TEST(SchedulerStop, SuspendedWaiterReleasedDuringShutdown) {
+  bool inner_ran = false;
+  bool observed_cancel = false;
+  bool guard_destroyed = false;
+  bool worker_destroyed = false;
+  {
+    Scheduler scheduler({0});
+    scheduler.run_in_context([&] {
+      auto worker = create_actor<CountedActor>("Worker", &worker_destroyed);
+      auto guard = create_actor<CountedActor>("Guard", &guard_destroyed);
+
+      auto inner = idle_task(&inner_ran);
+      inner.set_executor(Executor::on_scheduler());
+      auto inner_started = std::move(inner).start_external();
+      auto inner_h = inner_started.h;
+
+      // The waiter suspends holding the guard; only resuming it releases that reference.
+      auto waiter = guarded_waiter(std::move(guard), std::move(inner_started), &observed_cancel);
+      waiter.set_executor(Executor::on_scheduler());
+      std::move(waiter).start_immediate().detach_silent();
+
+      // Queue the waiter's message but never run it: ~ActorMessageCoroutineSafe fires at teardown with no context.
+      worker.get().actor_info().mailbox().push(detail::ActorExecutor::to_message(inner_h));
+      worker.release();
+      SchedulerContext::get().stop();
+    });
+    // SharedObjectPool teardown runs here and must find every ActorInfo released.
+  }
+
+  ASSERT_TRUE(!SchedulerContext::get_ptr());
+  EXPECT(worker_destroyed);
+  EXPECT(guard_destroyed);
+  EXPECT(observed_cancel);
+  EXPECT(!inner_ran);
+}
+
+}  // namespace test_suspended_waiter_release
+
+namespace test_pending_coroutine_message {
+
+// A live actor's mailbox holds the undelivered resumption of its own coroutine, whose executor references the actor.
+// clear() used to drop only the pool's reference, so the actor outlived SharedObjectPool and its teardown CHECK fired.
+
+Task<Unit> await_future(std::shared_ptr<Unit> lifetime, StartedTask<Unit> future) {
+  co_await std::move(future);
+  co_return {};
+}
+
+class AwaitingActor : public Actor {
+ public:
+  AwaitingActor(StartedTask<Unit> future, std::weak_ptr<Unit> *frame, bool *destroyed)
+      : future_(std::move(future)), frame_(frame), destroyed_(destroyed) {
+  }
+  void start_up() override {
+    auto lifetime = std::make_shared<Unit>();
+    *frame_ = lifetime;
+    await_future(std::move(lifetime), std::move(future_)).start_immediate().detach_silent();
+  }
+  ~AwaitingActor() override {
+    *destroyed_ = true;
+  }
+
+ private:
+  StartedTask<Unit> future_;
+  std::weak_ptr<Unit> *frame_;
+  bool *destroyed_;
+};
+
+TEST(SchedulerStop, PendingCoroutineMessageReleasedDuringShutdown) {
+  std::weak_ptr<Unit> frame;
+  bool actor_destroyed = false;
+  {
+    Scheduler scheduler({0});
+    StartedTask<Unit>::ExternalPromise promise;
+    scheduler.run_in_context([&] {
+      auto [future, bridge_promise] = StartedTask<Unit>::make_bridge();
+      promise = std::move(bridge_promise);
+      create_actor<AwaitingActor>("Awaiting", std::move(future), &frame, &actor_destroyed).release();
+    });
+    scheduler.run(0);
+    scheduler.run_in_context([&] {
+      promise.set_value(Unit{});
+      SchedulerContext::get().stop();
+    });
+    EXPECT(!frame.expired());
+  }
+
+  EXPECT(frame.expired());
+  EXPECT(actor_destroyed);
+}
+
+}  // namespace test_pending_coroutine_message
+
 namespace test_normal_flow {
 
 int g_tear_down_child = 0;
