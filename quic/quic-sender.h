@@ -23,7 +23,7 @@ class QuicSender : public adnl::AdnlSenderEx {
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 
   explicit QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
-                      QuicServer::Options options = {});
+                      QuicServer::Options options = {}, FloodLimits flood_limits = {});
   ~QuicSender() override = default;
 
   void send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override;
@@ -36,11 +36,17 @@ class QuicSender : public adnl::AdnlSenderEx {
                        td::Promise<td::string> promise) override;
 
   void set_quic_options(QuicServer::Options options);
+  // Emergency lever: shed all untrusted connections and refuse new ones; trusted peers keep working.
+  void set_reserved_only(bool reserved_only);
   void add_id(adnl::AdnlNodeIdShort local_id) override;
   td::actor::Task<> add_id_and_wait(adnl::AdnlNodeIdShort local_id);
   void log_stats(std::string reason = "stats");
 
   td::actor::Task<> collect(metrics::Context ctx);
+
+  // True while a connection to peer_id (either direction) is still held. Per-peer presence, which
+  // the metrics path deliberately does not expose — it reports aggregates, not a per-peer table.
+  td::actor::Task<bool> has_peer_connection(adnl::AdnlNodeIdShort peer_id);
 
  protected:
   void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
@@ -97,6 +103,8 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   QuicServer::Options server_options_;
+  FloodLimits flood_limits_;
+  bool reserved_only_ = false;  // emergency mode: keep only trusted/outbound connections
 
   metrics::Labeled<PeerMetrics, Trust> peer_metrics_;
 
@@ -106,12 +114,20 @@ class QuicSender : public adnl::AdnlSenderEx {
   // Destroy raw heap pointers before their owning connections.
   td::KHeap<td::Timestamp> waiter_timeouts_;
 
+  // Per-peer dial backoff: after a failed dial we refuse to re-dial before the backoff window
+  // elapses; while backed off, queries fail fast (not queued to wait it out) and a successful
+  // handshake clears it. See DialBackoff in quic-flood-guard.h.
+  DialBackoff<AdnlPath> dial_backoff_{flood_limits_.dial_backoff_initial, flood_limits_.dial_backoff_max};
+
   std::map<int, td::actor::ActorOwn<QuicServer>> servers_by_port_;
   std::map<int, ServerStats> last_server_stats_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorId<QuicServer>> servers_by_id_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
 
-  void alarm() override;
+  void start_up() override;
+  void alarm() override;  // caller deadlines and periodic DialBackoff GC
+  static constexpr double kDialBackoffGcPeriod = 60.0;
+  td::Timestamp next_dial_backoff_gc_ = td::Timestamp::never();
 
   td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                               td::BufferSlice data);
@@ -143,8 +159,14 @@ class QuicSender : public adnl::AdnlSenderEx {
                                           metrics::Reason& reject_reason);
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
-                    adnl::AdnlNodeIdShort peer_id, bool is_outbound);
-  void on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> data);
+                    adnl::AdnlNodeIdShort peer_id, bool is_outbound, QuicServer::PeerMtuInfo peer_info);
+  void invalid_message(std::shared_ptr<Connection> connection, QuicStreamID stream_id, td::Slice data);
+  void on_stream_complete_inbound(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                  td::Result<td::BufferSlice> r_data);
+  void on_stream_complete_outbound(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                   td::Result<td::BufferSlice> r_data);
+  void on_stream_complete(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, QuicStreamID stream_id,
+                          td::Result<td::BufferSlice> data);
   void return_peer_uni_stream_credit(td::actor::ActorId<QuicServer> server, QuicConnectionId cid);
   void on_local_uni_stream_closed(QuicConnectionId cid, QuicStreamID sid, bool clean);
   void on_local_bidi_stream_closed(QuicConnectionId cid, QuicStreamID sid);
@@ -152,9 +174,11 @@ class QuicSender : public adnl::AdnlSenderEx {
 
   void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_query& query);
   void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_message& message);
+  td::actor::Task<> on_inbound_message(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                       td::BufferSlice data);
   td::actor::Task<> on_inbound_query(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                                      td::BufferSlice query);
-  void on_answer(Connection& connection, QuicStreamID stream_id, ton_api::quic_answer& answer);
+  // Closes an outbound message's confirmation entry, if the stream carried one.
   void record_message_confirmation(Connection& connection, QuicStreamID stream_id, bool ok);
 
   Trust peer_trust(const AdnlPath& path);

@@ -25,7 +25,7 @@
 #include "Ed25519.h"
 #include "metrics.h"
 #include "quic-common.h"
-#include "quic-connection-rate-limiters.h"
+#include "quic-flood-guard.h"  // FloodLimits, CloseCode, StreamOptions, FloodGuard, EgressPicker (re-exported)
 
 namespace ton::quic {
 struct QuicConnectionOptions;
@@ -35,40 +35,22 @@ struct VersionCid;
 
 struct QuicConnectionPImpl;
 
-struct StreamOptions {
-  std::optional<td::uint64> max_size;
-  td::Timestamp timeout = td::Timestamp::never();
-  double timeout_seconds = 0.0;
-  td::uint64 query_size = 0;
-  td::int32 query_magic = 0;  // 0 on inbound streams: no query of ours to describe
-  // A unidirectional stream has no application receipt or response half to process.
-  StreamDirection direction = StreamDirection::Bidirectional;
-};
-
-struct StreamShutdownList {
-  struct Entry {
-    QuicConnectionId cid;
-    QuicStreamID sid;
-  };
-  td::vector<Entry> entries;
-};
-
-class QuicServer : public td::actor::Actor, public td::ObserverBase {
+class QuicServer : public td::actor::Actor, public td::ObserverBase, private FloodGuard::Host {
  public:
   struct Options {
     bool enable_gso = true;
     bool enable_gro = true;
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
-    std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
     std::optional<size_t> max_streams_bidi = std::nullopt;
     std::optional<size_t> max_streams_uni = std::nullopt;
     std::optional<size_t> ack_thresh = std::nullopt;
     std::optional<double> max_ack_delay_seconds = std::nullopt;
-    td::uint32 new_connection_rate_limit_capacity = 10;
-    double new_connection_rate_limit_period = 0.2;
-    td::uint32 global_new_connection_rate_limit_capacity = 100000;
-    double global_new_connection_rate_limit_period = 0.00001;
+    // Bidi-stream credit advertised to the peer on connections WE initiate (outbound). nullopt =
+    // use max_streams_bidi. QuicSender sets 0: its outbound connections carry only our own streams.
+    std::optional<size_t> outbound_max_peer_streams_bidi = std::nullopt;
+    // Uni streams initiated by the peer are also unsolicited on QuicSender's outbound connections.
+    std::optional<size_t> outbound_max_peer_streams_uni = std::nullopt;
     bool stateless_retry = true;
     // Messages ride bidirectional streams and confirmation is the peer's empty receipt -- the
     // pre-unidirectional wire behaviour, kept for measurement and old-peer comparison. Consumed by
@@ -77,23 +59,29 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     // RFC 9221 DATAGRAM frame size; 0 keeps messages on streams.
     td::uint32 max_datagram_frame_size = 0;
   };
+  // Per-connection peer info, resolved from the (local_id, peer_id) MTU registry at handshake
+  // and stamped on the connection: the max message size we accept from the peer, and whether it
+  // is trusted to send us heavy traffic.
+  struct PeerMtuInfo {
+    td::uint64 mtu = 0;
+    bool trusted = false;
+    bool operator==(const PeerMtuInfo &) const = default;
+  };
+
   class Callback {
    public:
-    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString local_public_key,
-                                    td::SecureString peer_public_key, bool is_outbound) = 0;
-    virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
+    virtual td::Status on_connected(QuicConnectionId cid, adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
+                                    bool is_outbound, PeerMtuInfo peer_info) = 0;
+    // A complete admitted message — or the failure that ended the stream — for the application. The
+    // FloodGuard reassembles and flood-accounts stream chunks; the app only ever sees whole messages.
+    virtual void on_message(QuicConnectionId cid, QuicStreamID sid, td::Result<td::BufferSlice> message) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
     // Each peer-initiated unidirectional close must eventually be matched by exactly one
     // release_peer_uni_stream_credit() call, after its payload has been processed.
     virtual void on_stream_closed(QuicConnectionId cid, StreamCloseEvent event) = 0;
-    virtual void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
+    // A live connection's registry entry changed (late registration, trust flip, mtu update).
+    virtual void on_peer_info_updated(QuicConnectionId cid, PeerMtuInfo peer_info) {
     }
-    virtual void loop(td::Timestamp now, StreamShutdownList &streams_to_shutdown) {
-    }
-    virtual td::Timestamp next_alarm() const {
-      return td::Timestamp::never();
-    }
-    virtual void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> f) = 0;
     virtual ~Callback() = default;
   };
 
@@ -101,6 +89,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void send_stream_end(QuicConnectionId cid, QuicStreamID sid);
   td::Result<QuicStreamID> open_stream(QuicConnectionId cid, StreamOptions options = {});
 
+  // On error the stream (whether just opened or passed in) is reset — the caller never cleans up.
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
 
@@ -114,6 +103,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   // Releases exactly one peer-opened unidirectional stream after the callback has processed it.
   void release_peer_uni_stream_credit(QuicConnectionId cid);
   void on_connection_closed(QuicConnectionId cid);
+  // Close a connection, telling the peer why; an abuse close also discourages the IP.
+  void close_connection(QuicConnectionId cid, CloseCode code);
+  void set_reserved_only(bool reserved_only);
   void log_stats(std::string reason = "stats");
 
   // A handshake's direction is who dialled: `out` is us, `in` is the peer.
@@ -137,25 +129,26 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   }
 
   // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the
-  // per-local default. Setting an MTU to 0 erases the corresponding entry.
+  // per-local default. Setting an MTU to 0 erases the corresponding entry; an inbound handshake on a
+  // path that resolves to 0 is refused. trusted rides on the peer registration and classifies the
+  // connection (untrusted-pooled vs exempt).
   void set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu);
-  void set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
+  void set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu, bool trusted);
 
   // Register an additional ADNL identity on this server. Subsequent identities are reachable via
   // SNI (ServerIdentity::sni(local_id)). Re-registering an id that's already present is a no-op.
   void add_identity(adnl::AdnlNodeIdShort local_id, td::Ed25519::PrivateKey key);
 
-  constexpr static size_t DEFAULT_FLOOD_CONTROL = 1000;
-
   QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentity identity, td::BufferSlice alpn,
-             std::unique_ptr<Callback> callback, Options options);
+             std::unique_ptr<Callback> callback, Options options, FloodLimits flood_limits);
 
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, std::unique_ptr<Callback> callback,
                                                             td::uint64 default_mtu, ServerIdentity identity,
                                                             td::Slice alpn = "ton", td::Slice bind_host = "0.0.0.0");
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, std::unique_ptr<Callback> callback,
                                                             td::uint64 default_mtu, ServerIdentity identity,
-                                                            td::Slice alpn, td::Slice bind_host, Options options);
+                                                            td::Slice alpn, td::Slice bind_host, Options options,
+                                                            FloodLimits flood_limits = {});
 
   td::actor::Task<ServerStats> collect();
 
@@ -191,6 +184,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     std::unique_ptr<QuicConnectionPImpl> impl_;
     td::IPAddress remote_address;
     QuicConnectionId cid;
+    // Known after the handshake proves the keys; zero before.
+    adnl::AdnlNodeIdShort local_id;
+    adnl::AdnlNodeIdShort peer_id;
+    PeerMtuInfo peer_info;
     std::optional<QuicConnectionId> bootstrap_routed_cid;
     std::set<QuicConnectionId> routed_cids;
     bool is_outbound;
@@ -230,12 +227,21 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void send_retry(const VersionCid &packet, const td::IPAddress &remote_address);
   void send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address);
 
+  // FloodGuard::Host: the transport seam the guard drives (ids only, never sockets/ngtcp2).
+  void drop_connection(QuicConnectionId cid, CloseCode code) override;
+  void reset_stream(QuicConnectionId cid, QuicStreamID sid) override;
+  void deliver(QuicConnectionId cid, QuicStreamID sid, td::Result<td::BufferSlice> message) override;
+  void configure(QuicConnectionId cid, FloodGuard::TransportCaps caps) override;
+  FloodGuard::IngressGrant grant_ingress(QuicConnectionId cid, td::Timestamp now, td::uint64 cap) override;
+
   void update_alarm();
   void drain_ingress();
   void flush_egress();
   bool flush_pending();
   size_t produce_next_egress(size_t batch_index);
+  std::deque<QuicConnectionId> &active_queue_for(const ConnectionState &state);
   void send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg);
+  void send_close_notice(ConnectionState &state, CloseCode code);
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<QuicStreamID> send_stream_on(ConnectionState &state, std::variant<QuicStreamID, StreamOptions> stream,
@@ -245,11 +251,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                                                          const VersionCid &initial_packet,
                                                                          const ServerInitialInfo &initial_info);
   td::Status reject(metrics::Reason reason, td::Status status);
-  td::Status ensure_flood_allowed(const std::string &flood_addr);
-  void flood_on_inbound_connection_created(const std::string &flood_addr);
-  void flood_on_inbound_connection_closed(const std::string &flood_addr);
   QuicConnectionOptions build_connection_options() const;
-  bool handle_expiry(ConnectionState &state);
+  void handle_expiry(ConnectionState &state);
   void log_conn_stats(ConnectionState &state, const char *reason);
 
   td::UdpSocketFd fd_;
@@ -257,11 +260,12 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::Ref<ServerIdentities> identities_;
   std::array<td::uint8, 32> retry_secret_{};
   Options options_;
-  QuicConnectionRateLimiters conn_rate_limiters_;
-  adnl::RateLimiter global_conn_rate_limiter_;
+  // All flood/DoS policy. Declared before the connection maps so its IngressAggregate outlives
+  // every pimpl's IngressShaper, which holds a plain pointer to it.
+  FloodGuard guard_;
+  EgressPicker picker_;
   bool gso_enabled_{true};
   bool gro_enabled_{false};
-  std::unordered_map<std::string, size_t> flood_map_;
 
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;
@@ -273,8 +277,14 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::HashMap<QuicConnectionId, QuicConnectionId> cid_to_primary_cid_;
   std::map<BootstrapRouteKey, QuicConnectionId> bootstrap_routes_;
   td::HashMap<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
-  std::deque<QuicConnectionId> active_connections_;
-  std::vector<QuicConnectionId> to_erase_connections_;
+  // Handshake-completed connections indexed by their (local_id, peer_id) so an MTU/trust
+  // registry change refreshes only the affected connections, not every connection.
+  std::map<adnl::AdnlNodeIdShort, std::map<adnl::AdnlNodeIdShort, std::set<QuicConnectionId>>> conns_by_peer_;
+  // Connections with egress to send, split by trust class so the scheduler can prefer trusted in
+  // O(1). A connection is in at most one deque (guarded by ConnectionState::in_active_queue).
+  std::deque<QuicConnectionId> active_trusted_;
+  std::deque<QuicConnectionId> active_untrusted_;
+  std::vector<std::pair<QuicConnectionId, bool>> to_erase_connections_;  // (cid, send close notice)
   td::KHeap<double> timeout_heap_;
 
   // Pre-allocated ingress buffers
@@ -310,7 +320,14 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void record_ingress(td::Span<td::UdpSocketFd::InboundMessage> batch);
 
   std::map<adnl::AdnlNodeIdShort, td::uint64> default_mtu_by_local_id_;
-  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::uint64> peers_mtu_;
+  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, PeerMtuInfo> peers_mtu_;
+
+  PeerMtuInfo resolve_peer_info(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) const;
+  void refresh_peer_info(ConnectionState &state);
+  void refresh_peer_infos(adnl::AdnlNodeIdShort local_id, std::optional<adnl::AdnlNodeIdShort> peer_id);
+  // reject_reason is set to `limited` for a local-policy refusal; other errors keep the caller's value.
+  td::Status on_handshake_completed(QuicConnectionId cid, td::Slice local_public_key, td::Slice peer_public_key,
+                                    bool is_outbound, metrics::Reason &reject_reason);
 };
 
 }  // namespace ton::quic
