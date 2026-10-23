@@ -1001,7 +1001,7 @@ void AdnlPeerPairImpl::Conn::create_conn(td::actor::ActorId<AdnlPeerPairImpl> pe
 
 void AdnlPeerPairImpl::conn_change_state(AdnlConnectionIdShort id, bool ready) {
   if (ready) {
-    if (out_messages_queue_.empty()) {
+    if (!out_messages_queue_.empty()) {
       send_messages_from_queue();
     }
   }
