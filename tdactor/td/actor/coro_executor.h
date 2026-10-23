@@ -186,8 +186,13 @@ struct Executor {
 template <class P>
 ActorMessageCoroutineSafe<P>::~ActorMessageCoroutineSafe() {
   if (continuation_) {
-    SchedulerExecutor{}.schedule(
-        continuation_.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed")));
+    auto next =
+        continuation_.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed"));
+    if (core::SchedulerContext::get_ptr()) {
+      SchedulerExecutor{}.schedule(next);
+    } else if (next != std::noop_coroutine()) {
+      LOG(ERROR) << "no scheduler: cannot resume coroutine waiter, result published only";
+    }
   }
 }
 
