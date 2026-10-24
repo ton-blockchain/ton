@@ -1473,6 +1473,10 @@ void ValidatorEngine::alarm() {
         if (validator_set_.not_null() && validator_set_->is_validator(ton::NodeIdShort{val.first.bits256_value()})) {
           is_validator = true;
         }
+        if (validator_set_prev_.not_null() &&
+            validator_set_prev_->is_validator(ton::NodeIdShort{val.first.bits256_value()})) {
+          is_validator = true;
+        }
         if (!is_validator && val.second.election_date < cur_t.first && cur_t.first + 600 < state_->get_unix_time()) {
           to_del.insert(val.first);
           continue;
