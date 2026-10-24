@@ -34,6 +34,7 @@ using LoadAuxMasterchainState = std::function<td::actor::Task<Ref<MasterchainSta
 // Compute one historical masterchain snapshot without a running validator manager.
 // shard_states must contain exactly the top shard states referenced by mc_state
 // (excluding the masterchain state), paired with their corresponding block roots.
+// For nonzero seqnos, each state root must match its block's state_update.
 // The callback loads auxiliary masterchain states needed to identify messages
 // that have already been processed. Missing inputs fail the calculation.
 td::actor::Task<GlobalBalanceComponents> calculate_global_balance_at_anchor(

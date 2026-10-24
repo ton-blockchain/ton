@@ -38,6 +38,7 @@
 #include "validator/fabric.h"
 #include "validator/global-balance-calculator.hpp"
 #include "validator/impl/global-balance-calculator-internal.hpp"
+#include "vm/cells/MerkleUpdate.h"
 
 namespace ton::validator {
 namespace {
@@ -306,18 +307,32 @@ std::shared_ptr<ParsedShardState> fetch_test_shard_state(td::Ref<ShardState> sta
   return result.move_as_ok();
 }
 
-td::Ref<vm::Cell> make_empty_test_block(LogicalTime start_lt) {
+td::Ref<vm::Cell> make_empty_test_block(LogicalTime start_lt, td::Ref<vm::Cell> state_update = {},
+                                        const BlockIdExt* block_id = nullptr) {
   vm::AugmentedDictionary out_msgs{256, block::tlb::aug_OutMsgDescrDefault};
   auto dummy = vm::CellBuilder{}.store_zeroes(1).finalize();
 
   vm::CellBuilder info;
   CHECK(info.store_long_bool(0x9bc7a987U, 32));
-  CHECK(info.store_zeroes_bool(32 + 8 + 8));
-  CHECK(info.store_long_bool(1, 32));
-  CHECK(info.store_zeroes_bool(32 + 104 + 32));
+  if (block_id) {
+    CHECK(info.store_zeroes_bool(32));  // version
+    CHECK(info.store_long_bool(!block_id->shard_full().is_masterchain(), 1));
+    CHECK(info.store_zeroes_bool(7 + 8));  // remaining flags
+    CHECK(info.store_ulong_rchk_bool(block_id->seqno(), 32));
+    CHECK(info.store_zeroes_bool(32));  // vert_seq_no
+    CHECK(block::ShardId{block_id->shard_full()}.serialize(info));
+    CHECK(info.store_zeroes_bool(32));  // gen_utime
+  } else {
+    CHECK(info.store_zeroes_bool(32 + 8 + 8));
+    CHECK(info.store_long_bool(1, 32));
+    CHECK(info.store_zeroes_bool(32 + 104 + 32));
+  }
   CHECK(info.store_ulong_rchk_bool(start_lt, 64));
   CHECK(info.store_ulong_rchk_bool(start_lt + 100, 64));
   CHECK(info.store_zeroes_bool(128));
+  if (block_id && !block_id->shard_full().is_masterchain()) {
+    CHECK(info.store_ref_bool(dummy));  // master_ref
+  }
   CHECK(info.store_ref_bool(dummy));
 
   vm::CellBuilder extra;
@@ -332,9 +347,43 @@ td::Ref<vm::Cell> make_empty_test_block(LogicalTime start_lt) {
   CHECK(block.store_zeroes_bool(32));
   CHECK(block.store_ref_bool(info.finalize()));
   CHECK(block.store_ref_bool(dummy));
-  CHECK(block.store_ref_bool(dummy));
+  CHECK(block.store_ref_bool(state_update.not_null() ? state_update : dummy));
   CHECK(block.store_ref_bool(extra.finalize()));
   return block.finalize();
+}
+
+TEST(GlobalBalanceCalculator, ReadOnlyChecksBlockStatePair) {
+  const auto shard = ShardIdFull{basechainId, shardIdAll};
+  auto block_id = make_block_id(shard, 7);
+  auto msg_queue = make_out_queue();
+  auto state_root = make_test_shard_state_root(block_id, *msg_queue, nullptr);
+  auto previous_root = vm::CellBuilder{}.store_zeroes(1).finalize();
+  auto update = vm::CellBuilder::create_merkle_update(previous_root, state_root);
+  CHECK(vm::MerkleUpdate::validate(update).is_ok());
+  auto block_root = make_empty_test_block(1000, update, &block_id);
+  block_id.root_hash = block_root->get_hash().bits();
+
+  auto matching = create_shard_state(block_id, state_root).move_as_ok();
+  auto matched = detail::verify_state_block_pair(*matching, block_root);
+  LOG_CHECK(matched.is_ok()) << matched;
+
+  // Both states have the same shard and seqno, but only one was produced by this block.
+  auto dispatch_queue = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}}, true}});
+  auto other_root = make_test_shard_state_root(block_id, *msg_queue, &dispatch_queue);
+  auto other = create_shard_state(block_id, other_root).move_as_ok();
+  CHECK(other_root->get_hash() != state_root->get_hash());
+  CHECK(detail::verify_state_block_pair(*other, block_root).is_error());
+
+  auto malformed_block = make_empty_test_block(1000, {}, &block_id);
+  auto malformed_id = block_id;
+  malformed_id.root_hash = malformed_block->get_hash().bits();
+  auto malformed_pair = create_shard_state(malformed_id, state_root).move_as_ok();
+  CHECK(detail::verify_state_block_pair(*malformed_pair, malformed_block).is_error());
+  CHECK(detail::verify_state_block_pair(*matching, malformed_block).is_error());
+
+  auto zero_id = make_block_id(shard, 0);
+  auto zero_state = make_test_shard_state(zero_id, *msg_queue, nullptr);
+  CHECK(detail::verify_state_block_pair(*zero_state, {}).is_ok());
 }
 
 TEST(GlobalBalanceCalculator, ReadOnlyComponentTotals) {

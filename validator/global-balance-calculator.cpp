@@ -14,6 +14,7 @@
 
 #include "block-auto.h"
 #include "block-parse.h"
+#include "block.h"
 #include "global-balance-calculator.hpp"
 #include "shard.hpp"
 
@@ -34,6 +35,34 @@ namespace ton::validator {
  */
 
 namespace detail {
+
+td::Status verify_state_block_pair(const ShardState& state, Ref<vm::Cell> block_root) {
+  auto state_root = state.root_cell();
+  if (state_root.is_null()) {
+    return td::Status::Error("missing state root");
+  }
+  auto block_id = state.get_block_id();
+  if (block_id.seqno() == 0) {
+    return td::Status::OK();  // The zerostate has no corresponding block.
+  }
+  if (block_root.is_null()) {
+    return td::Status::Error(PSTRING() << "missing block root for " << block_id);
+  }
+  try {
+    td::Bits256 block_state_hash;
+    TRY_STATUS(block::check_block_header(block_root, block_id, &block_state_hash));
+    if (block_state_hash != state_root->get_hash().bits()) {
+      return td::Status::Error(PSTRING() << "state root does not match block state update for " << block_id);
+    }
+    return td::Status::OK();
+  } catch (vm::VmError& e) {
+    return e.as_status();
+  } catch (vm::VmVirtError& e) {
+    return e.as_status();
+  } catch (vm::VmNoGas& e) {
+    return e.as_status();
+  }
+}
 
 td::Result<td::RefInt256> get_out_queue_message_balance(const block::EnqueuedMsgDescr& msg, int global_version) {
   vm::CellSlice msg_cs = vm::load_cell_slice(msg.msg_);
@@ -915,9 +944,7 @@ td::actor::Task<GlobalBalanceComponents> calculate_global_balance_at_anchor(
   CO_TRY_BOOL(mc_state.not_null() && mc_state->get_block_id().is_masterchain() && load_aux_mc_state);
   auto mc = Ref<MasterchainStateQ>{mc_state};
   CO_TRY_BOOL(mc->get_config() != nullptr);
-  if (mc->get_seqno() != 0) {
-    CO_TRY_BOOL(mc_block_root.not_null() && mc_block_root->get_hash().as_bits256() == mc->get_block_id().root_hash);
-  }
+  CO_TRY(detail::verify_state_block_pair(*mc, mc_block_root));
 
   auto expected = mc->get_shards();
   CO_TRY_BOOL(expected.size() == shard_states.size());
@@ -925,10 +952,7 @@ td::actor::Task<GlobalBalanceComponents> calculate_global_balance_at_anchor(
   for (auto& entry : shard_states) {
     CO_TRY_BOOL(entry.state.not_null() && !entry.state->get_shard().is_masterchain());
     auto id = entry.state->get_block_id();
-    CO_TRY_BOOL(entry.state->root_cell().not_null());
-    if (id.seqno() != 0) {
-      CO_TRY_BOOL(entry.block_root.not_null() && entry.block_root->get_hash().as_bits256() == id.root_hash);
-    }
+    CO_TRY(detail::verify_state_block_pair(*entry.state, entry.block_root));
     CO_TRY_BOOL(by_id.emplace(id, std::move(entry)).second);
   }
   for (const auto& desc : expected) {

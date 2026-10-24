@@ -40,6 +40,8 @@ struct ParsedShardState {
       std::vector<std::shared_ptr<ParsedShardState>> prev = {});
 };
 
+td::Status verify_state_block_pair(const ShardState& state, td::Ref<vm::Cell> block_root);
+
 GlobalBalanceComponents sum_state_balance_components(const std::vector<std::shared_ptr<ParsedShardState>>& states);
 
 td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue, int global_version);
