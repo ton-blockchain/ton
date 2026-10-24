@@ -67,6 +67,7 @@ class SocketFd {
   const NativeFd &get_native_fd() const;
   static Result<SocketFd> from_native_fd(NativeFd fd);
 
+  Status shutdown_write() TD_WARN_UNUSED_RESULT;
   void close();
   bool empty() const;
 
