@@ -220,7 +220,7 @@ Ref<Cell> DictionaryFixed::finish_create_leaf(CellBuilder& cb, const CellSlice& 
 
 Ref<Cell> DictionaryFixed::finish_create_leaf(CellBuilder& cb, const CellBuilder& value) const {
   if (!cb.append_builder_bool(value)) {
-    throw VmError{Excno::cell_ov, "cannot store new value into a dictionary cell"};
+    throw VmError{Excno::dict_err, "cannot store new value into a dictionary leaf cell"};
   }
   return cb.finalize();
 }
