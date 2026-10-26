@@ -257,13 +257,6 @@ struct ParamLimits {
   bool deserialize(vm::CellSlice& cs);
   int classify(td::uint64 value) const;
   bool fits(unsigned cls, td::uint64 value) const;
-  ParamLimits remaining(td::uint64 used) const {
-    auto result = *this;
-    for (auto& limit : result.limits_) {
-      limit = used < limit ? static_cast<td::uint32>(limit - used) : 0;
-    }
-    return result;
-  }
   void multiply_by(double x) {
     CHECK(x > 0.0);
     for (td::uint32& y : limits_) {

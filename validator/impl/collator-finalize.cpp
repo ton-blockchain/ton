@@ -23,25 +23,6 @@
 
 namespace ton::validator {
 
-namespace {
-
-td::Result<td::BufferSlice> serialize_candidate_part(td::Span<Ref<vm::Cell>> roots, int mode) {
-  if (roots.empty()) {
-    return td::BufferSlice{0};
-  }
-  vm::BagOfCells boc;
-  for (const auto& root : roots) {
-    boc.add_root(root);
-  }
-  TRY_STATUS(boc.import_cells());
-  return boc.serialize_to_slice(mode);
-}
-
-}  // namespace
-
-// Own all inputs: a suspended finalization must not retain pointers to the
-// collator or its workers. Roots come from the original state/storage graphs,
-// before wrapping them in UsageCell; traversing them cannot change read sets.
 struct Collator::CollatedData {
   std::vector<Ref<vm::Cell>> roots;
   std::vector<Ref<vm::Cell>> state_roots;
@@ -87,9 +68,6 @@ bool Collator::prepare_collated_data(CollatedData& data) {
     if (!prepare_proofs()) {
       return fatal_error("cannot prepare proof for collated data");
     }
-    if (virtual_shards_) {
-      collect_virtual_proofs();
-    }
     if (data.new_format) {
       for (const auto& state : prev_states) {
         data.state_roots.push_back(state->root_cell());
@@ -112,6 +90,9 @@ bool Collator::prepare_collated_data(CollatedData& data) {
     if (dict.add_to_collated_data) {
       data.storage_roots.push_back(dict.mpb.original_root());
     }
+  }
+  if (virtual_shards_) {
+    collect_virtual_proofs(data.storage_roots);
   }
   data.reads = collated_data_stat;
   return true;
@@ -161,7 +142,8 @@ td::Status Collator::CollatedData::build() {
 
   for (const auto& root : state_roots) {
     Ref<vm::Cell> cell;
-    TRY_BOOL(block::gen::t_CollatedDataRootState.cell_pack_collated_data_root_state(cell, root->get_hash().as_bits256()));
+    TRY_BOOL(
+        block::gen::t_CollatedDataRootState.cell_pack_collated_data_root_state(cell, root->get_hash().as_bits256()));
     roots.push_back(std::move(cell));
   }
   for (const auto& root : storage_roots) {
@@ -218,7 +200,7 @@ td::actor::Task<Collator::CollatedData::Result> Collator::CollatedData::finalize
   }
   {
     td::RealCpuTimer timer;
-    result.data = CO_TRY(serialize_candidate_part(data.roots, 2));
+    result.data = CO_TRY(vm::std_boc_serialize_multi(std::move(data.roots), 2));
     result.serialization_time = timer.elapsed_both();
   }
   co_return result;
@@ -232,18 +214,14 @@ td::actor::Task<bool> Collator::create_block_candidate() {
       co_return false;
     }
   }
-  // Enter now: yield_on queues the job before synchronous block serialization.
-  // start() would queue it on this actor and defer the offload until suspension.
   auto job = CollatedData::finalize(std::move(data), virtual_shards_ != nullptr).start_immediate();
   td::Result<td::BufferSlice> block;
   {
     td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.create_block_candidate};
-    block = serialize_candidate_part({&new_block, 1}, 31);
+    block = vm::std_boc_serialize(new_block, 31);
   }
   td::Result<CollatedData::Result> result;
   {
-    // Thread CPU timers must not span suspension. Count waiting wall time once;
-    // worker CPU and stage times are added after joining.
     td::ScopedRealCpuTimer::Guard total_timer{work_timer_total_, nullptr};
     td::ScopedRealCpuTimer::Guard timer{work_timer_, nullptr};
     td::Timer wall;
@@ -252,7 +230,6 @@ td::actor::Task<bool> Collator::create_block_candidate() {
     };
     result = co_await std::move(job).wrap();
   }
-  // Join both branches before handling failures or publishing the candidate.
   if (block.is_error()) {
     co_return fatal_error(block.move_as_error_prefix("cannot serialize block: "));
   }

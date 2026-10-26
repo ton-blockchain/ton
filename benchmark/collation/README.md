@@ -30,8 +30,10 @@ compile loudly — adjust `gton/bench_disk_corpus_test.go` or pin `--gton-ref`.
 
 Everything else is opt-in (`--help`):
 
-- `--virtual-shards N` (binary only) — address partitions: 0 (disabled, default)
-  or a power of two from 1 to 64. Use `--threads N` to set scheduler threads.
+- `--virtual-shards N` — address partitions: 0 (disabled, default) 
+  or a power of two from 1 to 64. Use `--threads N` to set
+  scheduler threads. The wrapper also accepts `COLLATION_BENCH_VIRTUAL_SHARDS`
+  and passes the setting to corpus generation and all measured runs.
 - `--workload W` — `jetton` (default): Wallet V5 jetton transfers, four
   transactions per transfer; `transfer`: plain non-bounceable W5 -> W5 TON
   transfers, two transactions per transfer. Both build the identical
@@ -40,7 +42,8 @@ Everything else is opt-in (`--help`):
   generated — measured runs read the workload back from `meta.json`, and the
   per-block transaction count in the tables adjusts automatically.
 - `--parallel N` — multi-core profile: C++ runs N scheduler threads with
-  parallel account validation (its collation stays serial); Go runs with
+  parallel account validation (collation stays serial unless `--virtual-shards`
+  is enabled); Go runs with
   `GOMAXPROCS=N`, enabling gton's parallel collation and lane-parallel
   validation. Default 1 — the single-core CPU-efficiency headline.
 - `--binary PATH` (run-cpp.sh) — benchmark another tree's executable on the
@@ -70,19 +73,17 @@ cmake -S . -B cmake-build-bench \
 cmake --build cmake-build-bench --target collation-validation-bench
 ```
 
-To exercise virtual-shard execution with a generated fixture, use the binary
-directly (`run-cpp.sh` retains its existing corpus interface):
+To measure all three series with virtual-shard collation:
 
 ```sh
-./cmake-build-bench/benchmark/collation/collation-validation-bench \
+./benchmark/collation/run-cpp.sh \
   --workload transfer --accounts 10000 --transfers 8 \
   --virtual-shards 4 --threads 4 \
   --warmup 0 --iterations 1 --verbose
 ```
 
-Repeat with `--mode validate --validation-input collated` and with
-`--mode validate --validation-input preloaded` to measure the two validation
-inputs.
+Use `--parallel 4` instead of `--threads 4` to also enable parallel account
+validation.
 
 Masterchain and split/merge collation use the original path. Reported CPU time
 includes worker CPU.

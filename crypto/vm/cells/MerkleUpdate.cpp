@@ -20,6 +20,7 @@
 
 #include "td/utils/HashMap.h"
 #include "td/utils/HashSet.h"
+#include "td/utils/ScopeGuard.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/MerkleUpdate.h"
 
@@ -265,6 +266,14 @@ td::Result<Ref<Cell>> MerkleUpdate::generate_to_raw(Ref<Cell> to, td::Span<CellU
       std::find(usage_trees.begin(), usage_trees.end(), nullptr) != usage_trees.end()) {
     return td::Status::Error("invalid new root or usage forest");
   }
+  for (auto *tree : usage_trees) {
+    tree->set_ignore_loads(true);
+  }
+  SCOPE_EXIT {
+    for (auto *tree : usage_trees) {
+      tree->set_ignore_loads(false);
+    }
+  };
   return MerkleProof::generate_raw(
       to,
       [&](const Ref<Cell> &cell) {
@@ -279,12 +288,9 @@ td::Result<Ref<Cell>> MerkleUpdate::generate_to_raw(Ref<Cell> to, td::Span<CellU
         } else {
           node = cell->get_tree_node();
         }
-        if (!node.empty()) {
-          for (auto *tree : usage_trees) {
-            if (node.mark_path(tree)) {
-              return true;
-            }
-          }
+        if (auto tree = node.find_from_trees(usage_trees)) {
+          tree->mark_path(node.node_id());
+          return true;
         }
         return false;
       },

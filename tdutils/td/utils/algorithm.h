@@ -154,19 +154,19 @@ void add_to_top_if(V &v, size_t max_size, T value, const F &is_equal_to_value) {
   v[0] = std::move(value);
 }
 
-template <class V>
-void unique(V &v) {
+template <class V, class F>
+void unique(V &v, const F &key) {
   if (v.empty()) {
     return;
   }
 
   // use ADL to find std::sort
   // caller will need to #include <algorithm>
-  sort(v.begin(), v.end(), std::less<void>());
+  sort(v.begin(), v.end(), [&](const auto &a, const auto &b) { return std::less<void>()(key(a), key(b)); });
 
   size_t j = 1;
   for (size_t i = 1; i < v.size(); i++) {
-    if (v[i] != v[j - 1]) {
+    if (key(v[i]) != key(v[j - 1])) {
       if (i != j) {
         v[j] = std::move(v[i]);
       }
@@ -174,6 +174,11 @@ void unique(V &v) {
     }
   }
   v.resize(j);
+}
+
+template <class V>
+void unique(V &v) {
+  unique(v, [](const auto &value) -> const auto & { return value; });
 }
 
 template <class V, class T>

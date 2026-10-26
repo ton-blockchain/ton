@@ -113,7 +113,7 @@ class CollatorBase {
   td::Status combine_account_transactions();
   void on_cell_loaded(const vm::LoadedCell& cell);
   void set_current_tx_storage_dict(const block::Account& account);
-  td::Status init_account_storage_dict(block::Account& account, bool build_proof);
+  td::Status init_account_storage_dict(block::Account& account);
 };
 
 class Collator final : public td::actor::Actor, private CollatorBase {
@@ -395,8 +395,8 @@ class Collator final : public td::actor::Actor, private CollatorBase {
   bool process_new_messages(bool& enqueue_only);
   const char* check_message_deferring(const block::NewOutMsg& msg, const StdSmcAddress& src_addr,
                                      std::map<StdSmcAddress, td::uint32>& sender_generated_messages_count,
-                                     bool has_unprocessed_deferred_messages, size_t new_msgs_from_dispatch,
-                                     bool is_special = false);
+                                     bool has_unprocessed_deferred_messages, td::uint64 out_msg_queue_size,
+                                     size_t new_msgs_from_dispatch, bool is_special = false);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();
   bool precheck_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt);
@@ -480,13 +480,12 @@ class Collator final : public td::actor::Actor, private CollatorBase {
   td::actor::Task<bool> process_virtual_externals();
   td::actor::Task<bool> process_virtual_internals();
   td::actor::Task<bool> process_virtual_messages(bool& enqueue_only);
-  bool virtual_batch_publishing_ = false;
   bool virtual_shard_budget_exhausted(unsigned cls);
   td::Result<std::unique_ptr<block::transaction::Transaction>> create_virtual_transaction(
       Ref<vm::Cell> msg_root, const StdSmcAddress& addr, bool external, LogicalTime after_lt);
   td::actor::Task<> finalize_virtual_accounts();
   td::actor::Task<Ref<vm::Cell>> generate_virtual_update();
-  void collect_virtual_proofs();
+  void collect_virtual_proofs(std::vector<Ref<vm::Cell>>& storage_roots);
 };
 
 }  // namespace validator

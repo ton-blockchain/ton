@@ -20,7 +20,9 @@
 #include <iomanip>
 #include <iostream>
 
+#include "cells/CellUsageTree.h"
 #include "cells/MerkleUpdate.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/Slice-decl.h"
 #include "td/utils/bits.h"
 #include "td/utils/crypto.h"
@@ -1187,6 +1189,16 @@ void NewCellStorageStat::add_proof(Ref<Cell> cell, CellUsageTree* usage_tree,
   CHECK(usage_tree);
   usage_tree_ = usage_tree;
   merkle_update_left_stat_ = merkle_update_left_stat;
+  usage_tree->set_ignore_loads(true);
+  for (auto* tree : additional_usage_trees_) {
+    tree->set_ignore_loads(true);
+  }
+  SCOPE_EXIT {
+    usage_tree->set_ignore_loads(false);
+    for (auto* tree : additional_usage_trees_) {
+      tree->set_ignore_loads(false);
+    }
+  };
   unsigned level = cell->get_level();
   dfs(std::move(cell), level, false, true, true);
 }
@@ -1202,45 +1214,34 @@ void NewCellStorageStat::add_cell_and_proof(Ref<Cell> cell, CellUsageTree* usage
 }
 
 NewCellStorageStat::Stat NewCellStorageStat::tentative_add_cell(Ref<Cell> cell) const {
-  NewCellStorageStat stat(this);
+  NewCellStorageStat stat;
+  stat.parent_ = this;
   stat.add_cell(std::move(cell));
   return stat.get_stat();
 }
 
 NewCellStorageStat::Stat NewCellStorageStat::tentative_add_proof(Ref<Cell> cell, CellUsageTree* usage_tree) const {
-  NewCellStorageStat stat(this);
+  NewCellStorageStat stat;
+  stat.parent_ = this;
+  stat.additional_usage_trees_ = additional_usage_trees_;
   stat.add_proof(std::move(cell), usage_tree);
   return stat.get_proof_stat();
-}
-
-bool NewCellStorageStat::is_seen(const Cell::Hash& hash, bool proof, unsigned merkle_depth) const {
-  for (auto* stat = this; stat; stat = stat->parent_) {
-    if (proof ? stat->proof_seen_.contains({hash, merkle_depth}) : stat->seen_.contains(hash)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 void NewCellStorageStat::dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_stat, bool need_proof_stat,
                              bool need_left_mu_stat) {
   auto tree_node = cell->get_tree_node();
   CellUsageTree* tree = nullptr;
-  if ((need_proof_stat || need_left_mu_stat) && !tree_node.empty()) {
+  if (need_proof_stat || need_left_mu_stat) {
     if (tree_node.is_from_tree(usage_tree_)) {
       tree = usage_tree_;
     } else {
-      for (auto* candidate : additional_usage_trees_) {
-        if (tree_node.is_from_tree(candidate)) {
-          tree = candidate;
-          break;
-        }
-      }
+      tree = tree_node.find_from_trees(additional_usage_trees_);
     }
   }
   if (need_stat) {
     stat_.internal_refs++;
-    if ((parent_ && parent_->is_seen(cell->get_hash(), false)) || !seen_.insert(cell->get_hash()).second) {
+    if ((parent_ && parent_->seen_.count(cell->get_hash()) != 0) || !seen_.insert(cell->get_hash()).second) {
       need_stat = false;
     } else {
       stat_.cells++;
@@ -1253,7 +1254,7 @@ void NewCellStorageStat::dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_st
       need_proof_stat = false;
     } else {
       proof_stat_.internal_refs++;
-      if ((parent_ && parent_->is_seen(cell->get_hash(), true, merkle_depth)) ||
+      if ((parent_ && parent_->proof_seen_.contains({cell->get_hash(), merkle_depth})) ||
           !proof_seen_.emplace(cell->get_hash(), merkle_depth).second) {
         need_proof_stat = false;
       } else {
@@ -1418,28 +1419,8 @@ td::uint64 ProofStorageStat::estimate_serialized_size(const Ref<DataCell>& cell)
   return cell->get_serialized_size() + cell->size_refs() * 3 + 3;
 }
 
-bool MerkleUpdateLeftStat::visit_node(const CellUsageTree* tree, CellUsageTree::NodeId node_id) {
-  auto key = std::make_pair(tree, node_id);
-  for (auto* stat = parent_; stat; stat = stat->parent_) {
-    if (stat->visited_nodes_.contains(key)) {
-      return false;
-    }
-  }
-  return visited_nodes_.insert(key).second;
-}
-
-MerkleUpdateLeftStat::CellInfo MerkleUpdateLeftStat::get_cell_info(const Cell::Hash& hash, unsigned merkle_depth) const {
-  for (auto* stat = this; stat; stat = stat->parent_) {
-    auto it = stat->cells_.find({hash, merkle_depth});
-    if (it != stat->cells_.end()) {
-      return it->second;
-    }
-  }
-  return {};
-}
-
 void MerkleUpdateLeftStat::add_loaded_cell(const Ref<Cell>& cell, unsigned merkle_depth) {
-  auto info = get_cell_info(cell->get_hash(), merkle_depth);
+  auto& info = cells_[{cell->get_hash(), merkle_depth}];
   if (info.status == c_loaded) {
     return;
   }
@@ -1448,18 +1429,16 @@ void MerkleUpdateLeftStat::add_loaded_cell(const Ref<Cell>& cell, unsigned merkl
   proof_size_ -= info.size;
   info.status = c_loaded;
   proof_size_ += info.size = ProofStorageStat::estimate_serialized_size(data_cell);
-  cells_[{cell->get_hash(), merkle_depth}] = info;
   if (data_cell->special_type() == CellTraits::SpecialType::MerkleProof ||
       data_cell->special_type() == CellTraits::SpecialType::MerkleUpdate) {
     ++merkle_depth;
   }
   for (unsigned i = 0; i < data_cell->size_refs(); ++i) {
     auto child = data_cell->get_ref(i);
-    auto child_info = get_cell_info(child->get_hash(), merkle_depth);
+    auto& child_info = cells_[{child->get_hash(), merkle_depth}];
     if (child_info.status == c_none) {
       child_info.status = c_prunned;
       proof_size_ += child_info.size = ProofStorageStat::estimate_prunned_size(child->get_level_mask());
-      cells_[{child->get_hash(), merkle_depth}] = child_info;
     }
   }
 }

@@ -447,10 +447,8 @@ struct Transaction {
     return compute_phase ? compute_phase->gas_used : 0;
   }
 
-  td::Result<vm::NewCellStorageStat::Stat> estimate_block_storage_profile_incr(
-      const vm::NewCellStorageStat& store_stat, vm::CellUsageTree* usage_tree) const;
-  td::Status add_block_storage_profile(vm::NewCellStorageStat& store_stat, vm::CellUsageTree* usage_tree,
-                                      vm::MerkleUpdateLeftStat* merkle_update_left_stat = nullptr) const;
+  td::Result<vm::NewCellStorageStat::Stat> estimate_block_storage_profile_incr(const vm::NewCellStorageStat& store_stat,
+                                                                               vm::CellUsageTree* usage_tree) const;
   bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_gas = true, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account

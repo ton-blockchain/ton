@@ -2976,7 +2976,8 @@ bool CollatorBase::process_account_storage_dict(block::Account& account) {
 }
 
 td::actor::Task<bool> Collator::combine_account_transactions() {
-  auto status = virtual_shards_ ? co_await finalize_virtual_accounts().wrap() : CollatorBase::combine_account_transactions();
+  auto status =
+      virtual_shards_ ? co_await finalize_virtual_accounts().wrap() : CollatorBase::combine_account_transactions();
   co_return status.is_ok() || fatal_error(status.move_as_error());
 }
 
@@ -3214,7 +3215,9 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
     ++new_msg_metadata.value().depth;
   }
   FAIL_UNLESS(register_new_msgs(*trans, std::move(new_msg_metadata)));
-  FAIL_UNLESS(update_max_lt(acc->last_trans_end_lt_));
+  if (!virtual_shards_) {
+    FAIL_UNLESS(update_max_lt(acc->last_trans_end_lt_));
+  }
   value_flow_.burned += trans->blackhole_burned;
   ++stats_.transactions;
   return trans_root;
@@ -3419,22 +3422,22 @@ bool Collator::is_our_address(const ton::StdSmcAddress& addr) const {
 
 // Called only for messages not from DispatchQueue. The caller supplies either
 // the published counters or temporary counters used to plan an execution epoch.
-const char* Collator::check_message_deferring(
-    const block::NewOutMsg& msg, const StdSmcAddress& src_addr,
-    std::map<StdSmcAddress, td::uint32>& sender_generated_messages_count, bool has_unprocessed_deferred_messages,
-    size_t new_msgs_from_dispatch, bool is_special) {
+const char* Collator::check_message_deferring(const block::NewOutMsg& msg, const StdSmcAddress& src_addr,
+                                              std::map<StdSmcAddress, td::uint32>& sender_generated_messages_count,
+                                              bool has_unprocessed_deferred_messages, td::uint64 out_msg_queue_size,
+                                              size_t new_msgs_from_dispatch, bool is_special) {
   bool is_special_account = is_masterchain() && config_->is_special_smartcontract(src_addr);
   if (deferring_messages_enabled_ && params_.collator_opts->deferring_enabled && !is_special && !is_special_account &&
       !params_.collator_opts->whitelist.count({workchain(), src_addr}) && msg.msg_idx != 0) {
     if (++sender_generated_messages_count[src_addr] >= params_.collator_opts->defer_messages_after ||
-        out_msg_queue_size_ > defer_out_queue_size_limit_) {
+        out_msg_queue_size > defer_out_queue_size_limit_) {
       return " because account sent too many messages in this block";
     }
   }
   if (dispatch_queue_->lookup(src_addr).not_null() || has_unprocessed_deferred_messages) {
     return " because account dispatch queue is not empty";
   }
-  if (out_msg_queue_size_ + new_msgs_from_dispatch >= out_msg_queue_size_hard_limit_ && !is_special) {
+  if (out_msg_queue_size + new_msgs_from_dispatch >= out_msg_queue_size_hard_limit_ && !is_special) {
     return " due to out msg queue overflow";
   }
   return nullptr;
@@ -3509,8 +3512,8 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   const char* defer_reason = nullptr;
   if (!from_dispatch_queue) {
     defer_reason = check_message_deferring(msg, src_addr, sender_generated_messages_count_,
-                                          unprocessed_deferred_messages_.count(src_addr), new_msgs_from_dispatch,
-                                          is_special != nullptr);
+                                           unprocessed_deferred_messages_.count(src_addr), out_msg_queue_size_,
+                                           new_msgs_from_dispatch, is_special != nullptr);
   } else {
     auto& x = unprocessed_deferred_messages_[src_addr];
     FAIL_UNLESS_ERRCODE(x > 0, -1);
@@ -3603,10 +3606,6 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     if (!insert_out_msg(cb.finalize())) {
       return -1;
     }
-  }
-  // Admission for an epoch is checked by its coordinator after publication.
-  if (virtual_batch_publishing_) {
-    return 1;
   }
   // 7. check whether the block is full now
   if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
@@ -3993,8 +3992,7 @@ bool Collator::process_inbound_internal_messages() {
     stats_.load_fraction_internals = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
   };
   while (!nb_out_msgs_->is_eof()) {
-    block_full_ = virtual_shards_ ? virtual_shard_budget_exhausted(block::ParamLimits::cl_normal)
-                                  : !block_limit_status_->fits(block::ParamLimits::cl_normal);
+    block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
     auto kv = nb_out_msgs_->extract_cur();
     FAIL_UNLESS(kv && kv->msg.not_null());
     auto& neighbor_stats = stats_.neighbors.at(kv->source);
@@ -4138,9 +4136,6 @@ td::actor::Task<bool> Collator::process_inbound_external_messages() {
   }
   bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
   while (true) {
-    if (virtual_shards_) {
-      full = virtual_shard_budget_exhausted(block::ParamLimits::cl_soft);
-    }
     if (full) {
       LOG(INFO) << "BLOCK FULL, stop processing external messages";
       stats_.limits_log += PSTRING() << "INBOUND_EXT_MESSAGES: "
@@ -5796,8 +5791,9 @@ td::actor::Task<bool> Collator::create_shard_state() {
     };
   }
   LOG(INFO) << "creating Merkle update for the ShardState";
-  auto r_state_update = virtual_shards_ ? co_await generate_virtual_update().wrap()
-                                        : vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
+  auto r_state_update = virtual_shards_
+                            ? co_await generate_virtual_update().wrap()
+                            : vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
   if (r_state_update.is_error()) {
     co_return fatal_error("cannot create Merkle update for ShardState");
   }
@@ -6556,7 +6552,8 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> CollatorBase::creat
                                           &action_phase_cfg_, &serialize_cfg_, external, after_lt, &stats_);
 }
 
-td::Status CollatorBase::commit_transaction(block::transaction::Transaction& trans, block::Account& acc, bool with_gas) {
+td::Status CollatorBase::commit_transaction(block::transaction::Transaction& trans, block::Account& acc,
+                                            bool with_gas) {
   CHECK(&acc == &trans.account);
   if (!trans.update_limits(*block_limit_status_, with_gas)) {
     return td::Status::Error("cannot update block limit status to include the new transaction");
@@ -6582,8 +6579,10 @@ td::Status CollatorBase::commit_transaction(block::transaction::Transaction& tra
  * @returns A unique pointer to the created Account object, or nullptr if the creation failed.
  *          Returns an error if storage dictionary initialization failed.
  */
-td::Result<std::unique_ptr<block::Account>> CollatorBase::make_account_from(
-    td::ConstBitPtr addr, Ref<vm::CellSlice> account, bool force_create, const block::Config* config) {
+td::Result<std::unique_ptr<block::Account>> CollatorBase::make_account_from(td::ConstBitPtr addr,
+                                                                            Ref<vm::CellSlice> account,
+                                                                            bool force_create,
+                                                                            const block::Config* config) {
   CHECK(!shard_.is_masterchain() || config);
   if (account.is_null() && !force_create) {
     return nullptr;
@@ -6593,14 +6592,15 @@ td::Result<std::unique_ptr<block::Account>> CollatorBase::make_account_from(
     if (!ptr->init_new(now_)) {
       return nullptr;
     }
-  } else if (!ptr->unpack(std::move(account), now_, shard_.is_masterchain() && config->is_special_smartcontract(addr))) {
+  } else if (!ptr->unpack(std::move(account), now_,
+                          shard_.is_masterchain() && config->is_special_smartcontract(addr))) {
     return nullptr;
   }
   ptr->block_lt = start_lt;
-  auto status = init_account_storage_dict(*ptr, full_collated_data_ && !shard_.is_masterchain());
+  auto status = init_account_storage_dict(*ptr);
   if (status.is_error()) {
-    return status.move_as_error_prefix(PSTRING() << "Failed to init account storage dict for " << ptr->addr.to_hex()
-                                                << ": ");
+    return status.move_as_error_prefix(PSTRING()
+                                       << "Failed to init account storage dict for " << ptr->addr.to_hex() << ": ");
   }
   return ptr;
 }
@@ -6628,7 +6628,8 @@ block::Account* CollatorBase::lookup_account(td::ConstBitPtr addr) const {
  * @returns A Result object containing a pointer to the account if found or created successfully, or an error status.
  *          Returns nullptr if account does not exist and not force_create.
  */
-td::Result<block::Account*> CollatorBase::make_account(td::ConstBitPtr addr, bool force_create, const block::Config* config) {
+td::Result<block::Account*> CollatorBase::make_account(td::ConstBitPtr addr, bool force_create,
+                                                       const block::Config* config) {
   auto found = lookup_account(addr);
   if (found) {
     return found;
@@ -6700,7 +6701,7 @@ void CollatorBase::set_current_tx_storage_dict(const block::Account& account) {
  * @param account Account to initialize storage dict for
  * @return Result indicating the success or failure
  */
-td::Status CollatorBase::init_account_storage_dict(block::Account& account, bool build_proof) {
+td::Status CollatorBase::init_account_storage_dict(block::Account& account) {
   if (!account.storage_dict_hash || account.storage_dict_hash.value().is_zero() || account.storage.is_null()) {
     return td::Status::OK();
   }
@@ -6721,7 +6722,7 @@ td::Status CollatorBase::init_account_storage_dict(block::Account& account, bool
     ++stats_.storage_stat_cache.small_cnt;
     stats_.storage_stat_cache.small_cells += account.storage_used.cells;
   }
-  if (!build_proof) {
+  if (!full_collated_data_ || shard_.is_masterchain()) {
     return cached_dict_root.not_null() ? account.init_account_storage_stat(std::move(cached_dict_root))
                                        : td::Status::OK();
   }

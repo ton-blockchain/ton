@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
+
 #include "vm/boc.h"
 #include "vm/cells/CellUsageTree.h"
 
@@ -40,6 +42,14 @@ CellUsageTree::NodePtr CellUsageTree::NodePtr::create_child(unsigned ref_id, Ref
     return {};
   }
   return {tree_weak_, tree->create_child(node_id_, ref_id, std::move(cell))};
+}
+
+CellUsageTree* CellUsageTree::NodePtr::find_from_trees(td::Span<CellUsageTree*> trees) const {
+  auto tree = tree_weak_.lock();
+  if (tree && std::find(trees.begin(), trees.end(), tree.get()) != trees.end()) {
+    return tree.get();
+  }
+  return nullptr;
 }
 
 bool CellUsageTree::NodePtr::is_from_tree(const CellUsageTree* master_tree) const {
@@ -103,9 +113,10 @@ void CellUsageTree::mark_path(NodeId node_id) {
   }
 }
 
-void CellUsageTree::add_path_to_proof_stat(NodeId node_id, MerkleUpdateLeftStat& stat) const {
+void CellUsageTree::add_path_to_proof_stat(NodeId node_id, MerkleUpdateLeftStat& stat) {
   auto cur_node_id = get_parent(node_id);
-  while (cur_node_id != 0 && stat.visit_node(this, cur_node_id)) {
+  while (cur_node_id != 0 && !nodes_[cur_node_id].has_stat_mark) {
+    nodes_[cur_node_id].has_stat_mark = true;
     stat.add_loaded_cell(nodes_[cur_node_id].cell, nodes_[cur_node_id].merkle_depth);
     cur_node_id = get_parent(cur_node_id);
   }
