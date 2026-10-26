@@ -32,8 +32,7 @@ Everything else is opt-in (`--help`):
 
 - `--virtual-shards N` — address partitions: 0 (disabled, default) 
   or a power of two from 1 to 64. Use `--threads N` to set
-  scheduler threads. The wrapper also accepts `COLLATION_BENCH_VIRTUAL_SHARDS`
-  and passes the setting to corpus generation and all measured runs.
+  scheduler threads. 
 - `--workload W` — `jetton` (default): Wallet V5 jetton transfers, four
   transactions per transfer; `transfer`: plain non-bounceable W5 -> W5 TON
   transfers, two transactions per transfer. Both build the identical
