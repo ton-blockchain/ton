@@ -33,7 +33,10 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     auto& bus = *owning_bus();
 
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
-    auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
+    auto block_data =
+        create_block(block.id, block.data.clone(),
+                     event->candidate->roots.not_null() ? event->candidate->roots->block_root : td::Ref<vm::Cell>{})
+            .move_as_ok();
 
     bool is_leader = bus.is_validator() && event->candidate->leader == bus.local_id->idx;
 

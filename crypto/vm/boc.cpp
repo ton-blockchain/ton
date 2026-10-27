@@ -395,7 +395,7 @@ td::uint64 BagOfCells::compute_sizes(int mode, int& r_size, int& o_size) {
     r_size = o_size = 0;
     return 0;
   }
-  while (cell_count >= (1LL << (rs << 3))) {
+  while (std::max(cell_count, root_count) >= (1LL << (rs << 3))) {
     rs++;
   }
   td::uint64 hashes =
