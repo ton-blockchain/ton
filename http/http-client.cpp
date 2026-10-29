@@ -85,7 +85,8 @@ void HttpMultiClientImpl::send_request(
 
   class Cb : public HttpClient::Callback {
    public:
-    Cb(td::actor::ActorId<HttpMultiClientImpl> id) : id_(id) {
+    Cb(td::actor::ActorId<HttpMultiClientImpl> id, std::shared_ptr<HttpClient::Callback> callback)
+        : id_(id), callback_(std::move(callback)) {
     }
 
     void on_ready() override {
@@ -94,12 +95,17 @@ void HttpMultiClientImpl::send_request(
     void on_stop_ready() override {
     }
 
+    bool should_cancel_upload(const HttpResponse &response) const override {
+      return callback_->should_cancel_upload(response);
+    }
+
    private:
     td::actor::ActorId<HttpMultiClientImpl> id_;
+    std::shared_ptr<HttpClient::Callback> callback_;
   };
   auto conn =
       td::actor::create_actor<HttpOutboundConnection>(td::actor::ActorOptions().with_name("outconn").with_poll(),
-                                                      fd.move_as_ok(), std::make_shared<Cb>(actor_id(this)))
+                                                      fd.move_as_ok(), std::make_shared<Cb>(actor_id(this), callback_))
           .release();
   request->set_keep_alive(false);
   td::actor::send_closure(conn, &HttpOutboundConnection::send_query, std::move(request), std::move(payload), timeout,
