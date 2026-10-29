@@ -61,6 +61,10 @@ class Cell : public CellTraits {
   virtual CellUsageTree::NodePtr get_tree_node() const = 0;
   virtual bool is_loaded() const = 0;
 
+  virtual Ref<Cell> untrack() const {
+    return Ref<Cell>(this);
+  }
+
   // hash and level
   virtual LevelMask get_level_mask() const = 0;
 

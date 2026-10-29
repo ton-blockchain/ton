@@ -4156,6 +4156,28 @@ void Transaction::extract_out_msgs(std::vector<LtCellRef>& list) {
 }
 }  // namespace transaction
 
+Account::Checkpoint Account::checkpoint() const {
+  Checkpoint checkpoint;
+  checkpoint.state = static_cast<const AccountStateFields&>(*this);
+  checkpoint.transaction_count = transactions.size();
+  if (account_storage_stat) {
+    checkpoint.storage_stat = account_storage_stat.value().checkpoint();
+  }
+  return checkpoint;
+}
+
+void Account::rollback(Checkpoint&& checkpoint) {
+  CHECK(transactions.size() >= checkpoint.transaction_count);
+  static_cast<AccountStateFields&>(*this) = std::move(checkpoint.state);
+  transactions.resize(checkpoint.transaction_count);
+  if (!checkpoint.storage_stat) {
+    account_storage_stat = {};
+  } else {
+    CHECK(account_storage_stat);
+    account_storage_stat.value().rollback(checkpoint.storage_stat.unwrap());
+  }
+}
+
 /**
  * Adds a transaction to the account's transaction list.
  *
@@ -4182,12 +4204,20 @@ bool Account::create_account_block(vm::CellBuilder& cb) {
     return false;
   }
   vm::AugmentedDictionary dict{64, block::tlb::aug_AccountTransactions};
-  for (auto& z : transactions) {
-    if (!dict.set_ref(td::BitArray<64>{(long long)z.first}, z.second, vm::Dictionary::SetMode::Add)) {
-      LOG(ERROR) << "error creating the list of transactions for account " << addr.to_hex()
-                 << " : cannot add transaction with lt=" << z.first;
+  std::vector<td::BitArray<64>> keys(transactions.size());
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> values;
+  values.reserve(transactions.size());
+  for (size_t i = 0; i < transactions.size(); ++i) {
+    keys[i].store_ulong(transactions[i].first);
+    auto value = td::make_ref<vm::CellBuilder>();
+    if (!value.write().store_ref_bool(transactions[i].second)) {
       return false;
     }
+    values.emplace_back(keys[i].bits(), std::move(value));
+  }
+  if (!dict.multiset(values, vm::Dictionary::SetMode::Add)) {
+    LOG(ERROR) << "error creating the list of transactions for account " << addr.to_hex();
+    return false;
   }
   Ref<vm::Cell> dict_root = std::move(dict).extract_root_cell();
   // transactions:(HashmapAug 64 ^Transaction Grams)

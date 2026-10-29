@@ -62,7 +62,10 @@ class AccountStorageStat {
     return dict_up_to_date_;
   }
 
+  using Checkpoint = AccountStorageStat;
+  Checkpoint checkpoint() const;
   void apply_child_stat(AccountStorageStat &&child);
+  void rollback(Checkpoint &&checkpoint);
 
   static constexpr int errorcode_limits_exceeded = 999;
 
@@ -92,6 +95,7 @@ class AccountStorageStat {
 
   td::HashMap<vm::CellHash, Entry, std::hash<vm::CellHash>> cache_;
 
+  bool is_cache_valid() const;
   Entry &get_entry(const Ref<vm::Cell> &cell);
   td::Status fetch_from_dict(Entry &e);
   td::Status finalize_entry(Entry &e);

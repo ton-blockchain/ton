@@ -34,9 +34,11 @@ AccountStorageStat::AccountStorageStat(const AccountStorageStat* parent)
     , roots_(parent->roots_)
     , parent_(parent) {
   CHECK(parent_->parent_ == nullptr);
+  CHECK(parent_->is_cache_valid());
 }
 
 td::Status AccountStorageStat::replace_roots(std::vector<Ref<vm::Cell>> new_roots, bool check_merkle_depth) {
+  CHECK(is_cache_valid());
   std::erase_if(new_roots, [](const Ref<vm::Cell>& c) { return c.is_null(); });
   if (new_roots.empty()) {
     roots_.clear();
@@ -79,6 +81,7 @@ td::Status AccountStorageStat::replace_roots(std::vector<Ref<vm::Cell>> new_root
 }
 
 void AccountStorageStat::add_hint(const td::HashSet<vm::CellHash>& hint) {
+  CHECK(is_cache_valid());
   td::HashSet<vm::CellHash> visited;
   std::function<void(const Ref<vm::Cell>&, bool)> dfs = [&](const Ref<vm::Cell>& cell, bool is_root) {
     if (!visited.insert(cell->get_hash()).second) {
@@ -168,6 +171,7 @@ td::Status AccountStorageStat::remove_cell(const Ref<vm::Cell>& cell) {
 }
 
 td::Result<Ref<vm::Cell>> AccountStorageStat::get_dict_root() {
+  CHECK(is_cache_valid());
   if (!dict_up_to_date_) {
     std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> values;
     if (parent_ && !parent_->dict_up_to_date_) {
@@ -206,8 +210,23 @@ td::Result<Ref<vm::Cell>> AccountStorageStat::get_dict_root() {
   return dict_.get_root_cell();
 }
 
+AccountStorageStat::Checkpoint AccountStorageStat::checkpoint() const {
+  CHECK(parent_ == nullptr);
+  CHECK(is_cache_valid());
+  Checkpoint previous;
+  previous.dict_ = dict_;
+  previous.dict_up_to_date_ = dict_up_to_date_;
+  previous.total_cells_ = total_cells_;
+  previous.total_bits_ = total_bits_;
+  previous.roots_ = roots_;
+  return previous;
+}
+
 void AccountStorageStat::apply_child_stat(AccountStorageStat&& child) {
   CHECK(parent_ == nullptr);
+  CHECK(child.parent_ == nullptr || child.parent_ == this);
+  CHECK(is_cache_valid());
+  CHECK(child.is_cache_valid());
   if (child.parent_ == nullptr) {
     *this = std::move(child);
     return;
@@ -221,6 +240,19 @@ void AccountStorageStat::apply_child_stat(AccountStorageStat&& child) {
   for (auto& [hash, e] : child.cache_) {
     cache_[hash] = std::move(e);
   }
+}
+
+void AccountStorageStat::rollback(Checkpoint&& checkpoint) {
+  CHECK(parent_ == nullptr);
+  *this = std::move(checkpoint);
+}
+
+bool AccountStorageStat::is_cache_valid() const {
+  // Terminal rollback restores a checkpoint and invalidates the working cache;
+  // do not resume storage calculations afterwards.
+  // A deferred dict needs cached changes, possibly inherited from a parent.
+  // A ready dict can still be read by finalization and exported to StorageStatCache.
+  return dict_up_to_date_ || parent_ || !cache_.empty();
 }
 
 AccountStorageStat::Entry& AccountStorageStat::get_entry(const Ref<vm::Cell>& cell) {
