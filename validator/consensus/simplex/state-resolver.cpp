@@ -131,7 +131,8 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     if (candidate->is_empty()) {
       co_return co_await resolve_state(candidate->parent_id);
     }
-    auto gen_utime_exact = get_candidate_gen_utime_exact(std::get<BlockCandidate>(candidate->block)).move_as_ok();
+    auto gen_utime_exact =
+        get_candidate_gen_utime_exact(std::get<BlockCandidate>(candidate->block), candidate->roots).move_as_ok();
 
     if (is_finalized(*id)) {
       auto genesis = co_await genesis_.get();
@@ -142,7 +143,9 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
     auto prev_data_state = co_await resolve_state(candidate->parent_id);
     co_return ResolvedState{
-        .state = prev_data_state.state->apply(std::get<BlockCandidate>(candidate->block)),
+        .state = prev_data_state.state->apply(
+            std::get<BlockCandidate>(candidate->block),
+            candidate->roots.not_null() ? candidate->roots->block_root : td::Ref<vm::Cell>{}),
         .gen_utime_exact = gen_utime_exact,
     };
   }

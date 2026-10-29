@@ -22,6 +22,7 @@
 #include "interfaces/validator-manager.h"
 #include "td/actor/coro_utils.h"
 
+#include "candidate-roots.h"
 #include "validator.h"
 
 namespace ton {
@@ -74,6 +75,9 @@ struct ValidateParams {
   // Optional - if empty, states are taken from manager
   // If not empty, should be the same size as prev
   std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
+
+  // Optional roots retained from candidate deserialization
+  CandidateRootsRef candidate_roots = {};
 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
@@ -81,7 +85,8 @@ td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> man
 td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::ActorId<ValidatorManager> manager,
                                                                    std::string db_root);
 
-td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data);
+// If supplied, root must have been decoded from data.
+td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data, td::Ref<vm::Cell> root = {});
 td::Result<td::Ref<BlockData>> create_block(ReceivedBlock data);
 td::Result<td::Ref<Proof>> create_proof(BlockIdExt masterchain_block_id, td::BufferSlice proof);
 td::Result<td::Ref<ProofLink>> create_proof_link(BlockIdExt block_id, td::BufferSlice proof);

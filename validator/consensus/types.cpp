@@ -9,8 +9,8 @@
 #include "td/utils/overloaded.h"
 
 #include "bus.h"
-#include "checksum.h"
 #include "payload.h"
+#include "types.h"
 
 namespace ton::validator::consensus {
 
@@ -167,6 +167,7 @@ td::Result<CandidateRef> Candidate::deserialize_data(tl::CandidateDataRef broadc
     std::variant<BlockIdExt, BlockCandidate> block;
     td::BufferSlice signature;
     CandidateHashData hash_builder;
+    CandidateRootsRef roots;
   };
   td::Result<ExtractedData> maybe_data;
 
@@ -194,6 +195,7 @@ td::Result<CandidateRef> Candidate::deserialize_data(tl::CandidateDataRef broadc
         .block = block,
         .signature = std::move(empty_broadcast.signature_),
         .hash_builder = CandidateHashData::create_empty(block, parent),
+        .roots = {},
     };
   };
 
@@ -201,8 +203,9 @@ td::Result<CandidateRef> Candidate::deserialize_data(tl::CandidateDataRef broadc
     auto slot = static_cast<td::uint32>(block_broadcast.slot_);
     TRY_STATUS(set_check_leader(slot));
 
-    TRY_RESULT(candidate, deserialize_payload(block_broadcast.candidate_,
-                                              bus.config.max_block_size + bus.config.max_collated_data_size + 1024));
+    TRY_RESULT(decoded, deserialize_payload(block_broadcast.candidate_,
+                                            bus.config.max_block_size + bus.config.max_collated_data_size + 1024));
+    auto& candidate = decoded.payload;
 
     if (!candidate->src_.is_zero()) {
       return td::Status::Error("src field of the candidate broadcast must be null");
@@ -217,10 +220,10 @@ td::Result<CandidateRef> Candidate::deserialize_data(tl::CandidateDataRef broadc
     BlockIdExt block_id{
         BlockId{bus.shard, static_cast<BlockSeqno>(candidate->round_)},
         candidate->root_hash_,
-        td::sha256_bits256(candidate->data_.as_slice()),
+        decoded.roots->block_file_hash,
     };
 
-    auto collated_file_hash = td::sha256_bits256(candidate->collated_data_.as_slice());
+    auto collated_file_hash = decoded.roots->collated_file_hash;
 
     Ed25519_PublicKey creator{leader.key.ed25519_value().raw()};
 
@@ -236,6 +239,7 @@ td::Result<CandidateRef> Candidate::deserialize_data(tl::CandidateDataRef broadc
         .block = std::move(block),
         .signature = std::move(block_broadcast.signature_),
         .hash_builder = hash_builder,
+        .roots = std::move(decoded.roots),
     };
   };
 
@@ -256,7 +260,7 @@ td::Result<CandidateRef> Candidate::deserialize_data(tl::CandidateDataRef broadc
   }
 
   return td::make_ref<Candidate>(id, parsed.parent_id, leader.idx, std::move(parsed.block), std::move(parsed.signature),
-                                 std::move(delegation));
+                                 std::move(delegation), std::move(parsed.roots));
 }
 
 BlockIdExt Candidate::block_id() const {
@@ -283,8 +287,10 @@ tl::CandidateDataRef Candidate::to_data_tl() const {
         td::Bits256{}, candidate.id.seqno(), candidate.id.root_hash, candidate.data.clone(),
         candidate.collated_data.clone());
 
-    return create_tl_object<tl::block>(id.slot, CandidateId::parent_id_to_tl(parent_id),
-                                       serialize_payload(candidate_tl).move_as_ok(), signature.clone());
+    return create_tl_object<tl::block>(
+        id.slot, CandidateId::parent_id_to_tl(parent_id),
+        serialize_payload(DeserializedPayload{.payload = std::move(candidate_tl), .roots = roots}).move_as_ok(),
+        signature.clone());
   };
   return std::visit(td::overloaded(empty_fn, block_fn), block);
 }

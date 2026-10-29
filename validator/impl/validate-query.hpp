@@ -166,6 +166,7 @@ class ValidateQuery : public td::actor::Actor {
   int shard_pfx_len_;
   td::Bits256 created_by_;
   std::vector<Ref<vm::Cell>> preloaded_prev_block_state_roots_;
+  CandidateRootsRef candidate_roots_;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;
