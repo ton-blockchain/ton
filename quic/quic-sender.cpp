@@ -1,24 +1,17 @@
+#include <algorithm>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "auto/tl/ton_api.hpp"
+#include "auto/tl/tonlib_api.h"
 #include "td/actor/coro_utils.h"
-#include "td/utils/Heap.h"
 #include "td/utils/as.h"
 
 #include "quic-pimpl.h"
 #include "quic-sender.h"
 
 namespace ton::quic {
-
-static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key) {
-  if (peer_public_key.size() != 32) {
-    return td::Status::Error("peer public key must be 32 bytes");
-  }
-  td::Bits256 key_bits;
-  key_bits.as_slice().copy_from(peer_public_key);
-  return adnl::AdnlNodeIdFull(PublicKey(pubkeys::Ed25519(key_bits))).compute_short_id();
-}
 
 static td::Status connection_wait_timeout() {
   return td::Status::Error(ErrorCode::timeout, "timeout while waiting for a connection");
@@ -29,47 +22,24 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   explicit ServerCallback(td::actor::ActorId<QuicSender> sender) : sender_(sender) {
   }
 
-  td::Status on_connected(QuicConnectionId cid, td::SecureString local_public_key, td::SecureString peer_public_key,
-                          bool is_outbound) override {
-    TRY_RESULT(peer_id, parse_peer_id(peer_public_key));
-    TRY_RESULT(local_id, parse_peer_id(local_public_key));
-    auto &conn = connections_[cid];
-    conn.local_id = local_id;
-    conn.peer_id = peer_id;
-    td::actor::send_closure(sender_, &QuicSender::on_connected, server_actor(), cid, local_id, peer_id, is_outbound);
+  td::Status on_connected(QuicConnectionId cid, adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
+                          bool is_outbound, QuicServer::PeerMtuInfo peer_info) override {
+    td::actor::send_closure(sender_, &QuicSender::on_connected, server_actor(), cid, local_id, peer_id, is_outbound,
+                            peer_info);
     return td::Status::OK();
   }
 
-  td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
-    auto connection_it = connections_.find(cid);
-    if (connection_it == connections_.end()) {
-      return td::Status::Error("unknown connection");
-    }
-    auto &connection = connection_it->second;
-    if (!is_end) {
-      return buffer_nonfinal(connection, cid, sid, std::move(data));
-    }
-
-    auto stream_it = connection.streams.find(sid);
-    if (stream_it == connection.streams.end()) {
-      StreamOptions options{get_peer_mtu_(connection.local_id, connection.peer_id)};
-      return complete_direct(cid, sid, options, std::move(data));
-    }
-    if (stream_it->second.can_complete_direct()) {
-      auto options = stream_it->second.options();
-      erase_stream(connection, stream_it);
-      return complete_direct(cid, sid, options, std::move(data));
-    }
-    return complete_buffered(connection, stream_it, std::move(data));
+  // The FloodGuard reassembles and flood-accounts; we forward each complete admitted message (or the
+  // failure that ended the stream) straight onto the sender's stream-completion path.
+  void on_message(QuicConnectionId cid, QuicStreamID sid, td::Result<td::BufferSlice> message) override {
+    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, server_actor(), cid, sid, std::move(message));
   }
 
   void on_closed(QuicConnectionId cid) override {
-    erase_connection(cid);
     td::actor::send_closure(sender_, &QuicSender::on_closed, cid);
   }
   void on_stream_closed(QuicConnectionId cid, StreamCloseEvent event) override {
     if (event.initiator == StreamInitiator::Peer) {
-      erase_stream(cid, event.sid);
       if (event.direction == StreamDirection::Unidirectional) {
         // This lands behind the payload in QuicSender's mailbox; only then may the peer reuse the
         // stream credit.
@@ -83,38 +53,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       return;
     }
 
-    erase_stream(cid, event.sid);
     td::actor::send_closure(sender_, &QuicSender::on_local_bidi_stream_closed, cid, event.sid);
-  }
-
-  void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
-    auto connection_it = connections_.find(cid);
-    if (connection_it == connections_.end()) {
-      return;
-    }
-    auto stream_it = connection_it->second.streams.try_emplace(sid, cid, sid).first;
-    apply_stream_options(stream_it->second, options);
-  }
-
-  void loop(td::Timestamp now, StreamShutdownList &shutdown) override {
-    while (!timeout_heap_.empty() && td::Timestamp::at(timeout_heap_.top_key()).is_in_past(now)) {
-      auto *state = static_cast<StreamState *>(timeout_heap_.pop());
-      if (!state->is_failed()) {
-        fail_stream(*state, state->timeout_error());
-        shutdown.entries.push_back({state->cid, state->sid});
-      }
-    }
-  }
-
-  td::Timestamp next_alarm() const override {
-    if (timeout_heap_.empty()) {
-      return td::Timestamp::never();
-    }
-    return td::Timestamp::at(timeout_heap_.top_key());
-  }
-
-  void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> f) override {
-    get_peer_mtu_ = std::move(f);
   }
 
  private:
@@ -125,209 +64,8 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     return server_;
   }
 
-  struct StreamState : public td::HeapNode {
-    QuicConnectionId cid;
-    QuicStreamID sid;
-
-    StreamState(QuicConnectionId cid, QuicStreamID sid) : cid(cid), sid(sid) {
-    }
-
-    td::Status append(td::BufferSlice data) {
-      CHECK(!failed_);
-      received_size_ += data.size();
-      if (options_.max_size.has_value() && received_size_ > options_.max_size) {
-        return stream_size_error(options_, received_size_);
-      }
-      if (!data.empty()) {
-        chunks_.push_back(std::move(data));
-      }
-      return td::Status::OK();
-    }
-
-    bool is_failed() const {
-      return failed_;
-    }
-
-    void mark_failed() {
-      failed_ = true;
-      chunks_ = std::vector<td::BufferSlice>();
-    }
-
-    td::Status timeout_error() const {
-      return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
-                                        << "s received=" << received_size_ << describe_query(options_));
-    }
-
-    td::BufferSlice take_payload() {
-      CHECK(!failed_);
-      CHECK(!chunks_.empty());
-      CHECK(received_size_ != 0);
-      td::BufferSlice result;
-      if (chunks_.size() == 1) {
-        result = std::move(chunks_.front());
-      } else {
-        result = td::BufferSlice(static_cast<size_t>(received_size_));
-        auto dest = result.as_slice();
-        for (const auto &chunk : chunks_) {
-          dest.copy_from(chunk.as_slice());
-          dest.remove_prefix(chunk.size());
-        }
-        CHECK(dest.empty());
-      }
-      chunks_.clear();
-      received_size_ = 0;
-      return result;
-    }
-
-    void set_options(StreamOptions options) {
-      options_ = options;
-    }
-
-    const StreamOptions &options() const {
-      return options_;
-    }
-
-    // Holds options only: no chunk has been buffered, so the whole payload can bypass this state.
-    bool can_complete_direct() const {
-      return !failed_ && received_size_ == 0;
-    }
-
-   private:
-    std::vector<td::BufferSlice> chunks_;
-    td::uint64 received_size_{0};
-    StreamOptions options_;
-    bool failed_{false};
-  };
-
-  // An inbound stream answers no query of ours, so there is nothing to name.
-  static std::string describe_query(const StreamOptions &options) {
-    if (options.query_magic == 0) {
-      return {};
-    }
-    return PSTRING() << " query_size=" << options.query_size << " query_tl=" << metrics::tl_name(options.query_magic);
-  }
-
-  // One spelling of the limit error for both the single-chunk and the reassembly path.
-  static td::Status stream_size_error(const StreamOptions &options, td::uint64 received) {
-    return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options.max_size
-                                      << " received=" << received << describe_query(options));
-  }
-
   td::actor::ActorId<QuicSender> sender_;
   td::actor::ActorId<QuicServer> server_;
-
-  struct Connection {
-    using Streams = std::map<QuicStreamID, StreamState>;
-
-    adnl::AdnlNodeIdShort local_id;
-    adnl::AdnlNodeIdShort peer_id;
-    Streams streams;
-  };
-  // Node-based: StreamState lives in these Connections and the timeout heap holds raw pointers to
-  // it, and callers hold a Connection& across stream work, so entries must not move.
-  td::NodeHashMap<QuicConnectionId, Connection> connections_;
-  td::KHeap<double> timeout_heap_;
-  std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> get_peer_mtu_;
-
-  td::Status append_chunk(StreamState &state, td::BufferSlice data) {
-    if (state.is_failed()) {
-      LOG(INFO) << "got data for closed stream, ignore cid=" << state.cid << " sid=" << state.sid;
-      return td::Status::Error("stream failed");
-    }
-    auto status = state.append(std::move(data));
-    if (status.is_error()) {
-      LOG(INFO) << "close stream cid=" << state.cid << " sid=" << state.sid << " due to " << status.error();
-      fail_stream(state, status.clone());
-    }
-    return status;
-  }
-
-  td::Status buffer_nonfinal(Connection &connection, QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) {
-    auto [stream_it, inserted] = connection.streams.try_emplace(sid, cid, sid);
-    if (inserted) {
-      // Inbound stream: nothing has described it, so it is bounded by the peer's MTU.
-      apply_stream_options(stream_it->second, StreamOptions{get_peer_mtu_(connection.local_id, connection.peer_id)});
-    }
-    return append_chunk(stream_it->second, std::move(data));
-  }
-
-  td::Status complete_buffered(Connection &connection, Connection::Streams::iterator stream_it, td::BufferSlice data) {
-    auto status = append_chunk(stream_it->second, std::move(data));
-    if (status.is_error()) {
-      return status;
-    }
-    auto cid = stream_it->second.cid;
-    auto sid = stream_it->second.sid;
-    auto result = stream_it->second.take_payload();
-    erase_stream(connection, stream_it);
-    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(result));
-    return td::Status::OK();
-  }
-
-  td::Status complete_direct(QuicConnectionId cid, QuicStreamID sid, const StreamOptions &options,
-                             td::BufferSlice data) {
-    if (options.max_size.has_value() && data.size() > options.max_size) {
-      auto error = stream_size_error(options, data.size());
-      LOG(INFO) << "close stream cid=" << cid << " sid=" << sid << " due to " << error;
-      td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, error.clone());
-      return error;
-    }
-    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(data));
-    return td::Status::OK();
-  }
-
-  void erase_stream(Connection &connection, Connection::Streams::iterator stream_it) {
-    if (stream_it->second.in_heap()) {
-      timeout_heap_.erase(&stream_it->second);
-    }
-    connection.streams.erase(stream_it);
-  }
-
-  void erase_stream(QuicConnectionId cid, QuicStreamID sid) {
-    auto cid_it = connections_.find(cid);
-    if (cid_it == connections_.end()) {
-      return;
-    }
-    auto sid_it = cid_it->second.streams.find(sid);
-    if (sid_it == cid_it->second.streams.end()) {
-      return;
-    }
-    erase_stream(cid_it->second, sid_it);
-  }
-
-  void erase_connection(QuicConnectionId cid) {
-    auto it = connections_.find(cid);
-    if (it == connections_.end()) {
-      return;
-    }
-    for (auto &[sid, state] : it->second.streams) {
-      if (state.in_heap()) {
-        timeout_heap_.erase(&state);
-      }
-    }
-    connections_.erase(it);
-  }
-
-  void apply_stream_options(StreamState &state, const StreamOptions &options) {
-    state.set_options(options);
-    if (options.timeout) {
-      if (state.in_heap()) {
-        timeout_heap_.fix(options.timeout.at(), &state);
-      } else {
-        timeout_heap_.insert(options.timeout.at(), &state);
-      }
-    } else if (state.in_heap()) {
-      timeout_heap_.erase(&state);
-    }
-  }
-
-  void fail_stream(StreamState &state, td::Status error) {
-    if (state.in_heap()) {
-      timeout_heap_.erase(&state);
-    }
-    state.mark_failed();
-    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, state.cid, state.sid, std::move(error));
-  }
 };
 
 td::Result<td::IPAddress> QuicSender::get_ip_address(const adnl::AdnlNode &node) {
@@ -352,11 +90,16 @@ td::Result<td::IPAddress> QuicSender::get_ip_address(const adnl::AdnlNode &node)
 }
 
 QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
-                       QuicServer::Options options)
+                       QuicServer::Options options, FloodLimits flood_limits)
     : AdnlSenderEx(/* default_mtu = */ adnl::Adnl::get_mtu())
     , adnl_(std::move(adnl))
     , keyring_(std::move(keyring))
-    , server_options_(options) {
+    , server_options_(options)
+    , flood_limits_(flood_limits) {
+  // Our outbound connections carry only the streams we open; the peer replies on them and never
+  // opens its own. Advertise no peer-stream credit so the transport layer refuses any it tries.
+  server_options_.outbound_max_peer_streams_bidi = 0;
+  server_options_.outbound_max_peer_streams_uni = 0;
 }
 
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
@@ -365,7 +108,8 @@ void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort d
 
 void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
                             td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) {
-  connect(std::move(promise), send_query_coro(src, dst, std::move(name), timeout, std::move(data), std::nullopt));
+  connect(std::move(promise),
+          send_query_coro(src, dst, std::move(name), timeout, std::move(data), flood_limits_.default_max_answer_size));
 }
 
 void QuicSender::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -381,6 +125,15 @@ void QuicSender::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdSho
 
 void QuicSender::set_quic_options(QuicServer::Options options) {
   server_options_ = options;
+  server_options_.outbound_max_peer_streams_bidi = 0;  // see constructor
+  server_options_.outbound_max_peer_streams_uni = 0;
+}
+
+void QuicSender::set_reserved_only(bool reserved_only) {
+  reserved_only_ = reserved_only;
+  for (auto &[port, server] : servers_by_port_) {
+    td::actor::send_closure(server, &QuicServer::set_reserved_only, reserved_only);
+  }
 }
 
 void QuicSender::add_id(adnl::AdnlNodeIdShort local_id) {
@@ -436,6 +189,15 @@ td::actor::Task<> QuicSender::collect(metrics::Context ctx) {
   co_return {};
 }
 
+td::actor::Task<bool> QuicSender::has_peer_connection(adnl::AdnlNodeIdShort peer_id) {
+  for (const auto &[cid, connection] : by_cid_) {
+    if (connection->path.second == peer_id) {
+      co_return true;
+    }
+  }
+  co_return false;
+}
+
 void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
                                 td::optional<adnl::AdnlNodeIdShort> peer_id) {
   if (!local_id) {
@@ -458,7 +220,8 @@ void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
     update_trust(outbound_);
 
     if (auto it = servers_by_id_.find(local_id.value()); it != servers_by_id_.end()) {
-      td::actor::send_closure(it->second, &QuicServer::set_peer_mtu, local_id.value(), peer_id.value(), peer_mtu.mtu);
+      td::actor::send_closure(it->second, &QuicServer::set_peer_mtu, local_id.value(), peer_id.value(), peer_mtu.mtu,
+                              peer_mtu.trusted);
     }
     return;
   }
@@ -472,6 +235,12 @@ QuicSender::Connection::~Connection() {
   for (auto &[_, query] : responses) {
     query.promise.set_error(td::Status::Error("connection closed"));
   }
+}
+
+void QuicSender::start_up() {
+  AdnlSenderInterface::start_up();
+  next_dial_backoff_gc_ = td::Timestamp::in(kDialBackoffGcPeriod);
+  update_waiter_alarm();
 }
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
@@ -529,11 +298,7 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   peer_metrics_.at(trust).app.record(metrics::Kind::query, metrics::Direction::out, magic, data.size());
   // Connection setup is excluded from round-trip latency, but not from the caller's deadline.
   conn = co_await wait_connection_ready(std::move(conn), timeout);
-  StreamOptions options{.max_size = limit,
-                        .timeout = timeout,
-                        .timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0,
-                        .query_size = data.size(),
-                        .query_magic = magic};
+  StreamOptions options{.max_size = limit, .deadline = timeout, .query_size = data.size(), .query_magic = magic};
   td::Timer timer;
   auto result = co_await send_query_coro_inner(std::move(conn), options, std::move(data), trust).wrap();
   peer_metrics_.at(trust).query_roundtrip.record(magic, dst, timer.elapsed(), result.is_ok());
@@ -581,7 +346,7 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
     server = it->second.get();
     td::actor::send_closure(server, &QuicServer::set_default_mtu, local_id, default_mtu);
     for (const auto &[peer_id, peer_mtu] : peers_mtu) {
-      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, peer_mtu.mtu);
+      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, peer_mtu.mtu, peer_mtu.trusted);
     }
     td::actor::send_closure(server, &QuicServer::add_identity, local_id,
                             td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()));
@@ -589,11 +354,14 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
     auto identity = ServerIdentity{.local_id = local_id,
                                    .key = td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string())};
     auto owned = co_await QuicServer::create(port, std::make_unique<ServerCallback>(actor_id(this)), default_mtu,
-                                             std::move(identity), "ton", "0.0.0.0", server_options_);
+                                             std::move(identity), "ton", "0.0.0.0", server_options_, flood_limits_);
     server = owned.get();
     servers_by_port_[port] = std::move(owned);
+    if (reserved_only_) {
+      td::actor::send_closure(server, &QuicServer::set_reserved_only, true);
+    }
     for (const auto &[peer_id, peer_mtu] : peers_mtu) {
-      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, peer_mtu.mtu);
+      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, peer_mtu.mtu, peer_mtu.trusted);
     }
   }
   servers_by_id_[local_id] = server;
@@ -628,6 +396,19 @@ td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::wait_connec
   if (connection->is_ready) {
     co_return connection;
   }
+  bool start_init = false;
+  if (!connection->init_started) {
+    // No dial is in flight. Fail fast during backoff, but remove the placeholder so a later caller
+    // can create a fresh connection once the window elapses.
+    if (auto status = dial_backoff_.check(connection->path); status.is_error()) {
+      auto it = outbound_.find(connection->path);
+      if (it != outbound_.end() && it->second == connection) {
+        outbound_.erase(it);
+      }
+      co_return std::move(status);
+    }
+    start_init = true;
+  }
   auto [future, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
   auto &waiting = connection->waiting_ready;
   CHECK(waiting.size() <= Connection::MAX_WAITERS);
@@ -642,7 +423,7 @@ td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::wait_connec
   }
   update_waiter_alarm();
 
-  if (!connection->init_started) {
+  if (start_init) {
     connection->init_started = true;
     init_connection(connection->path, connection).start().detach("init connection");
   }
@@ -671,7 +452,10 @@ td::Promise<td::Unit> QuicSender::take_waiter(Waiter &waiter) {
 }
 
 void QuicSender::update_waiter_alarm() {
-  alarm_timestamp() = waiter_timeouts_.empty() ? td::Timestamp::never() : waiter_timeouts_.top_key();
+  alarm_timestamp() = next_dial_backoff_gc_;
+  if (!waiter_timeouts_.empty()) {
+    alarm_timestamp().relax(waiter_timeouts_.top_key());
+  }
 }
 
 td::actor::Task<td::Unit> QuicSender::init_connection(AdnlPath path, std::shared_ptr<Connection> connection) {
@@ -679,6 +463,7 @@ td::actor::Task<td::Unit> QuicSender::init_connection(AdnlPath path, std::shared
   if (result.is_error()) {
     // failed before any quic connection has been created
     LOG(WARNING) << "Failed to init connection: " << path << " " << result.error();
+    dial_backoff_.on_failure(path, result.error());
     CHECK(outbound_.erase(path) == 1);
     finish_connection_init(connection, result.move_as_error());
   }
@@ -733,6 +518,10 @@ void QuicSender::finish_connection_init(const std::shared_ptr<Connection> &conne
 void QuicSender::alarm() {
   std::vector<td::Promise<td::Unit>> expired;
   auto now = td::Timestamp::now();
+  if (next_dial_backoff_gc_.is_in_past(now)) {
+    dial_backoff_.gc();
+    next_dial_backoff_gc_ = td::Timestamp::in(kDialBackoffGcPeriod);
+  }
   while (!waiter_timeouts_.empty() && waiter_timeouts_.top_key().is_in_past(now)) {
     expired.push_back(take_waiter(*static_cast<Waiter *>(waiter_timeouts_.pop())));
   }
@@ -772,7 +561,7 @@ td::Result<td::Unit> QuicSender::on_connected_inner(td::actor::ActorId<QuicServe
   }
 
   // Close existing inbound connection for same path if any
-  LOG(ERROR) << "Create inbound " << path;
+  LOG_EVERY(ERROR) << "Create inbound " << path;
   if (auto old_it = inbound_.find(path); old_it != inbound_.end()) {
     auto old_conn = old_it->second;
     td::actor::send_closure(old_conn->server, &QuicServer::on_connection_closed, old_conn->cid);
@@ -791,7 +580,8 @@ td::Result<td::Unit> QuicSender::on_connected_inner(td::actor::ActorId<QuicServe
 }
 
 void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
-                              adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, bool is_outbound) {
+                              adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, bool is_outbound,
+                              QuicServer::PeerMtuInfo peer_info) {
   std::shared_ptr<Connection> connection;
   auto reject_reason = metrics::Reason::invalid;
   auto result = on_connected_inner(server, cid, local_id, peer_id, is_outbound, connection, reject_reason);
@@ -811,70 +601,105 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
   }
 
   CHECK(connection);
+  connection->trust = peer_info.trusted ? Trust::trusted : Trust::untrusted;
   connection->is_ready = true;
   td::actor::send_closure(server, &QuicServer::record_handshake_completed, is_outbound);
+  if (is_outbound) {
+    dial_backoff_.on_success(AdnlPath{local_id, peer_id});  // a successful dial clears the backoff
+  }
   finish_connection_init(connection, td::Unit{});
 }
 
-void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> r_data) {
-  auto it = by_cid_.find(cid);
-  if (it == by_cid_.end()) {
-    LOG(ERROR) << "Unknown CID:" << cid << " SID:" << stream_id;
+void QuicSender::invalid_message(std::shared_ptr<Connection> connection, QuicStreamID stream_id, td::Slice data) {
+  LOG_EVERY(ERROR) << "unexpected message on " << (connection->is_outbound ? "outbound" : "inbound")
+                   << " connection CID:" << connection->cid << " SID:" << stream_id << " size:" << data.size()
+                   << " tl:" << metrics::tl_name(data) << " head:" << td::format::as_hex_dump<4>(data.truncate(32));
+}
+void QuicSender::on_stream_complete_inbound(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                            td::Result<td::BufferSlice> r_data) {
+  CHECK(connection->is_ready);
+  if (r_data.is_error()) {
+    // No shutdown here: whoever failed the stream already reset it — the deadline path resets
+    // directly, and a limit violation returns an error to the transport, which resets.
+    LOG_EVERY(ERROR) << "Failed to read request stream: " << connection->path << " " << r_data.error();
+  } else if (auto req_R = fetch_tl_object<ton_api::quic_Request>(r_data.ok().clone(), true); req_R.is_ok()) {
+    auto request = req_R.move_as_ok();
+    ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
+  } else {
+    invalid_message(connection, stream_id, r_data.ok());
+    td::actor::send_closure(connection->server, &QuicServer::shutdown_stream, connection->cid, stream_id);
+  }
+}
+
+void QuicSender::on_stream_complete_outbound(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                             td::Result<td::BufferSlice> r_data) {
+  if (!connection->is_ready) {
+    LOG_EVERY(ERROR) << "drop stream from unauthenticated connection CID:" << connection->path << " SID:" << stream_id;
     return;
   }
-  auto connection = it->second;
-  // Never attribute peer data until the handshake identity has been accepted.
-  if (!connection->is_ready || connection->init_error) {
-    LOG(ERROR) << "drop data from unauthenticated connection CID:" << cid << " SID:" << stream_id;
+  auto resp_it = connection->responses.find(stream_id);
+  if (resp_it == connection->responses.end()) {
+    // Legacy-bidi send_message streams register no response: the peer answers with an empty fin (or
+    // the stream errors) and completes here with nothing pending. Not an error — the query path
+    // registers a response entry, this one does not, so there is nothing to deliver. That empty fin
+    // is the message's receipt, so it closes the confirmation entry here.
+    record_message_confirmation(*connection, stream_id, r_data.is_ok());
     return;
   }
 
   if (r_data.is_error()) {
-    record_message_confirmation(*connection, stream_id, false);
-    auto resp_it = connection->responses.find(stream_id);
-    if (resp_it != connection->responses.end()) {
-      resp_it->second.promise.set_error(r_data.move_as_error());
-      connection->responses.erase(resp_it);
-    }
-    return;
+    auto error = r_data.move_as_error();
+    LOG_EVERY(ERROR) << "Failed to read response stream: " << connection->path << " " << error;
+    resp_it->second.promise.set_error(std::move(error));
+  } else if (auto answer_R = fetch_tl_object<ton_api::quic_answer>(r_data.ok().clone(), true); answer_R.is_ok()) {
+    auto answer = answer_R.move_as_ok();
+    peer_metrics_.at(resp_it->second.trust)
+        .app.record(metrics::Kind::answer, metrics::Direction::in, answer->data_.as_slice());
+    resp_it->second.promise.set_value(std::move(answer->data_));
+  } else {
+    invalid_message(connection, stream_id, r_data.ok());
+    resp_it->second.promise.set_error(td::Status::Error("Invalid answer"));
   }
+  connection->responses.erase(resp_it);
+  // No shutdown needed: the query was sent with fin and a complete answer means the peer fin'd
+  // too, so the stream retires on its own (unlike the inbound garbage path above).
+}
 
-  auto data = r_data.move_as_ok();
-  if (stream_id < 0) {
-    if (!connection->is_outbound) {
-      auto message = fetch_tl_object<ton_api::quic_message>(std::move(data), true);
-      if (message.is_ok()) {
-        on_request(std::move(connection), stream_id, *message.ok());
-      }
+void QuicSender::on_stream_complete(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, QuicStreamID stream_id,
+                                    td::Result<td::BufferSlice> r_data) {
+  // Never attribute peer data until the handshake identity has been accepted. A dropped stream is
+  // still finished, or the guard would hold its in-flight charge forever.
+  auto it = by_cid_.find(cid);
+  if (it == by_cid_.end() || !it->second->is_ready || it->second->init_error) {
+    LOG_EVERY(ERROR) << "drop stream from unknown or unauthenticated connection CID:" << cid << " SID:" << stream_id;
+    if (stream_id >= 0) {
+      td::actor::send_closure(server, &QuicServer::shutdown_stream, cid, stream_id);
     }
     return;
   }
-  if (data.empty()) {
-    record_message_confirmation(*connection, stream_id, true);
-    return;  // a legacy bidi message triggers an empty response as its confirmation
+  auto connection = it->second;
+
+  // An RFC 9221 datagram (pseudo-sid -1) carries a fire-and-forget message and nothing else; it is
+  // accepted only where requests are, on inbound connections.
+  if (stream_id < 0) {
+    if (connection->is_outbound || r_data.is_error()) {
+      return;
+    }
+    auto message = fetch_tl_object<ton_api::quic_message>(r_data.move_as_ok(), true);
+    if (message.is_ok()) {
+      on_request(std::move(connection), stream_id, *message.ok());
+    }
+    return;
   }
 
   // Requests are accepted only on inbound connections, answers only on outbound ones: an outbound
   // connection carries our own queries, so a request arriving on it (or an answer on an inbound one)
   // is misdirected.
-  if (!connection->is_outbound) {
-    auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
-    if (req_R.is_ok()) {
-      auto request = req_R.move_as_ok();
-      ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
-      return;
-    }
+  if (connection->is_outbound) {
+    on_stream_complete_outbound(connection, stream_id, std::move(r_data));
   } else {
-    auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
-    if (answer_R.is_ok()) {
-      on_answer(*connection, stream_id, *answer_R.move_as_ok());
-      return;
-    }
+    on_stream_complete_inbound(connection, stream_id, std::move(r_data));
   }
-
-  LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
-             << " tl:" << metrics::tl_name(data.as_slice())
-             << " head:" << td::format::as_hex_dump<4>(data.as_slice().truncate(32));
 }
 
 void QuicSender::return_peer_uni_stream_credit(td::actor::ActorId<QuicServer> server, QuicConnectionId cid) {
@@ -941,6 +766,11 @@ void QuicSender::on_closed(QuicConnectionId cid) {
   }
 
   auto status = std::move(connection->init_error).value_or(td::Status::Error("connection closed"));
+  // An outbound connection that closed before it ever became ready is a failed dial (handshake
+  // failure or a peer close mid-handshake) — back it off. A ready connection closing later is normal.
+  if (connection->is_outbound && !connection->is_ready) {
+    dial_backoff_.on_failure(path, status);
+  }
   finish_connection_init(connection, std::move(status));
 }
 
@@ -953,41 +783,67 @@ void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID
                             ton_api::quic_message &message) {
   peer_metrics_.at(connection->trust)
       .app.record(metrics::Kind::message, metrics::Direction::in, message.data_.as_slice());
-  // A message on a bidirectional stream (an old peer, or message_streams_bidi) accounts delivery by
-  // our half closing: without the empty receipt its stream state and credit never return -- and
-  // sending it here, once this actor has taken the message, is what makes the peer's budget real
-  // backpressure. A unidirectional stream is already closed by the time we get here, so its credit
-  // is returned instead by on_stream_closed, the message behind it in this actor's mailbox.
-  if (stream_id >= 0 && ngtcp2_is_bidi_stream(stream_id)) {
-    td::actor::send_closure(connection->server, &QuicServer::send_stream, connection->cid, stream_id, td::BufferSlice{},
-                            true);
+  on_inbound_message(connection, stream_id, std::move(message.data_)).start_immediate().detach();
+}
+
+td::actor::Task<> QuicSender::on_inbound_message(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                                 td::BufferSlice data) {
+  // Hold the stream (and its in-flight charge) until the message is actually delivered, not just
+  // enqueued — otherwise the receipt below would release the charge before adnl handled the message,
+  // and a peer could pump messages past the in-flight budget.
+  auto delivered = co_await td::actor::ask(adnl_, &adnl::AdnlPeerTable::deliver_ex, connection->path.second,
+                                           connection->path.first, std::move(data))
+                       .wrap();
+  LOG_IF(INFO, delivered.is_error()) << "inbound message cid=" << connection->cid << " sid=" << stream_id << ": "
+                                     << delivered.error();
+  if (stream_id < 0) {
+    co_return td::Unit{};  // a datagram held no stream and no in-flight charge
   }
-  td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver, connection->path.second, connection->path.first,
-                          std::move(message.data_));
+  if (!ngtcp2_is_bidi_stream(stream_id)) {
+    // A unidirectional stream is already closed at the transport (its credit returned via
+    // on_stream_closed, queued behind the payload). This is the app's last word on it, which
+    // releases the guard's in-flight charge; the transport-level reset inside is a no-op.
+    td::actor::send_closure(connection->server, &QuicServer::shutdown_stream, connection->cid, stream_id);
+    co_return td::Unit{};
+  }
+  // A message on a bidirectional stream (an old peer, or message_streams_bidi) has a response half:
+  // the empty fin is its delivery receipt, and sending it only now — after the message was
+  // delivered — is what makes the peer's budget real backpressure.
+  auto sent = co_await td::actor::ask(connection->server, &QuicServer::send_stream, connection->cid,
+                                      std::variant<QuicStreamID, StreamOptions>{stream_id}, td::BufferSlice{}, true)
+                  .wrap();
+  LOG_IF(INFO, sent.is_error()) << "inbound message fin cid=" << connection->cid << " sid=" << stream_id << ": "
+                                << sent.error();
+  co_return td::Unit{};
 }
 
 td::actor::Task<> QuicSender::on_inbound_query(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                                                td::BufferSlice query) {
   auto trust = connection->trust;
   peer_metrics_.at(trust).app.record(metrics::Kind::query, metrics::Direction::in, query.as_slice());
+  // Admission already happened: the query was charged to the server's in-flight pool at dispatch,
+  // and the stream holds that charge until it closes — which this handler arranges below, either way.
   auto answer = co_await td::actor::ask(adnl_, &adnl::AdnlPeerTable::deliver_query, connection->path.second,
-                                        connection->path.first, std::move(query));
-  peer_metrics_.at(trust).app.record(metrics::Kind::answer, metrics::Direction::out, answer.as_slice());
-  td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_answer>(std::move(answer));
-  td::actor::send_closure(connection->server, &QuicServer::send_stream, connection->cid, stream_id,
-                          std::move(wire_data), true);
-  co_return td::Unit{};
-}
+                                        connection->path.first, std::move(query))
+                    .wrap();
 
-void QuicSender::on_answer(Connection &connection, QuicStreamID stream_id, ton_api::quic_answer &answer) {
-  auto it = connection.responses.find(stream_id);
-  if (it == connection.responses.end()) {
-    LOG(ERROR) << "Answer from unknown stream_id";
-    return;
+  // Exactly one thing finishes the stream: the answer (send_stream resets it itself on failure), or
+  // the reset here when the query was refused or failed — so the peer fails fast instead of leaking
+  // the stream until the pending-stream deadline. All failures are expected: log, don't assert.
+  if (answer.is_error()) {
+    LOG(INFO) << "inbound query cid=" << connection->cid << " sid=" << stream_id << ": " << answer.error();
+    td::actor::send_closure(connection->server, &QuicServer::shutdown_stream, connection->cid, stream_id);
+    co_return td::Unit{};
   }
-  peer_metrics_.at(it->second.trust).app.record(metrics::Kind::answer, metrics::Direction::in, answer.data_.as_slice());
-  it->second.promise.set_result(std::move(answer.data_));
-  connection.responses.erase(it);
+  auto data = answer.move_as_ok();
+  peer_metrics_.at(trust).app.record(metrics::Kind::answer, metrics::Direction::out, data.as_slice());
+  auto sent = co_await td::actor::ask(connection->server, &QuicServer::send_stream, connection->cid,
+                                      std::variant<QuicStreamID, StreamOptions>{stream_id},
+                                      create_serialize_tl_object<ton_api::quic_answer>(std::move(data)), true)
+                  .wrap();
+  LOG_IF(INFO, sent.is_error()) << "inbound answer cid=" << connection->cid << " sid=" << stream_id << ": "
+                                << sent.error();
+  co_return td::Unit{};
 }
 
 Trust QuicSender::peer_trust(const AdnlPath &path) {

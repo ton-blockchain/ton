@@ -93,16 +93,21 @@ td::actor::Task<> AdnlLocalId::receive_coro(td::IPAddress addr, td::BufferSlice 
 }
 
 void AdnlLocalId::deliver(AdnlNodeIdShort src, td::BufferSlice data) {
+  deliver_ex(src, std::move(data), [](td::Result<td::Unit>) {});
+}
+
+void AdnlLocalId::deliver_ex(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::Unit> promise) {
   auto s = std::move(data);
   for (auto &cb : cb_) {
     auto f = cb.first;
     if (f.length() <= s.length() && s.as_slice().substr(0, f.length()) == f) {
-      cb.second->receive_message(src, short_id_, std::move(s));
+      cb.second->receive_message(src, short_id_, std::move(s), std::move(promise));
       return;
     }
   }
   VLOG(adnl, INFO) << this << ": dropping IN message from " << src
                    << ": no callbacks for custom message. firstint=" << td::TlParser(s.as_slice()).fetch_int();
+  promise.set_error(td::Status::Error(ErrorCode::warning, "dropping IN message: no callbacks for custom message"));
 }
 
 void AdnlLocalId::deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
