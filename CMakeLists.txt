@@ -630,6 +630,36 @@ endif()
 add_executable(test-cells test/test-td-main.cpp ${CELLS_TEST_SOURCE})
 target_link_libraries(test-cells PRIVATE ton_crypto)
 
+add_executable(test-tlb-json test/test-td-main.cpp crypto/test/test-tlb-json.cpp)
+target_link_libraries(test-tlb-json PRIVATE ton_crypto)
+
+if (NOT CMAKE_CROSSCOMPILING)
+  set(TLBC_GENERATOR_TEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/tlbc-generator-test)
+  set(TLBC_GENERATOR_TEST_AUTO ${TLBC_GENERATOR_TEST_DIR}/tlbc-generator-auto)
+  file(MAKE_DIRECTORY ${TLBC_GENERATOR_TEST_DIR})
+  add_custom_command(
+    OUTPUT ${TLBC_GENERATOR_TEST_AUTO}.h ${TLBC_GENERATOR_TEST_AUTO}.cpp
+    COMMAND $<TARGET_FILE:tlbc> -o ${TLBC_GENERATOR_TEST_AUTO} -n tlbc_generator_test -z
+            ${CMAKE_CURRENT_SOURCE_DIR}/crypto/test/tlbc-generator.tlb
+    DEPENDS tlbc ${CMAKE_CURRENT_SOURCE_DIR}/crypto/test/tlbc-generator.tlb
+    VERBATIM
+  )
+  add_executable(test-tlbc-generator test/test-td-main.cpp crypto/test/test-tlbc-generator.cpp
+                 ${TLBC_GENERATOR_TEST_AUTO}.cpp ${TLBC_GENERATOR_TEST_AUTO}.h)
+  target_include_directories(test-tlbc-generator PRIVATE ${TLBC_GENERATOR_TEST_DIR})
+  target_link_libraries(test-tlbc-generator PRIVATE ton_crypto ton_block)
+
+  set(TLBC_GENERATOR_DEFAULT_AUTO ${TLBC_GENERATOR_TEST_DIR}/tlbc-generator-default-auto)
+  add_custom_command(
+    OUTPUT ${TLBC_GENERATOR_DEFAULT_AUTO}.h ${TLBC_GENERATOR_DEFAULT_AUTO}.cpp
+    COMMAND $<TARGET_FILE:tlbc> -o ${TLBC_GENERATOR_DEFAULT_AUTO} -z
+            ${CMAKE_CURRENT_SOURCE_DIR}/crypto/test/tlbc-generator-default.tlb
+    DEPENDS tlbc ${CMAKE_CURRENT_SOURCE_DIR}/crypto/test/tlbc-generator-default.tlb
+    VERBATIM
+  )
+  target_sources(test-tlbc-generator PRIVATE ${TLBC_GENERATOR_DEFAULT_AUTO}.cpp ${TLBC_GENERATOR_DEFAULT_AUTO}.h)
+endif()
+
 add_executable(test-fift test/test-td-main.cpp ${FIFT_TEST_SOURCE})
 target_link_libraries(test-fift PRIVATE fift-lib)
 
@@ -740,6 +770,10 @@ ton_test(test-bigint)
 ton_test(test-vm ${TEST_OPTIONS})
 ton_test(test-fift ${TEST_OPTIONS})
 ton_test(test-cells ${TEST_OPTIONS})
+ton_test(test-tlb-json)
+if (NOT CMAKE_CROSSCOMPILING)
+  ton_test(test-tlbc-generator)
+endif()
 ton_test(test-smartcont)
 ton_test(test-net)
 ton_test(test-tdactor)
