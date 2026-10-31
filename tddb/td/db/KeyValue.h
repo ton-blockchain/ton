@@ -142,12 +142,17 @@ class PrefixedKeyValue : public KeyValue {
     return kv_->get(PSLICE() << prefix_ << key, value);
   }
   Result<std::vector<GetStatus>> get_multi(td::Span<Slice> keys, std::vector<std::string>* values) override {
-    std::vector<Slice> prefixed_keys;
+    std::vector<std::string> prefixed_keys;
     prefixed_keys.reserve(keys.size());
     for (auto& key : keys) {
-      prefixed_keys.push_back(PSLICE() << prefix_ << key);
+      prefixed_keys.push_back(prefix_ + key.str());
     }
-    return kv_->get_multi(prefixed_keys, values);
+    std::vector<Slice> prefixed_keys_s;
+    prefixed_keys_s.reserve(keys.size());
+    for (auto& s : prefixed_keys) {
+      prefixed_keys_s.push_back(Slice{s});
+    }
+    return kv_->get_multi(prefixed_keys_s, values);
   }
   Result<size_t> count(Slice prefix) override {
     return kv_->count(PSLICE() << prefix_ << prefix);
