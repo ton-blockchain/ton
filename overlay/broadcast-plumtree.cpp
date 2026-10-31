@@ -1505,9 +1505,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
     co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree simple source is not allowed");
   }
 
-  auto &limiter = overlay->get_broadcasts_limiter(source_hash, cert.get());
   if (new_broadcast) {
-    CO_TRY(limiter.precheck_new_broadcast(data_size));
+    CO_TRY(overlay->get_broadcasts_limiter(source_hash, cert.get()).precheck_new_broadcast(data_size));
     co_await overlay->precheck_broadcast(source_hash, broadcast_id, {}, false)
         .trace("precheck Plumtree simple broadcast");
   }
@@ -1542,7 +1541,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
     co_return td::Status::Error(ErrorCode::notready, "known Plumtree simple broadcast");
   }
 
-  CO_TRY(limiter.try_register_broadcast(data_size));
+  CO_TRY(overlay->get_broadcasts_limiter(source_hash, cert.get()).try_register_broadcast(data_size));
   plumtree_stats_.note_part_received(tree_index == PLUMTREE_SIMPLE_TREE_INDEX,
                                      origin == PlumtreePayloadOrigin::RepairResponse);
 
