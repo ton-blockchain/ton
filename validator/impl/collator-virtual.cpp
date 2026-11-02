@@ -155,6 +155,7 @@ struct Collator::VirtualShards {
     vm::NewCellStorageStat::Stat get_block_stat() const;
     td::uint64 get_collated_data_size() const;
     void sync_limits(block::BlockLimitStatus& common);
+    td::Status finalize_accounts();
     td::Status generate_new_proof();
     td::Status generate_old_proof();
   };
@@ -178,6 +179,7 @@ struct Collator::VirtualShards {
   static td::actor::Task<> run(std::shared_ptr<VirtualShards> state, unsigned i, Phase phase);
   static td::actor::Task<> run_all(Collator& parent, Phase phase);
   void split_proof_roots(Ref<vm::Cell> root, int depth, StdSmcAddress prefix);
+  void select_shared_storage_dicts();
   void clear_requests();
 };
 Collator::VirtualShards::Worker::Worker(ShardIdFull shard) : CollatorBase(shard) {
@@ -403,6 +405,16 @@ td::uint64 Collator::VirtualShards::Worker::get_collated_data_size() const {
   return block_limit_status_->collated_data_size_estimate;
 }
 
+td::Status Collator::VirtualShards::Worker::finalize_accounts() {
+  finish_epoch();
+  for (const auto& [_, dict] : account_storage_dicts_) {
+    if (dict.add_to_collated_data) {
+      collated_data_stat.add_loaded_cells(dict.proof_stat);
+    }
+  }
+  return combine_account_transactions();
+}
+
 td::Status Collator::VirtualShards::Worker::generate_new_proof() {
   if (proof_root.not_null()) {
     vm::CellUsageTree* tree = state_usage_tree_.get();
@@ -550,8 +562,7 @@ td::actor::Task<> Collator::VirtualShards::run(std::shared_ptr<VirtualShards> st
         worker.rollback();
         co_return {};
       case Phase::Finish:
-        worker.finish_epoch();
-        co_return worker.combine_account_transactions();
+        co_return worker.finalize_accounts();
       case Phase::NewProofs:
         co_return worker.generate_new_proof();
       case Phase::OldProofs:
@@ -1016,7 +1027,24 @@ td::actor::Task<bool> Collator::process_virtual_messages(bool& enqueue_only) {
   co_return true;
 }
 
+void Collator::VirtualShards::select_shared_storage_dicts() {
+  if (workers.size() < 2) {
+    return;
+  }
+  std::map<td::Bits256, AccountStorageDict*> dicts;
+  for (auto& worker : workers) {
+    for (auto& [hash, dict] : worker->account_storage_dicts_) {
+      auto [it, inserted] = dicts.emplace(hash, &dict);
+      if (!inserted) {
+        it->second->add_to_collated_data = true;
+        dict.add_to_collated_data = true;
+      }
+    }
+  }
+}
+
 td::actor::Task<> Collator::finalize_virtual_accounts() {
+  virtual_shards_->select_shared_storage_dicts();
   co_await VirtualShards::run_all(*this, VirtualShards::Phase::Finish);
   vm::AugmentedDictionary merged_accounts(256, block::tlb::aug_ShardAccounts);
   vm::AugmentedDictionary merged_blocks(256, block::tlb::aug_ShardAccountBlocks);
