@@ -97,9 +97,6 @@ td::Result<DeserializedPayload> decompress_candidate_data(td::Slice compressed, 
   if (roots[0]->get_level() > 0) {
     return td::Status::Error("block root has nonzero level");
   }
-  if (roots[0]->get_hash().as_bits256() != root_hash) {
-    return td::Status::Error("block root hash mismatch");
-  }
   TRY_RESULT(block_data, vm::std_boc_serialize(roots[0], 31));
   auto block_root = std::move(roots[0]);
   roots.erase(roots.begin());
