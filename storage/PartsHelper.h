@@ -239,7 +239,7 @@ struct PartsHelper {
         return key() < other.key();
       }
     };
-    std::set<Key> rarest_parts;  // TODO: use vector instead of set
+    std::vector<Key> rarest_parts;  // Using vector for better performance
   };
 
   std::vector<Part> parts_;
