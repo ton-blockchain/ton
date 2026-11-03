@@ -25,21 +25,97 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <set>
 #include <thread>
 
+#include "adnl/adnl-local-id.h"
 #include "adnl/adnl-network-manager.h"
+#include "adnl/adnl-peer-table.hpp"
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
+#include "keyring/keyring.hpp"
 #include "keys/encryptor.h"
 #include "td/utils/Random.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
 
+namespace {
+
+class DecryptOrderKeyring : public ton::keyring::KeyringImpl {
+ public:
+  DecryptOrderKeyring() : KeyringImpl("") {
+  }
+  void decrypt_message(ton::PublicKeyHash, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
+    promise.set_value(std::move(data));
+  }
+};
+
+class DecryptOrderPeerTable : public ton::adnl::AdnlPeerTableImpl {
+ public:
+  DecryptOrderPeerTable(td::actor::ActorId<ton::keyring::Keyring> keyring, std::atomic<td::uint32> &received)
+      : AdnlPeerTableImpl("", keyring), received_(received) {
+  }
+  void start_up() override {
+  }
+  void receive_decrypted_packet(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlPacket packet, td::uint64) override {
+    CHECK(packet.seqno() == ++expected_seqno_);
+    ++received_;
+  }
+
+ private:
+  std::atomic<td::uint32> &received_;
+  td::uint64 expected_seqno_ = 0;
+};
+
+void test_decrypt_order() {
+  LOG(INFO) << "testing packet order after decryption";
+  constexpr td::uint32 packet_count = 100000;
+  std::atomic<td::uint32> received{0};
+  td::actor::Scheduler scheduler({7});
+  td::actor::ActorOwn<DecryptOrderKeyring> keyring;
+  td::actor::ActorOwn<DecryptOrderPeerTable> table;
+  td::actor::ActorOwn<ton::adnl::AdnlLocalId> local;
+  scheduler.run_in_context([&] {
+    keyring = td::actor::create_actor<DecryptOrderKeyring>("receive order keyring");
+    table = td::actor::create_actor<DecryptOrderPeerTable>("receive order peer table", keyring.get(), received);
+    auto key = ton::PrivateKey{ton::privkeys::Ed25519::random()};
+    local = td::actor::create_actor<ton::adnl::AdnlLocalId>(
+        "receive order local id", ton::adnl::AdnlNodeIdFull{key.compute_public_key()}, ton::adnl::AdnlAddressList{}, 0,
+        table.get(), keyring.get(), td::actor::ActorId<ton::dht::Dht>{});
+    for (td::uint32 i = 1; i <= packet_count; ++i) {
+      // Keep each source below the inbound rate limit without waiting for its bucket to refill.
+      td::IPAddress addr;
+      addr.init_ipv4_port(td::IPAddress::ipv4_to_str(0x7f000001 + (i - 1) / 50), 1000).ensure();
+      ton::adnl::AdnlPacket packet;
+      packet.set_source(ton::adnl::AdnlNodeIdShort{td::Bits256::zero()});
+      packet.set_seqno(i);
+      // The identity keyring isolates scheduling of decryption completions from cryptography.
+      td::actor::send_closure_later(local, &ton::adnl::AdnlLocalId::receive, addr,
+                                    ton::serialize_tl_object(packet.tl(), true));
+    }
+  });
+  auto deadline = td::Timestamp::in(60.0);
+  while (received < packet_count && !deadline.is_in_past()) {
+    scheduler.run(0.01);
+  }
+  scheduler.run_in_context([&] {
+    local.reset();
+    table.reset();
+    keyring.reset();
+  });
+  scheduler.stop();
+  CHECK(received == packet_count);
+}
+
+}  // namespace
+
 int main() {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
+
+  test_decrypt_order();
 
   {
     auto id_str = td::Slice("WQUA224U42HFSKN63K6NU23X42VK4IJRLFGG65CU62JAOL6U47HRCHD");
