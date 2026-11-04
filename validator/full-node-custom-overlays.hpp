@@ -27,23 +27,12 @@ namespace ton::validator::fullnode {
 
 class FullNodeCustomOverlay : public td::actor::Actor {
  public:
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
-  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query);
-
-  void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
-  void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                          td::Ref<ShardState> state);
-
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
-
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
 
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
@@ -53,11 +42,9 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
 
   void send_external_message(td::BufferSlice data);
-  void send_broadcast(BlockBroadcast broadcast);
   void send_block_finality_broadcast(BlockFinalityBroadcast finality);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
-  void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
 
   void set_config(FullNodeConfig config) {
     opts_.config_ = std::move(config);
@@ -72,7 +59,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   FullNodeCustomOverlay(adnl::AdnlNodeIdShort local_id, CustomOverlayParams params, FileHash zero_state_file_hash,
                         FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
                         td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<quic::QuicSender> quic,
-                        td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
+                        td::actor::ActorId<overlay::Overlays> overlays,
                         td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                         td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
@@ -87,12 +74,9 @@ class FullNodeCustomOverlay : public td::actor::Actor {
       , keyring_(keyring)
       , adnl_(adnl)
       , quic_(quic)
-      , rldp2_(rldp2)
-      , use_quic_(params.use_quic_)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
       , full_node_(full_node) {
-    adnl_sender_ = (use_quic_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_);
   }
 
  private:
@@ -109,9 +93,6 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<quic::QuicSender> quic_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
-  bool use_quic_;
-  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<FullNode> full_node_;
@@ -119,7 +100,6 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   bool inited_ = false;
   overlay::OverlayIdFull overlay_id_full_;
   overlay::OverlayIdShort overlay_id_;
-  adnl::PeersMtuGuard peers_mtu_guard_;
 
   void try_init();
   void init();

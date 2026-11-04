@@ -51,12 +51,21 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
-                                 td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
-                                 int finality_broadcast_mode, bool send_shard_block_desc, bool apply) override {
+                                 td::Ref<block::BlockSignatureSet> signatures, int finality_broadcast_mode,
+                                 bool apply) override {
+    td::actor::send_closure(manager_, &ValidatorManager::got_block_finality, id, signatures,
+                            BroadcastSource::consensus_overlay, [id](td::Result<> R) {
+                              if (R.is_error()) {
+                                VLOG(validator, WARNING) << "Block finality for " << id << " : " << R.move_as_error();
+                              }
+                            });
+    if (finality_broadcast_mode != 0) {
+      td::actor::send_closure(manager_, &ValidatorManager::send_block_finality_broadcast,
+                              BlockFinalityBroadcast{id, signatures}, finality_broadcast_mode);
+    }
     while (true) {
       auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-      run_accept_block_query(id, data, {}, validator_set_, signatures, block_broadcast_mode, finality_broadcast_mode,
-                             send_shard_block_desc, apply, manager_, std::move(promise));
+      run_accept_block_query(id, data, {}, validator_set_, signatures, apply, manager_, std::move(promise));
       auto result = co_await std::move(task).wrap();
       if (result.is_ok() || result.error().code() == ErrorCode::cancelled) {
         break;
@@ -64,8 +73,6 @@ class ManagerFacadeImpl : public ManagerFacade {
       LOG_CHECK(result.error().code() == ErrorCode::timeout || result.error().code() == ErrorCode::notready)
           << "Failed to accept finalized block " << id << " : " << result.error();
       LOG(WARNING) << "Failed to accept finalized block " << id << ", retrying : " << result.error();
-      block_broadcast_mode = 0;
-      finality_broadcast_mode = 0;
       co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
     }
     co_return {};
@@ -82,9 +89,13 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   void cache_block_candidate(BlockCandidate candidate) override {
-    td::actor::send_closure(manager_, &ValidatorManager::new_block_candidate_broadcast, candidate.id,
+    td::actor::send_closure(manager_, &ValidatorManager::add_cached_block_data, candidate.id,
                             validator_set_->get_catchain_seqno(), candidate.data.clone(),
-                            BroadcastSource::consensus_overlay, [](td::Result<>) {});
+                            BroadcastSource::consensus_overlay, [id = candidate.id](td::Result<> R) {
+                              if (R.is_error()) {
+                                VLOG(validator, WARNING) << "Cache block data for " << id << " : " << R.move_as_error();
+                              }
+                            });
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
@@ -156,34 +167,6 @@ class DbImpl : public Db {
  private:
   td::KeyValueAsync<td::BufferSlice, td::BufferSlice> writer_;
   std::unique_ptr<td::KeyValueReader> reader_;
-};
-
-class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
- public:
-  TON_RUNTIME_DEFINE_EVENT_HANDLER();
-
-  static bool should_be_spawned(const Bus& bus) {
-    return !bus.is_validator() && !bus.is_collator && bus.config.enable_block_sync();
-  }
-
-  template <>
-  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
-    stop();
-  }
-
-  template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<PrecheckCandidateBroadcast>) {
-    co_return {};
-  }
-
-  template <>
-  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (event->candidate->is_empty()) {
-      return;
-    }
-    const BlockCandidate& candidate = std::get<BlockCandidate>(event->candidate->block);
-    td::actor::send_closure(bus->manager, &ManagerFacade::cache_block_candidate, candidate.clone());
-  }
 };
 
 class BridgeImpl final : public IValidatorGroup {
@@ -291,9 +274,7 @@ class BridgeImpl final : public IValidatorGroup {
 
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
-    runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
     simplex::CandidateBroadcastRelay::register_in(runtime);
-    BlockSyncOverlay::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);
     TraceCollector::register_in(runtime);
@@ -326,9 +307,6 @@ class BridgeImpl final : public IValidatorGroup {
         auto path = db_path();
         auto S = td::RocksDb::destroy(path);
 
-        if (!params_.identity.suffix_db) {
-          path = path.substr(0, path.size() - 3);
-        }
         td::rmrf(path).ignore();
 
         if (S.is_ok()) {
@@ -377,17 +355,12 @@ class BridgeImpl final : public IValidatorGroup {
 
   std::string db_path() const {
     td::StringBuilder sb;
-    if (!params_.identity.suffix_db) {
-      sb << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "." << params_.shard.shard << "."
-         << params_.validator_set->get_catchain_seqno() << "." << params_.session_id.to_hex() << "/db/";
-    } else {
-      auto hash =
-          create_hash_tl_object<tl::dbId>(params_.session_id, params_.identity.is_validator(),
-                                          params_.identity.short_id.value_or(PublicKeyHash::zero()).bits256_value(),
-                                          params_.identity.adnl_id.bits256_value());
-      sb << params_.db_root << "/consensus/" << params_.shard.workchain << "." << params_.shard.shard << "."
-         << params_.validator_set->get_catchain_seqno() << "." << hash.to_hex();
-    }
+    auto hash =
+        create_hash_tl_object<tl::dbId>(params_.session_id, params_.identity.is_validator(),
+                                        params_.identity.short_id.value_or(PublicKeyHash::zero()).bits256_value(),
+                                        params_.identity.adnl_id.bits256_value());
+    sb << params_.db_root << "/consensus/" << params_.shard.workchain << "." << params_.shard.shard << "."
+       << params_.validator_set->get_catchain_seqno() << "." << hash.to_hex();
     return sb.as_cslice().str();
   }
 };

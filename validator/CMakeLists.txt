@@ -57,8 +57,6 @@ set(VALIDATOR_HEADERS
   queue-size-counter.hpp
   validator-telemetry.hpp
   storage-stat-cache.hpp
-  shard-block-verifier.hpp
-  shard-block-retainer.hpp
   global-balance-calculator.hpp
   impl/global-balance-calculator-internal.hpp
 
@@ -86,8 +84,6 @@ set(VALIDATOR_SOURCE
   validate-broadcast.cpp
   validator-telemetry.cpp
   storage-stat-cache.cpp
-  shard-block-verifier.cpp
-  shard-block-retainer.cpp
   collator-scoreboard.cpp
   validator-registry-watcher.cpp
   impl/applied-ext-message-cleanup.cpp
@@ -110,7 +106,6 @@ set(VALIDATOR_SOURCE
   consensus/simplex/votes.cpp
   consensus/block-accepter.cpp
   consensus/block-producer.cpp
-  consensus/block-sync-overlay.cpp
   consensus/block-validator.cpp
   consensus/bridge.cpp
   consensus/bus.cpp
@@ -239,4 +234,4 @@ target_link_libraries(validator-disk PRIVATE validator-common validator-db)
 
 target_link_libraries(validator-hardfork PRIVATE validator-common validator-db)
 
-target_link_libraries(full-node PRIVATE tdactor adnl rldp2 tl_api dht tdfec overlay ton_db)
+target_link_libraries(full-node PRIVATE tdactor adnl tl_api dht tdfec overlay ton_db)

@@ -28,19 +28,10 @@ namespace ton::validator::fullnode {
 
 class FullNodeFastSyncOverlay : public td::actor::Actor {
  public:
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2& query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast& query);
-  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
   void process_block_finality_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast& query);
-  void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
-  void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                          td::Ref<ShardState> state);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast& query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast& query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed& query);
@@ -61,12 +52,9 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
 
   void send_external_message(td::BufferSlice data);
-  void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
-  void send_broadcast(BlockBroadcast broadcast);
   void send_block_finality_broadcast(BlockFinalityBroadcast finality);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
-  void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast);
   void send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry);
 
   void collect_validator_telemetry(std::string filename);
@@ -83,8 +71,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void set_validators(std::vector<PublicKeyHash> root_public_keys,
                       std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
   void set_member_certificate(overlay::OverlayMemberCertificate member_certificate);
-  void set_params(bool receive_plumtree_broadcasts, bool send_twostep_broadcasts, bool enable_plumtree_broadcast,
-                  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender);
+  void set_params(bool receive_plumtree_broadcasts);
   void set_config(FullNodeConfig config) {
     config_ = std::move(config);
   }
@@ -95,9 +82,8 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
                           std::vector<PublicKeyHash> root_public_keys,
                           std::vector<adnl::AdnlNodeIdShort> current_validators_adnl,
                           overlay::OverlayMemberCertificate member_certificate, bool receive_plumtree_broadcasts,
-                          bool send_twostep_broadcasts, bool enable_plumtree_broadcast, FullNodeConfig config,
-                          double broadcast_speed_multiplier, td::actor::ActorId<keyring::Keyring> keyring,
-                          td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
+                          FullNodeConfig config, double broadcast_speed_multiplier,
+                          td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                           td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
                           td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                           td::actor::ActorId<FullNode> full_node)
@@ -107,14 +93,11 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
       , current_validators_adnl_(std::move(current_validators_adnl))
       , member_certificate_(std::move(member_certificate))
       , receive_plumtree_broadcasts_(receive_plumtree_broadcasts)
-      , send_twostep_broadcasts_(send_twostep_broadcasts)
-      , enable_plumtree_broadcast_(enable_plumtree_broadcast)
       , config_(std::move(config))
       , broadcast_speed_multiplier_(broadcast_speed_multiplier)
       , zero_state_file_hash_(zero_state_file_hash)
       , keyring_(keyring)
       , adnl_(adnl)
-      , adnl_sender_(adnl_sender)
       , quic_(quic)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
@@ -128,15 +111,12 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
   overlay::OverlayMemberCertificate member_certificate_;
   bool receive_plumtree_broadcasts_;
-  bool send_twostep_broadcasts_;
-  bool enable_plumtree_broadcast_;
   FullNodeConfig config_;
   double broadcast_speed_multiplier_;
   FileHash zero_state_file_hash_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender_;
   td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;

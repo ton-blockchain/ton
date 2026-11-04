@@ -354,8 +354,6 @@ tonNode.data data:bytes = tonNode.Data;
 
 tonNode.externalMessage data:bytes = tonNode.ExternalMessage;
 
-tonNode.newShardBlock block:tonNode.blockIdExt cc_seqno:int data:bytes = tonNode.NewShardBlock;
-
 tonNode.blockBroadcastCompressed.data signatures:(vector tonNode.blockSignature) proof_data:bytes = tonNode.blockBroadcaseCompressed.Data;
 
 tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
@@ -367,7 +365,6 @@ tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.S
 tonNode.finalityBroadcastId id:tonNode.blockIdExt = tonNode.FinalityBroadcastId;
 tonNode.blockFinalityBroadcast id:tonNode.blockIdExt signature_set:tonNode.SignatureSet = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
-tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 // signature may be empty, at least for now
 tonNode.newBlockCandidateBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature data:bytes = tonNode.Broadcast;
@@ -375,10 +372,6 @@ tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqn
               collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.newBlockCandidateBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
-
-// optimistic broadcast of response to tonNode.getOutMsgQueueProof with dst_shard, block and limits arguments
-tonNode.outMsgQueueProofBroadcast dst_shard:tonNode.shardId block:tonNode.blockIdExt
-              limits:ImportedMsgQueueLimits proof:tonNode.OutMsgQueueProof = tonNode.Broadcast;
 
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
@@ -628,7 +621,7 @@ engine.validator.config addrs:(vector engine.Addr) adnl:(vector engine.adnl)
 
 engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_priority:int block_sender:Bool accept_queries:Bool = engine.validator.CustomOverlayNode;
 engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) sender_shards:(vector tonNode.shardId)
-    skip_public_msg_send:Bool use_quic:Bool send_queries:Bool = engine.validator.CustomOverlay;
+    skip_public_msg_send:Bool send_queries:Bool = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
 engine.validator.collatorOptions.paramLimits underload:int soft_limit:int hard_limit:int = engine.validator.collatorOptions.ParamLimits;
@@ -1058,7 +1051,6 @@ quic.answer data:bytes = quic.Response;
 engineConsoleClient.config address:string server_public_key:PublicKey client_private_key:PrivateKey = engineConsoleClient.Config;
 
 consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
-consensus.blockSyncOverlayId session_id:int256 = consensus.BlockOverlayId;
 consensus.dbId session_id:int256 is_validator:Bool validator_key:int256 adnl_id:int256 = consensus.DbId;
 consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
 

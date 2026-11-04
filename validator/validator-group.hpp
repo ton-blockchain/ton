@@ -36,7 +36,6 @@ struct GroupIdentity {
   adnl::AdnlNodeIdShort adnl_id;
   std::optional<PublicKeyHash> short_id = std::nullopt;
   bool is_collator = false;
-  bool suffix_db = true;
 
   std::strong_ordering operator<=>(const GroupIdentity&) const = default;
 

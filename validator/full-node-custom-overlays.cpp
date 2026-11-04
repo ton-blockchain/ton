@@ -33,63 +33,6 @@ constexpr const char *k_called_from_custom = "custom";
 
 }  // namespace
 
-void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
-  process_block_broadcast(src, query);
-}
-
-void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query) {
-  process_block_broadcast(src, query);
-}
-
-void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
-  if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
-    VLOG(full_node, DEBUG) << "Dropping block broadcast in private overlay \"" << name_
-                           << "\" from unauthorized sender " << src;
-    return;
-  }
-
-  auto R_requires_state = need_state_for_decompression(query);
-  if (R_requires_state.is_error()) {
-    LOG(DEBUG) << "Failed to check if state is required for broadcast: " << R_requires_state.move_as_error();
-    return;
-  }
-
-  if (R_requires_state.move_as_ok()) {
-    auto block_wo_data = get_block_broadcast_without_data(query);
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), src,
-                                         query = std::move(query)](td::Result<td::Unit> R) mutable {
-      if (R.is_error()) {
-        LOG(DEBUG) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
-        return;
-      }
-
-      td::actor::send_closure(SelfId, &FullNodeCustomOverlay::obtain_state_for_decompression, src, std::move(query));
-    });
-    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_broadcast_signatures,
-                            std::move(block_wo_data), std::move(P));
-    return;
-  }
-
-  process_block_broadcast(src, query);
-}
-
-void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
-  if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
-    VLOG(full_node, DEBUG) << "Dropping block broadcast in private overlay \"" << name_
-                           << "\" from unauthorized sender " << src;
-    return;
-  }
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_custom);
-  if (B.is_error()) {
-    LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
-    return;
-  }
-  VLOG(full_node, DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
-                         << "in custom overlay \"" << name_ << "\" from " << src << ": " << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false,
-                          BroadcastSource::custom_overlay, !block_senders_.contains(local_id_));
-}
-
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
   if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
     VLOG(full_node, DEBUG) << "Dropping block finality broadcast in private overlay \"" << name_
@@ -102,44 +45,6 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
   VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
                          << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
-                          BroadcastSource::custom_overlay, !block_senders_.contains(local_id_));
-}
-
-void FullNodeCustomOverlay::obtain_state_for_decompression(PublicKeyHash src,
-                                                           ton_api::tonNode_blockBroadcastCompressedV2 query) {
-  auto id = create_block_id(query.id_);
-  auto R_prev = extract_prev_blocks_from_proof(query.proof_.as_slice(), id);
-  if (R_prev.is_error()) {
-    LOG(DEBUG) << "Failed to extract prev blocks for V2 broadcast: " << R_prev.move_as_error();
-    return;
-  }
-  auto prev_blocks = R_prev.move_as_ok();
-  auto P_state = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Ref<ShardState>> R_state) mutable {
-        if (R_state.is_error()) {
-          LOG(DEBUG) << "Failed to get state for V2 broadcast: " << R_state.move_as_error();
-          return;
-        }
-        td::actor::send_closure(SelfId, &FullNodeCustomOverlay::process_block_broadcast_with_state, src,
-                                std::move(query), R_state.move_as_ok());
-      });
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
-                          std::move(prev_blocks), std::move(P_state));
-}
-
-void FullNodeCustomOverlay::process_block_broadcast_with_state(PublicKeyHash src,
-                                                               ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                                               td::Ref<ShardState> state) {
-  td::Ref<vm::Cell> state_root = state->root_cell();
-  auto B =
-      deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_custom, state_root);
-  if (B.is_error()) {
-    LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
-    return;
-  }
-  VLOG(full_node, DEBUG) << "Received block broadcast in custom overlay \"" << name_ << "\" from " << src << ": "
-                         << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true,
                           BroadcastSource::custom_overlay, !block_senders_.contains(local_id_));
 }
 
@@ -202,19 +107,6 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
                           !block_senders_.contains(local_id_));
 }
 
-void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
-  if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
-    VLOG(full_node, DEBUG) << "Dropping shard block description broadcast in private overlay \"" << name_
-                           << "\" from unauthorized sender " << src;
-    return;
-  }
-  BlockIdExt block_id = create_block_id(query.block_->block_);
-  VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
-                         << block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
-                          std::move(query.block_->data_), !block_senders_.contains(local_id_));
-}
-
 void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
   if (adnl::AdnlNodeIdShort{src} == local_id_) {
     return;
@@ -247,20 +139,6 @@ void FullNodeCustomOverlay::send_external_message(td::BufferSlice data) {
                           local_id_.pubkey_hash(), 0, std::move(B));
 }
 
-void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
-  if (!inited_) {
-    return;
-  }
-  VLOG(full_node, DEBUG) << "Sending block broadcast to custom overlay \"" << name_ << "\": " << broadcast.block_id;
-  auto B = serialize_block_broadcast(broadcast, k_called_from_custom);
-  if (B.is_error()) {
-    VLOG(full_node, WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
-    return;
-  }
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
-}
-
 void FullNodeCustomOverlay::send_block_finality_broadcast(BlockFinalityBroadcast finality) {
   if (!inited_) {
     return;
@@ -287,19 +165,6 @@ void FullNodeCustomOverlay::send_block_candidate(BlockIdExt block_id, CatchainSe
   VLOG(full_node, DEBUG) << "Sending newBlockCandidate in custom overlay \"" << name_ << "\": " << block_id;
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
-}
-
-void FullNodeCustomOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  VLOG(full_node, DEBUG) << "Sending newShardBlockBroadcast in custom overlay \"" << name_ << "\": " << block_id;
-  auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
-      create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
-  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), 0, std::move(B));
-  } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
-  }
 }
 
 td::actor::Task<QuerySender> FullNodeCustomOverlay::get_query_sender() {
@@ -358,7 +223,7 @@ td::actor::Task<QuerySender> FullNodeCustomOverlay::get_query_sender() {
     co_return td::Status::Error(ErrorCode::notready, "no nodes");
   }
   auto proto_version = peers_info_[*peer].proto_version;
-  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, adnl_sender_, actor_id(this),
+  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, quic_, actor_id(this),
                                               proto_version);
 }
 
@@ -391,7 +256,7 @@ void FullNodeCustomOverlay::try_init() {
 }
 
 void FullNodeCustomOverlay::init() {
-  td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
+  td::actor::send_closure(quic_, &adnl::AdnlSenderEx::add_id, local_id_);
 
   VLOG(full_node, WARNING) << "Creating custom overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
                            << nodes_.size() << " nodes, " << msg_senders_.size() << " msg senders, "
@@ -429,15 +294,7 @@ void FullNodeCustomOverlay::init() {
   overlay_options.name_ = "custom." + name_;
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
   overlay_options.send_twostep_broadcast_ = true;
-  overlay_options.twostep_broadcast_sender_ = adnl_sender_;
-
-  // Allow receiving messages from both quic and rldp2
-  // This is a temporary solution for transitioning from rldp2 to quic before completely removing rldp2
-  auto other_sender = (use_quic_ ? td::actor::ActorId<adnl::AdnlSenderEx>{rldp2_} : quic_);
-  td::actor::send_closure(other_sender, &adnl::AdnlSenderEx::add_id, local_id_);
-  td::uint64 mtu = rules.max_broadcast_size() + 1024;
-  std::vector<adnl::AdnlNodeIdShort> peers;
-  peers_mtu_guard_ = adnl::PeersMtuGuard{other_sender, local_id_, nodes_, mtu, true};
+  overlay_options.twostep_broadcast_sender_ = quic_;
 
   td::actor::send_closure(
       overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(), nodes_,
@@ -488,7 +345,7 @@ td::actor::Task<> FullNodeCustomOverlay::ping_peer(adnl::AdnlNodeIdShort peer_id
   td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
   auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id, local_id_, overlay_id_, "q",
-                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, adnl_sender_);
+                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, quic_);
   auto r_response = co_await std::move(task).wrap();
   PeerInfo &peer_info = peers_info_[peer_id];
   if (r_response.is_error()) {

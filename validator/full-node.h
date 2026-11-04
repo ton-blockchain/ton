@@ -26,7 +26,6 @@
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "quic/quic-sender.h"
-#include "rldp2/rldp.h"
 #include "td/actor/actor.h"
 #include "td/utils/logging.h"
 #include "ton/ton-types.h"
@@ -75,7 +74,6 @@ struct CustomOverlayParams {
   std::set<adnl::AdnlNodeIdShort> accept_queries_;
   std::vector<ShardIdFull> sender_shards_;
   bool skip_public_msg_send_ = false;
-  bool use_quic_ = false;
   bool send_queries_ = false;
 
   bool send_shard(const ShardIdFull& shard) const;
@@ -151,15 +149,11 @@ class FullNode : public td::actor::Actor {
   virtual void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) = 0;
   virtual void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) = 0;
 
-  virtual void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source,
-                                       bool send_to_custom) = 0;
   virtual void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
                                                 bool send_to_custom) = 0;
   virtual void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                  td::uint32 validator_set_hash, td::BufferSlice data,
                                                  BroadcastSource source, bool send_to_custom) = 0;
-  virtual void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
-                                                  bool send_to_custom) = 0;
   virtual void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) = 0;
 
   virtual void set_validator_telemetry_filename(std::string value) = 0;
@@ -184,7 +178,7 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint64 max_zerostate_size() {
     return 16 << 20;
   }
-  enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
+  enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4, broadcast_mode_all = 7 };
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
   static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;
@@ -193,10 +187,9 @@ class FullNode : public td::actor::Actor {
   static td::actor::ActorOwn<FullNode> create(
       adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-      td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
-      td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client,
-      std::string db_root, td::Promise<td::Unit> started_promise);
+      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
+      td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+      td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root, td::Promise<td::Unit> started_promise);
 };
 
 }  // namespace fullnode
