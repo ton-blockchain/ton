@@ -204,9 +204,12 @@ struct NamedPerfCounter {
     NamedThreadSafeCounter::CounterRef count;
     NamedThreadSafeCounter::CounterRef duration;
   };
+  NamedThreadSafeCounter::CounterRef get_count_counter(Slice name) {
+    return counter_.get_counter(PSLICE() << name << ".count");
+  }
+
   PerfCounterRef get_counter(Slice name) {
-    return {.count = counter_.get_counter(PSLICE() << name << ".count"),
-            .duration = counter_.get_counter(PSLICE() << name << ".duration")};
+    return {.count = get_count_counter(name), .duration = counter_.get_counter(PSLICE() << name << ".duration")};
   }
 
   struct ScopedPerfCounterRef : public NoCopyOrMove {

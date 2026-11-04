@@ -29,7 +29,7 @@ bool check_consensus_signature(const PublicKey& key, ValidatorSessionId session,
   if (encryptor.is_error()) {
     return false;
   }
-  return encryptor.move_as_ok()->check_signature(signed_data, signature).is_ok();
+  return encryptor.move_as_ok()->check_signature(signed_data, signature, td::SignatureDomain::Consensus).is_ok();
 }
 
 bool PeerValidator::check_signature(ValidatorSessionId session, td::Slice data, td::Slice signature) const {
