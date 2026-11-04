@@ -100,6 +100,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
+    , candidate_roots_(std::move(params.candidate_roots))
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -485,21 +486,30 @@ void ValidateQuery::load_prev_states() {
  * @returns True if the block candidate was successfully unpacked, false otherwise.
  */
 bool ValidateQuery::unpack_block_candidate() {
-  vm::BagOfCells boc1;
+  auto roots = std::move(candidate_roots_);
   // 1. deserialize block itself
   FileHash fhash = block::compute_file_hash(block_candidate.data);
   if (fhash != id_.file_hash) {
     return reject_query(PSTRING() << "block candidate has invalid file hash: declared " << id_.file_hash.to_hex()
                                   << ", actual " << fhash.to_hex());
   }
-  auto res1 = boc1.deserialize(block_candidate.data);
-  if (res1.is_error()) {
-    return reject_query("cannot deserialize block", res1.move_as_error());
+  if (roots.not_null()) {
+    if (roots->block_file_hash != fhash) {
+      return reject_query(PSTRING() << "candidate roots have invalid block file hash: declared "
+                                    << roots->block_file_hash.to_hex() << ", actual " << fhash.to_hex());
+    }
+    block_root_ = roots->block_root;
+  } else {
+    vm::BagOfCells boc1;
+    auto res1 = boc1.deserialize(block_candidate.data);
+    if (res1.is_error()) {
+      return reject_query("cannot deserialize block", res1.move_as_error());
+    }
+    if (boc1.get_root_count() != 1) {
+      return reject_query("block BoC must contain exactly one root");
+    }
+    block_root_ = boc1.get_root_cell();
   }
-  if (boc1.get_root_count() != 1) {
-    return reject_query("block BoC must contain exactly one root");
-  }
-  block_root_ = boc1.get_root_cell();
   REJECT_UNLESS(block_root_.not_null());
   // 2. check that root_hash equals the announced one
   RootHash rhash{block_root_->get_hash().bits()};
@@ -525,11 +535,20 @@ bool ValidateQuery::unpack_block_candidate() {
   }
   // ...
   // 8. deserialize collated data
-  auto res2 = vm::std_boc_deserialize_multi(block_candidate.collated_data, vm::BagOfCells::default_max_roots, true);
-  if (res2.is_error()) {
-    return reject_query("cannot deserialize collated data", res2.move_as_error());
+  if (roots.not_null()) {
+    FileHash collated_fhash = block::compute_file_hash(block_candidate.collated_data);
+    if (roots->collated_file_hash != collated_fhash) {
+      return reject_query(PSTRING() << "candidate roots have invalid collated data file hash: declared "
+                                    << roots->collated_file_hash.to_hex() << ", actual " << collated_fhash.to_hex());
+    }
+    collated_roots_ = roots->collated_roots;
+  } else {
+    auto res2 = vm::std_boc_deserialize_multi(block_candidate.collated_data, vm::BagOfCells::default_max_roots, true);
+    if (res2.is_error()) {
+      return reject_query("cannot deserialize collated data", res2.move_as_error());
+    }
+    collated_roots_ = res2.move_as_ok();
   }
-  collated_roots_ = res2.move_as_ok();
   // 9. extract/classify collated data
   return extract_collated_data();
 }

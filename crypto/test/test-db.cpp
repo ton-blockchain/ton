@@ -1292,6 +1292,26 @@ TEST(TonDb, BocMultipleRoots) {
   }
 };
 
+TEST(TonDb, BocRepeatedRoots) {
+  auto child = CellBuilder{}.store_long(42, 32).finalize();
+  auto first = CellBuilder{}.store_long(1, 32).store_ref(child).finalize();
+  auto second = CellBuilder{}.store_long(2, 32).store_ref(child).finalize();
+  for (int root_count : {1, 255, 256, 257, 1000, (int)BagOfCells::default_max_roots}) {
+    std::vector<Ref<Cell>> roots(root_count, first);
+    roots[root_count / 2] = second;
+    for (int mode : get_serialization_modes()) {
+      auto serialized = std_boc_serialize_multi(roots, mode).move_as_ok();
+      auto decoded = std_boc_deserialize_multi(serialized).move_as_ok();
+      ASSERT_EQ(decoded.size(), roots.size());
+      for (size_t i = 0; i < roots.size(); ++i) {
+        ASSERT_EQ(decoded[i]->get_hash(), roots[i]->get_hash());
+      }
+      auto reserialized = std_boc_serialize_multi(std::move(decoded), mode).move_as_ok();
+      ASSERT_EQ(reserialized.as_slice(), serialized.as_slice());
+    }
+  }
+}
+
 TEST(TonDb, InMemoryDynamicBocSimple) {
   auto counter = [] { return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum(); };
   auto before = counter();

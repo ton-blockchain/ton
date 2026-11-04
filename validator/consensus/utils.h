@@ -11,9 +11,10 @@
 #include "td/actor/coro_task.h"
 #include "td/utils/Status.h"
 #include "ton/ton-types.h"
+#include "validator/candidate-roots.h"
 
 namespace ton::validator::consensus {
 
-td::Result<double> get_candidate_gen_utime_exact(const BlockCandidate& candidate);
+td::Result<double> get_candidate_gen_utime_exact(const BlockCandidate& candidate, CandidateRootsRef roots = {});
 
 }  // namespace ton::validator::consensus

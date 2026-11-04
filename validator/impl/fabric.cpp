@@ -50,8 +50,8 @@ td::actor::ActorOwn<LiteServerCache> create_liteserver_cache_actor(td::actor::Ac
   return td::actor::create_actor<LiteServerCacheImpl>("cache");
 }
 
-td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data) {
-  auto res = BlockQ::create(block_id, std::move(data));
+td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice data, td::Ref<vm::Cell> root) {
+  auto res = BlockQ::create(block_id, std::move(data), std::move(root));
   if (res.is_error()) {
     return res.move_as_error();
   } else {

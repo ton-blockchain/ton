@@ -27,40 +27,40 @@ using td::Ref;
 BlockQ::BlockQ(const BlockQ& other) : data_(other.data_.clone()), id_(other.id_), root_(other.root_), boc_(other.boc_) {
 }
 
-BlockQ::BlockQ(BlockIdExt id, td::BufferSlice data) : data_(std::move(data)), id_(id) {
+BlockQ::BlockQ(BlockIdExt id, td::BufferSlice data, td::Ref<vm::Cell> root)
+    : data_(std::move(data)), id_(id), root_(std::move(root)) {
 }
 
 BlockQ::~BlockQ() {
 }
 
 td::Status BlockQ::init() {
-  if (root_.not_null()) {
-    return td::Status::OK();
-  }
   if (data_.is_null()) {
     return td::Status::Error(-668, "cannot initialize a block from an empty BufferSlice");
   }
-  vm::StaticBagOfCellsDbLazy::Options options;
-  options.check_crc32c = true;
-  auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(data_.clone()), options);
-  if (res.is_error()) {
-    return res.move_as_error();
-  }
-  boc_ = res.move_as_ok();
-  auto rc = boc_->get_root_count();
-  if (rc.is_error()) {
-    return rc.move_as_error();
-  }
-  if (rc.move_as_ok() != 1) {
-    return td::Status::Error(-668, "shardchain block BoC is invalid");
-  }
-  auto res3 = boc_->get_root_cell(0);
-  if (res3.is_error()) {
-    return res3.move_as_error();
-  }
-  root_ = res3.move_as_ok();
   if (root_.is_null()) {
-    return td::Status::Error(-668, "cannot extract root cell out of a shardchain block BoC");
+    vm::StaticBagOfCellsDbLazy::Options options;
+    options.check_crc32c = true;
+    auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(data_.clone()), options);
+    if (res.is_error()) {
+      return res.move_as_error();
+    }
+    boc_ = res.move_as_ok();
+    auto rc = boc_->get_root_count();
+    if (rc.is_error()) {
+      return rc.move_as_error();
+    }
+    if (rc.move_as_ok() != 1) {
+      return td::Status::Error(-668, "shardchain block BoC is invalid");
+    }
+    auto res3 = boc_->get_root_cell(0);
+    if (res3.is_error()) {
+      return res3.move_as_error();
+    }
+    root_ = res3.move_as_ok();
+    if (root_.is_null()) {
+      return td::Status::Error(-668, "cannot extract root cell out of a shardchain block BoC");
+    }
   }
   if (RootHash{root_->get_hash().bits()} != id_.root_hash) {
     return td::Status::Error(-668, "root hash mismatch");
@@ -68,8 +68,8 @@ td::Status BlockQ::init() {
   return td::Status::OK();
 }
 
-td::Result<td::Ref<BlockQ>> BlockQ::create(BlockIdExt id, td::BufferSlice data) {
-  td::Ref<BlockQ> res{true, id, std::move(data)};
+td::Result<td::Ref<BlockQ>> BlockQ::create(BlockIdExt id, td::BufferSlice data, td::Ref<vm::Cell> root) {
+  td::Ref<BlockQ> res{true, id, std::move(data), std::move(root)};
   auto err = res.unique_write().init();
   if (err.is_error()) {
     return err.move_as_error();
