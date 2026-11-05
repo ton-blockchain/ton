@@ -514,6 +514,96 @@ TEST(SchedulerStop, SchedulerStopInTearDown) {
 
 }  // namespace test_scheduler_stops_in_tear_down
 
+namespace test_undelivered_coroutine {
+
+Task<> tracked_task(std::shared_ptr<Unit> lifetime, bool *ran) {
+  *ran = true;
+  co_return {};
+}
+
+TEST(SchedulerStop, RetainedUndeliveredCoroutineWithoutContext) {
+  ASSERT_TRUE(!SchedulerContext::get_ptr());
+  bool ran = false;
+  auto lifetime = std::make_shared<Unit>();
+  std::weak_ptr<Unit> observed = lifetime;
+  auto task = tracked_task(std::move(lifetime), &ran);
+  task.set_executor(Executor::on_actor(ActorId<>{}));
+
+  {
+    auto retained = std::move(task).start();
+    // Sending to an empty actor drops the message; the retained task must still see cancellation.
+    ASSERT_TRUE(retained.await_ready());
+    auto result = retained.await_resume();
+    ASSERT_TRUE(result.is_error());
+    EXPECT_EQ(result.error().code(), 653);
+    EXPECT(!ran);
+    EXPECT(!observed.expired());
+  }
+  EXPECT(observed.expired());
+}
+
+class MailboxActor : public Actor {
+ public:
+  explicit MailboxActor(bool *destroyed) : destroyed_(destroyed) {
+  }
+  ~MailboxActor() override {
+    *destroyed_ = true;
+  }
+
+ private:
+  bool *destroyed_;
+};
+
+TEST(SchedulerStop, RetainedMailboxCoroutineDuringShutdown) {
+  bool ran = false;
+  bool actor_destroyed = false;
+  std::weak_ptr<Unit> observed;
+  {
+    StartedTask<> retained;
+    {
+      // Stop before running so hard shutdown deterministically discards the queued message.
+      Scheduler scheduler({0});
+      scheduler.run_in_context([&] {
+        auto receiver = create_actor<MailboxActor>("PendingCoroutine", &actor_destroyed);
+        auto lifetime = std::make_shared<Unit>();
+        observed = lifetime;
+        auto task = tracked_task(std::move(lifetime), &ran);
+        // Scheduler-affine: an actor-affine task cannot outlive the scheduler that owns its ActorInfo.
+        retained = std::move(task).start_external();
+        receiver.get().actor_info().mailbox().push(detail::ActorExecutor::to_message(retained.h));
+        receiver.release();
+        SchedulerContext::get().stop();
+      });
+    }
+    ASSERT_TRUE(!SchedulerContext::get_ptr());
+    EXPECT(actor_destroyed);
+    ASSERT_TRUE(retained.await_ready());
+    auto result = retained.await_resume();
+    ASSERT_TRUE(result.is_error());
+    EXPECT_EQ(result.error().code(), 653);
+    EXPECT(!ran);
+    EXPECT(!observed.expired());
+  }
+  EXPECT(observed.expired());
+}
+
+TEST(SchedulerStop, DetachedUndeliveredCoroutineWithoutContext) {
+  ASSERT_TRUE(!SchedulerContext::get_ptr());
+  bool ran = false;
+  auto lifetime = std::make_shared<Unit>();
+  std::weak_ptr<Unit> observed = lifetime;
+  auto retained = tracked_task(std::move(lifetime), &ran).start_external();
+  auto handle = retained.h;
+  retained.detach_silent();
+  {
+    auto message = detail::ActorExecutor::to_message(handle);
+  }
+  EXPECT(!ran);
+  EXPECT(observed.expired());
+}
+
+}  // namespace test_undelivered_coroutine
+
 namespace test_normal_flow {
 
 int g_tear_down_child = 0;

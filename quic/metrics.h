@@ -31,8 +31,46 @@ using BatchWithZeroHistogram = metrics::Histogram<kBatchWithZeroBuckets>;
 TON_METRIC_DEFINE_LABEL(HandshakeResult, "result", QUIC_HANDSHAKE_RESULT_LIST)
 #undef QUIC_HANDSHAKE_RESULT_LIST
 
+// Which flood-guard budget refused an inbound datagram before any connection state existed. Naming
+// the specific budget is the point: it separates a spoofed flood (global_rate, saturated) from a
+// single-source flood (conns_per_ip, conn_rate, half_open_per_ip) from an already-punished abuser
+// (discouraged) — three attacks that need three different responses.
+#define QUIC_ADMIT_REJECT_LIST(F) \
+  F(saturated)                    \
+  F(discouraged)                  \
+  F(conns_per_ip)                 \
+  F(conn_rate)                    \
+  F(global_rate)                  \
+  F(half_open_per_ip)
+TON_METRIC_DEFINE_LABEL(AdmitReject, "reason", QUIC_ADMIT_REJECT_LIST)
+#undef QUIC_ADMIT_REJECT_LIST
+
+// A connection the guard itself closed, by the code the peer was told. `ok` = an untrusted
+// connection reaped for inactivity, `forbidden` = shed by reserved-only, `too_many_requests` = a
+// stream-churn abuse verdict, `service_unavailable` = evicted to reclaim capacity.
+#define QUIC_GUARD_CLOSE_LIST(F) \
+  F(ok)                          \
+  F(forbidden)                   \
+  F(too_many_requests)           \
+  F(service_unavailable)
+TON_METRIC_DEFINE_LABEL(GuardClose, "code", QUIC_GUARD_CLOSE_LIST)
+#undef QUIC_GUARD_CLOSE_LIST
+
+// Which budget failed a peer's stream. `unclassified` means data arrived before the handshake
+// classified the connection; the rest name the cap that was hit.
+#define QUIC_STREAM_FAIL_LIST(F) \
+  F(size_limit)                  \
+  F(deadline)                    \
+  F(connection_memory)           \
+  F(pool_memory)                 \
+  F(inflight)                    \
+  F(churn)                       \
+  F(unclassified)
+TON_METRIC_DEFINE_LABEL(StreamFail, "reason", QUIC_STREAM_FAIL_LIST)
+#undef QUIC_STREAM_FAIL_LIST
+
 // Local resource class assigned to a remote peer path. Permanent overlay members are trusted; all
-// other peers are untrusted. This is not an authorization decision.
+// other peers are untrusted. This controls resource budgets and metric labels, not authorization.
 #define QUIC_TRUST_LIST(F) \
   F(trusted)               \
   F(untrusted)
@@ -53,6 +91,58 @@ struct PeerMetrics {
     // Temporary rolling-upgrade alias for dashboards and alerts that still use the old family.
     // Keep this an exact duplicate and remove it once all consumers use message_confirmation.
     ctx.collect(message_confirmation, "message_delivery");
+  }
+};
+
+// What the flood guard did, and how close it is to its caps. The counters answer "are we under
+// attack, and which lever is holding"; the gauges answer "how much headroom is left" — a counter
+// that stops climbing means either the attack stopped or a budget is pinned, and only the gauges
+// tell those apart.
+struct FloodGuardStats {
+  metrics::Labeled<metrics::Counter, AdmitReject> admit_rejected;
+  metrics::Labeled<metrics::Counter, GuardClose> closed;
+  metrics::Labeled<metrics::Counter, StreamFail> streams_failed;
+  // Shaped ingress actually handed out: the untrusted aggregate's real throughput.
+  metrics::Counter ingress_granted_bytes;
+
+  // Pressure. Gauges are re-read from live guard state at collection, never accumulated. Buffered
+  // gauges are logical accounted memory: reassembly storage plus configured StreamState overhead.
+  // In-flight gauges also retain request overhead until handler completion, including orphaned work.
+  metrics::Gauge<td::uint64> half_open;
+  metrics::Gauge<td::uint64> discouraged_ips;
+  metrics::Gauge<td::uint64> untrusted_connections;
+  metrics::Gauge<td::uint64> shaper_waiters;
+  metrics::Labeled<metrics::Gauge<td::uint64>, Trust> buffered_bytes;
+  metrics::Labeled<metrics::Gauge<td::uint64>, Trust> inflight_bytes;
+  metrics::Gauge<td::uint64> reserved_only;  // 0/1 per server; summed over listening ports
+
+  FloodGuardStats& operator+=(const FloodGuardStats& other) {
+    admit_rejected += other.admit_rejected;
+    closed += other.closed;
+    streams_failed += other.streams_failed;
+    ingress_granted_bytes += other.ingress_granted_bytes;
+    half_open += other.half_open;
+    discouraged_ips += other.discouraged_ips;
+    untrusted_connections += other.untrusted_connections;
+    shaper_waiters += other.shaper_waiters;
+    buffered_bytes += other.buffered_bytes;
+    inflight_bytes += other.inflight_bytes;
+    reserved_only += other.reserved_only;
+    return *this;
+  }
+
+  void collect(metrics::Context ctx) const {
+    ctx.collect(admit_rejected, "admit_rejected");
+    ctx.collect(closed, "closed");
+    ctx.collect(streams_failed, "streams_failed");
+    ctx.collect(ingress_granted_bytes, "ingress_granted_bytes");
+    ctx.collect(half_open, "half_open");
+    ctx.collect(discouraged_ips, "discouraged_ips");
+    ctx.collect(untrusted_connections, "untrusted_connections");
+    ctx.collect(shaper_waiters, "shaper_waiters");
+    ctx.collect(buffered_bytes, "buffered_bytes");
+    ctx.collect(inflight_bytes, "inflight_bytes");
+    ctx.collect(reserved_only, "reserved_only");
   }
 };
 
@@ -217,11 +307,13 @@ struct ServerStats {
   metrics::UdpWireStats wire;
   Transport transport;
   BatchingStats batching;
+  FloodGuardStats flood;
 
   ServerStats& operator+=(const ServerStats& other) {
     wire += other.wire;
     transport += other.transport;
     batching += other.batching;
+    flood += other.flood;
     return *this;
   }
 
@@ -229,6 +321,7 @@ struct ServerStats {
     ctx.collect(wire, "wire");
     ctx.collect(transport, "transport");
     ctx.collect(batching, "batching");
+    ctx.collect(flood, "flood");
   }
 };
 

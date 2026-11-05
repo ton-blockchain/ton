@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "crypto/Ed25519.h"
@@ -22,6 +23,7 @@
 #include "metrics.h"
 #include "openssl-utils.h"
 #include "quic-common.h"
+#include "quic-ingress-shaper.h"
 
 namespace ton::quic {
 
@@ -78,6 +80,7 @@ struct QuicConnectionOptions {
   // stream credit can be returned together with ACKs.
   size_t max_streams_uni = DEFAULT_MAX_STREAMS_UNI;
   size_t initial_max_stream_data_uni = DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE;
+  size_t max_outbound_buffered_bytes = 0;  // reject buffer_stream past this (0 = disabled)
   ngtcp2_duration idle_timeout = DEFAULT_IDLE_TIMEOUT;
   ngtcp2_duration keep_alive_timeout = DEFAULT_KEEP_ALIVE_TIMEOUT;
   ngtcp2_duration handshake_timeout = DEFAULT_HANDSHAKE_TIMEOUT;
@@ -188,6 +191,9 @@ struct QuicConnectionPImpl {
     virtual void on_local_cid_issued(QuicConnectionId cid) = 0;
     virtual void on_local_cid_retired(QuicConnectionId cid) = 0;
     virtual void on_handshake_completed(HandshakeCompletedEvent event) = 0;
+    virtual td::Status on_stream_open(QuicStreamID sid) {
+      return td::Status::OK();
+    }
     virtual td::Status on_stream_data(StreamDataEvent event) = 0;
     virtual void on_stream_closed(StreamCloseEvent event) = 0;
 
@@ -228,6 +234,27 @@ struct QuicConnectionPImpl {
   // the release put a MAX_STREAMS on the wire, so the caller can skip the ones that did not.
   [[nodiscard]] bool release_peer_uni_stream_credit();
   void set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size);
+  // Enforce the outbound-buffered cap (untrusted + trusted); when cleared (our own outbound) the
+  // cap only logs so a legitimate large answer is never dropped.
+  void set_outbound_cap_enforced(bool enforced) {
+    enforce_outbound_cap_ = enforced;
+  }
+  // The buffered-egress ceiling: untrusted uses the per-connection budget, trusted a larger one.
+  void set_outbound_buffered_cap(td::uint64 cap) {
+    options_.max_outbound_buffered_bytes = cap;
+  }
+  // A deliberate application-level close (eviction, policy shed) carrying our protocol's close
+  // code and a short diagnostic reason; close_out is left empty when ngtcp2 has nothing to send.
+  void write_application_close(UdpMessageBuffer& close_out, td::uint64 code, td::Slice reason);
+
+  // Aggregate ingress shaping for untrusted inbound connections (connection-level MAX_DATA only;
+  // per-stream credit is untouched). start on creation, stop on trust upgrade (dumps accrued
+  // debt as an immediate offset extension). The server serves accrued debt via grant_ingress, only
+  // from its paced round-robin drain; grant_ingress returns the bytes drawn from the bucket.
+  void start_ingress_shaping(IngressAggregate* aggregate);
+  void stop_ingress_shaping();
+  td::uint64 grant_ingress(td::Timestamp now, td::uint64 cap);
+  td::uint64 ingress_debt() const;
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream(StreamDirection direction, td::BufferSlice data, bool fin);
   // Whether the peer's initial transport parameters allowed unidirectional streams at all. A peer
@@ -242,6 +269,9 @@ struct QuicConnectionPImpl {
   [[nodiscard]] ngtcp2_conn_info get_conn_info() const;
   [[nodiscard]] size_t get_last_packet_streams() const {
     return last_packet_streams_;
+  }
+  [[nodiscard]] size_t outbound_buffered() const {
+    return outbound_buffered_;
   }
 
   ~QuicConnectionPImpl() {
@@ -312,6 +342,11 @@ struct QuicConnectionPImpl {
   QuicStreamID write_sid_ = -1;
   std::vector<ngtcp2_vec> write_datav_;
   size_t last_packet_streams_ = 0;
+  size_t outbound_buffered_ = 0;      // appended, not yet acked (Σ pin_.size())
+  bool enforce_outbound_cap_ = true;  // cleared once the connection is trusted / our own outbound
+  IngressShaper ingress_shaper_;      // shapes connection-level MAX_DATA for untrusted inbound conns
+  // Peer streams opened while shaped, until FIN delivery, our stop or the peer's reset.
+  std::unordered_set<QuicStreamID> unfinished_peer_streams_;
 
   ngtcp2_conn* conn() const {
     CHECK(conn_);
@@ -349,6 +384,7 @@ struct QuicConnectionPImpl {
 
   void commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size, const ngtcp2_path& path);
   void write_connection_close(UdpMessageBuffer& close_out, int liberr);
+  void write_connection_close(UdpMessageBuffer& close_out, const ngtcp2_ccerr& err);
   void prepare_stream_write(QuicStreamID sid, bool may_pad, StreamWriteContext& ctx, std::vector<ngtcp2_vec>& datav);
   void finish_stream_write(QuicStreamID sid, const StreamWriteContext& ctx, ngtcp2_ssize pdatalen);
   void start_batch();
@@ -379,6 +415,7 @@ struct QuicConnectionPImpl {
   int on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data);
   int on_acked_stream_data_offset(int64_t stream_id, uint64_t offset, uint64_t datalen);
   int on_stream_close(int64_t stream_id, bool clean);
+  void charge_minted_credit(QuicStreamID sid);
   int on_extend_max_stream_data(QuicStreamID sid);
   int on_get_new_connection_id(ngtcp2_cid* cid, uint8_t* token, size_t cidlen);
   int on_remove_connection_id(const ngtcp2_cid* cid);
@@ -388,11 +425,14 @@ struct QuicConnectionPImpl {
                                       void* user_data);
   static int remove_connection_id_cb(ngtcp2_conn* conn, const ngtcp2_cid* cid, void* user_data);
   static int handshake_completed_cb(ngtcp2_conn* conn, void* user_data);
+  static int stream_open_cb(ngtcp2_conn* conn, int64_t stream_id, void* user_data);
   static int recv_stream_data_cb(ngtcp2_conn* /*conn*/, uint32_t flags, int64_t stream_id, uint64_t offset,
                                  const uint8_t* data, size_t datalen, void* user_data, void* stream_user_data);
 
   static int acked_stream_data_offset_cb(ngtcp2_conn* /*conn*/, int64_t stream_id, uint64_t offset, uint64_t datalen,
                                          void* user_data, void* stream_user_data);
+  static int stream_reset_cb(ngtcp2_conn* /*conn*/, int64_t stream_id, uint64_t final_size, uint64_t app_error_code,
+                             void* user_data, void* stream_user_data);
   static int stream_close_cb(ngtcp2_conn* /*conn*/, uint32_t flags, int64_t stream_id, uint64_t app_error_code,
                              void* user_data, void* stream_user_data);
   static int recv_datagram_cb(ngtcp2_conn* /*conn*/, uint32_t flags, const uint8_t* data, size_t datalen,

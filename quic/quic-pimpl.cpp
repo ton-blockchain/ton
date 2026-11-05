@@ -333,9 +333,11 @@ void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bo
   callbacks.get_new_connection_id = get_new_connection_id_cb;
   callbacks.remove_connection_id = remove_connection_id_cb;
   callbacks.handshake_completed = handshake_completed_cb;
+  callbacks.stream_open = stream_open_cb;
   callbacks.recv_stream_data = recv_stream_data_cb;
   callbacks.acked_stream_data_offset = acked_stream_data_offset_cb;
   callbacks.stream_close = stream_close_cb;
+  callbacks.stream_reset = stream_reset_cb;
   callbacks.extend_max_stream_data = extend_max_stream_data_cb;
   callbacks.recv_datagram = recv_datagram_cb;
 }
@@ -669,6 +671,18 @@ void QuicConnectionPImpl::write_connection_close(UdpMessageBuffer& close_out, in
   } else {
     ngtcp2_ccerr_set_liberr(&err, liberr, nullptr, 0);
   }
+  write_connection_close(close_out, err);
+}
+
+// A deliberate application-level close (eviction, policy shed): carries our protocol's close code
+// and a short diagnostic reason instead of a transport error.
+void QuicConnectionPImpl::write_application_close(UdpMessageBuffer& close_out, td::uint64 code, td::Slice reason) {
+  ngtcp2_ccerr err{};
+  ngtcp2_ccerr_set_application_error(&err, code, reinterpret_cast<const uint8_t*>(reason.data()), reason.size());
+  write_connection_close(close_out, err);
+}
+
+void QuicConnectionPImpl::write_connection_close(UdpMessageBuffer& close_out, const ngtcp2_ccerr& err) {
   auto path = make_path();
   ngtcp2_pkt_info pi{};
   auto n = ngtcp2_conn_write_connection_close(conn(), &path, &pi, reinterpret_cast<uint8_t*>(close_out.storage.data()),
@@ -699,7 +713,18 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in, U
   }
   // ngtcp2 read_pkt contract: DROP_CONN/RETRY are discarded silently and DRAINING/CLOSING forbid any
   // further packet; every other error (including CRYPTO from a rejected SNI) gets a terminal close.
-  if (rv == NGTCP2_ERR_DROP_CONN || rv == NGTCP2_ERR_RETRY || rv == NGTCP2_ERR_DRAINING || rv == NGTCP2_ERR_CLOSING) {
+  if (rv == NGTCP2_ERR_DRAINING) {
+    // The peer sent CONNECTION_CLOSE: surface its code and reason (our own notices carry http-style
+    // codes) so the close shows up in logs with a cause, not just "draining".
+    close_out.storage.truncate(0);
+    const ngtcp2_ccerr* ccerr = ngtcp2_conn_get_ccerr(conn());
+    auto reason =
+        ccerr->reasonlen != 0 ? td::Slice(reinterpret_cast<const char*>(ccerr->reason), ccerr->reasonlen) : td::Slice();
+    return td::Status::Error(
+        rv, PSTRING() << "closed by peer: " << (ccerr->type == NGTCP2_CCERR_TYPE_APPLICATION ? "app" : "transport")
+                      << " code=" << ccerr->error_code << " reason=\"" << reason << "\"");
+  }
+  if (rv == NGTCP2_ERR_DROP_CONN || rv == NGTCP2_ERR_RETRY || rv == NGTCP2_ERR_CLOSING) {
     close_out.storage.truncate(0);
   } else {
     write_connection_close(close_out, rv);
@@ -739,7 +764,18 @@ td::Result<QuicConnectionPImpl::InitialCidState> QuicConnectionPImpl::take_initi
 }
 
 void QuicConnectionPImpl::shutdown_stream(QuicStreamID sid) {
+  charge_minted_credit(sid);
   ngtcp2_conn_shutdown_stream(conn(), 0, sid, 1);
+}
+
+// ngtcp2 re-credits MAX_DATA by itself for an unfinished peer stream we stop or the peer resets. That
+// credit is bounded by the stream's receive window, which auto-tuning never grows past max_stream_window.
+void QuicConnectionPImpl::charge_minted_credit(QuicStreamID sid) {
+  if (unfinished_peer_streams_.erase(sid) != 0) {
+    td::uint64 initial = ngtcp2_is_bidi_stream(sid) ? options_.initial_max_stream_data_bidi_remote
+                                                    : options_.initial_max_stream_data_uni;
+    ingress_shaper_.on_minted(std::max<td::uint64>(initial, options_.max_stream_window));
+  }
 }
 
 void QuicConnectionPImpl::set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size) {
@@ -788,6 +824,16 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, OutboundStreamSt
   if (st.fin_pending || st.fin_submitted) {
     return td::Status::Error("stream already closed");
   }
+  if (options_.max_outbound_buffered_bytes != 0 &&
+      outbound_buffered_ + data.size() > options_.max_outbound_buffered_bytes) {
+    if (enforce_outbound_cap_) {
+      return td::Status::Error(PSTRING() << "outbound buffer limit exceeded: " << outbound_buffered_ + data.size()
+                                         << " > " << options_.max_outbound_buffered_bytes);
+    }
+    LOG(WARNING) << "outbound buffer over cap on trusted/local connection: " << outbound_buffered_ + data.size()
+                 << " > " << options_.max_outbound_buffered_bytes;
+  }
+  outbound_buffered_ += data.size();
   st.writer_.append(std::move(data));
   st.reader_.sync_with_writer();
   st.pin_.sync_with_writer();
@@ -860,6 +906,29 @@ ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
 
 td::Timestamp QuicConnectionPImpl::get_expiry_timestamp() const {
   return from_ngtcp2_tstamp(ngtcp2_conn_get_expiry(conn()));
+}
+
+void QuicConnectionPImpl::start_ingress_shaping(IngressAggregate* aggregate) {
+  ingress_shaper_.start(aggregate);
+}
+
+void QuicConnectionPImpl::stop_ingress_shaping() {
+  unfinished_peer_streams_.clear();
+  if (auto debt = ingress_shaper_.stop()) {
+    ngtcp2_conn_extend_max_offset(conn(), debt);  // dump accrued debt: peer gets full credit now
+  }
+}
+
+td::uint64 QuicConnectionPImpl::grant_ingress(td::Timestamp now, td::uint64 cap) {
+  auto debt = ingress_shaper_.debt();
+  if (auto credit = ingress_shaper_.take(now, cap)) {
+    ngtcp2_conn_extend_max_offset(conn(), credit);
+  }
+  return debt - ingress_shaper_.debt();
+}
+
+td::uint64 QuicConnectionPImpl::ingress_debt() const {
+  return ingress_shaper_.debt();
 }
 
 bool QuicConnectionPImpl::is_expired() const {
@@ -938,7 +1007,17 @@ int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, 
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
 
-  ngtcp2_conn_extend_max_offset(conn(), data.size());
+  // Shaped connections accrue debt; the server grants connection-window credit from the shared
+  // bucket in its paced round-robin drain (FloodGuard::drain_shaper). Unshaped ones extend at line rate.
+  // Per-stream credit (below) is never shaped.
+  if (ingress_shaper_.shaped()) {
+    ingress_shaper_.on_data(data.size());
+  } else {
+    ngtcp2_conn_extend_max_offset(conn(), data.size());
+  }
+  if (event.fin) {
+    unfinished_peer_streams_.erase(stream_id);
+  }
 
   auto status = callback_->on_stream_data(std::move(event));
   if (status.is_error()) {
@@ -970,6 +1049,8 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
   st.acked_prefix = offset + datalen;
   st.pin_.advance(datalen);
   stream_bytes_.at(metrics::Direction::out).inc(datalen);
+  CHECK(outbound_buffered_ >= datalen);
+  outbound_buffered_ -= datalen;
 
   if (datalen == 0) {
     CHECK(st.fin_submitted);
@@ -980,7 +1061,11 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
 }
 
 int QuicConnectionPImpl::on_stream_close(int64_t stream_id, bool clean) {
-  streams_.erase(stream_id);
+  if (auto it = streams_.find(stream_id); it != streams_.end()) {
+    CHECK(outbound_buffered_ >= it->second.pin_.size());
+    outbound_buffered_ -= it->second.pin_.size();
+    streams_.erase(it);
+  }
   StreamCloseEvent event{
       .sid = stream_id,
       .initiator = ngtcp2_conn_is_local_stream(conn(), stream_id) ? StreamInitiator::Local : StreamInitiator::Peer,
@@ -1051,7 +1136,7 @@ int QuicConnectionPImpl::on_get_new_connection_id(ngtcp2_cid* cid, uint8_t* toke
 int QuicConnectionPImpl::on_remove_connection_id(const ngtcp2_cid* cid) {
   auto cid_r = QuicConnectionId::from_raw(cid->data, cid->datalen);
   if (cid_r.is_error()) {
-    LOG(ERROR) << "remove_connection_id received invalid cid";
+    LOG_EVERY(ERROR) << "remove_connection_id received invalid cid";
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
   if (local_cid_callbacks_enabled_) {
@@ -1080,6 +1165,20 @@ int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_da
   return pimpl->on_handshake_completed();
 }
 
+int QuicConnectionPImpl::stream_open_cb(ngtcp2_conn* conn, int64_t stream_id, void* user_data) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  if (pimpl->ingress_shaper_.shaped()) {
+    pimpl->unfinished_peer_streams_.insert(stream_id);
+  }
+  // stream_open precedes both contiguous delivery and ngtcp2's out-of-order buffering. Resetting
+  // here sets STOP_SENDING, so a refused stream never allocates a reorder buffer.
+  if (pimpl->callback_->on_stream_open(stream_id).is_error()) {
+    pimpl->charge_minted_credit(stream_id);
+    return ngtcp2_conn_shutdown_stream(conn, 0, stream_id, 1) == 0 ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
+  }
+  return 0;
+}
+
 int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn* conn, uint32_t flags, int64_t stream_id, uint64_t offset,
                                              const uint8_t* data, size_t datalen, void* user_data,
                                              void* stream_user_data) {
@@ -1091,6 +1190,12 @@ int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t strea
                                                      void* user_data, void* /*stream_user_data*/) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
   return pimpl->on_acked_stream_data_offset(stream_id, offset, datalen);
+}
+
+int QuicConnectionPImpl::stream_reset_cb(ngtcp2_conn*, int64_t stream_id, uint64_t /*final_size*/,
+                                         uint64_t /*app_error_code*/, void* user_data, void* /*stream_user_data*/) {
+  static_cast<QuicConnectionPImpl*>(user_data)->charge_minted_credit(stream_id);
+  return 0;
 }
 
 int QuicConnectionPImpl::stream_close_cb(ngtcp2_conn*, uint32_t flags, int64_t stream_id, uint64_t /*app_error_code*/,

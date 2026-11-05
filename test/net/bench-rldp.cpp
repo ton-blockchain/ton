@@ -104,11 +104,6 @@ const char* protocol_name(Protocol p) {
   return "unknown";
 }
 
-// --no-admission-limits lifts only the per-peer-address admission limits. A benchmark drives every
-// connection from one address, so the defaults (10 new connections per 0.2s, 1000 concurrent)
-// throttle the load generator rather than the code under test. Stream credit stays at the production
-// default so the cross-library suite compares the same 4096-stream window; --transport-ceiling is a
-// separate, explicitly labelled single-stack ceiling mode.
 ton::quic::QuicServer::Options quic_options(const Config& config) {
   ton::quic::QuicServer::Options options{.enable_gso = config.enable_gso,
                                          .enable_gro = config.enable_gro,
@@ -116,11 +111,6 @@ ton::quic::QuicServer::Options quic_options(const Config& config) {
                                          .cc_algo = config.cc_algo};
   options.ack_thresh = config.ack_thresh;
   options.max_ack_delay_seconds = config.max_ack_delay_seconds;
-  if (config.no_admission_limits) {
-    options.flood_control = std::nullopt;
-    options.new_connection_rate_limit_capacity = 1000000;
-    options.new_connection_rate_limit_period = 0.000001;
-  }
   if (config.transport_ceiling) {
     // At 50ms RTT the default 4096-stream budget caps a connection near 80k msg/s; a ceiling
     // probe must be bounded by the transport, not by the advertised window.
@@ -128,6 +118,26 @@ ton::quic::QuicServer::Options quic_options(const Config& config) {
     options.max_streams_uni = 1 << 16;
   }
   return options;
+}
+
+// Bench peers are never registered trusted, so lift the untrusted shaping, deadlines and pools: the
+// benchmark measures the transport. --no-admission-limits also lifts the per-peer-address admission
+// limits: a benchmark drives every connection from one address, so the defaults (10 new connections
+// per 0.2s, 1000 concurrent) throttle the load generator rather than the code under test.
+ton::quic::FloodLimits quic_flood_limits(const Config& config) {
+  ton::quic::FloodLimits limits;
+  limits.untrusted_ingress_rate = 0;
+  limits.stream_timeout = 300.0;
+  limits.trusted_stream_timeout = 300.0;
+  limits.max_untrusted_buffered = 0;
+  limits.max_untrusted_inflight_bytes = 0;
+  limits.max_trusted_buffered = 0;
+  limits.max_trusted_inflight_bytes = 0;
+  if (config.no_admission_limits) {
+    limits.max_conns_per_ip = std::nullopt;  // also disables both new-connection rate limiters
+    limits.max_handshaking_conns_per_ip = 0;
+  }
+  return limits;
 }
 
 // The transport is the subject of the benchmark. Build deterministic payloads instead of charging
@@ -214,7 +224,7 @@ Node make_node(const Config& config, const std::string& db_root, ton::PrivateKey
   } else if (config.protocol == Protocol::quic) {
     node.quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get(),
-        quic_options(config));
+        quic_options(config), quic_flood_limits(config));
     // QuicSender defaults to the ADNL MTU, which rejects any answer larger than one datagram.
     td::actor::send_closure(node.quic_sender, &ton::adnl::AdnlSenderEx::set_default_mtu, max_size);
     for (auto id : node.local_ids) {
