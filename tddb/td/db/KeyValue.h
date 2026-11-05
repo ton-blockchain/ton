@@ -60,11 +60,20 @@ class KeyValueReader {
  public:
   virtual ~KeyValueReader() = default;
   enum class GetStatus : int32 { Ok, NotFound };
+  struct ForEachOptions {
+    bool fill_cache = true;
+  };
 
   virtual Result<GetStatus> get(Slice key, std::string& value) = 0;
   virtual Result<std::vector<GetStatus>> get_multi(td::Span<Slice> keys, std::vector<std::string>* values) = 0;
   virtual Result<size_t> count(Slice prefix) = 0;
   virtual Status for_each(std::function<Status(Slice, Slice)> f) {
+    return for_each(f, {});
+  }
+  virtual Status for_each(std::function<Status(Slice, Slice)> f, ForEachOptions options) {
+    if (!options.fill_cache) {
+      return Status::Error("for_each with options is not supported");
+    }
     return Status::Error("for_each is not supported");
   }
   virtual Status for_each_in_range(Slice begin, Slice end, std::function<Status(Slice, Slice)> f) {
