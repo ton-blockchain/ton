@@ -36,6 +36,9 @@ class HttpClient : public td::actor::Actor {
     virtual ~Callback() = default;
     virtual void on_ready() = 0;
     virtual void on_stop_ready() = 0;
+    virtual bool should_cancel_upload(const HttpResponse &response) const {
+      return false;
+    }
   };
 
   virtual void check_ready(td::Promise<td::Unit> promise) = 0;

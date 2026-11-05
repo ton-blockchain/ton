@@ -18,6 +18,8 @@
 */
 #pragma once
 
+#include <limits>
+
 #include "common/errorcode.h"
 #include "td/actor/actor.h"
 #include "td/utils/BufferedFd.h"
@@ -29,6 +31,28 @@
 namespace ton {
 
 namespace http {
+
+#if TD_PORT_WINDOWS
+template <class Fd, bool CloseIsReadEof = true>
+#else
+template <class Fd, bool CloseIsReadEof = false>
+#endif
+td::Result<bool> read_tunnel(Fd &fd, size_t limit = std::numeric_limits<size_t>::max()) {
+  bool closed = td::can_close(fd);
+  if (closed) {
+    fd.get_poll_info().clear_flags(td::PollFlags::Close());
+    fd.get_poll_info().add_flags(td::PollFlags::Read());
+  }
+  TRY_STATUS(fd.flush_read(limit));
+  if constexpr (CloseIsReadEof) {
+    closed |= td::can_close(fd);
+    if (closed) {
+      fd.get_poll_info().add_flags(td::PollFlags::Close());
+    }
+    return closed && !td::can_read(fd);
+  }
+  return td::can_close(fd);
+}
 
 class HttpConnection : public td::actor::Actor, public td::ObserverBase {
  public:
@@ -86,6 +110,10 @@ class HttpConnection : public td::actor::Actor, public td::ObserverBase {
   bool close_after_write_ = false;
   bool close_after_read_ = false;
   bool found_eof_ = false;
+  bool tunnel_mode_ = false;
+  bool tunnel_read_eof_ = false;
+  bool tunnel_write_pending_ = false;
+  bool tunnel_write_closed_ = false;
   bool in_loop_ = false;
   bool allow_read_ = true;
 
@@ -124,6 +152,12 @@ class HttpConnection : public td::actor::Actor, public td::ObserverBase {
   }
 
   void tear_down() override {
+    if (reading_payload_ && !reading_payload_->parse_completed()) {
+      reading_payload_->set_error();
+    }
+    if (writing_payload_ && !writing_payload_->written()) {
+      writing_payload_->set_error();
+    }
     if (callback_) {
       callback_->on_close(actor_id(this));
       callback_ = nullptr;

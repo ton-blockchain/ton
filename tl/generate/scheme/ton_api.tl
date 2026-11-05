@@ -810,6 +810,7 @@ engine.validator.setExtMessagePoolOptions config:engine.validator.extMessagePool
 ---types---
 
 storage.pong = storage.Pong;
+storage.capabilities capabilities:long = storage.Capabilities;
 storage.ok = Ok;
 
 storage.state will_upload:Bool want_download:Bool = storage.State;
@@ -822,6 +823,7 @@ storage.updateState state:storage.State = storage.Update;
 
 ---functions---
 
+storage.getCapabilities capabilities:long = storage.Capabilities;
 storage.ping session_id:long = storage.Pong;
 storage.addUpdate session_id:long seqno:int update:storage.Update = Ok;
 

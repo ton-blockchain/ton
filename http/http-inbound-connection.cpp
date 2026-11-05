@@ -86,6 +86,7 @@ td::Status HttpInboundConnection::receive(td::ChainBufferReader &input) {
     }
   }
 
+  response_sent_ = false;
   auto payload = cur_request_->create_empty_payload().move_as_ok();
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this)](td::Result<std::pair<std::unique_ptr<HttpResponse>, std::shared_ptr<HttpPayload>>> R) {
@@ -104,6 +105,13 @@ td::Status HttpInboundConnection::receive(td::ChainBufferReader &input) {
 
 void HttpInboundConnection::send_answer(std::unique_ptr<HttpResponse> response, std::shared_ptr<HttpPayload> payload) {
   CHECK(payload);
+  if (reading_payload_ && reading_payload_->payload_type() != HttpPayload::PayloadType::pt_tunnel &&
+      response->cancel_request_payload()) {
+    auto upload = std::move(reading_payload_);
+    upload->set_error();
+    close_after_write_ = true;
+    read_next_request_ = false;
+  }
   response->store_http(buffered_fd_.output_buffer());
   write_payload(std::move(payload));
   loop();
