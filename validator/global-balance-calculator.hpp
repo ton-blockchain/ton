@@ -6,6 +6,7 @@
 
 #pragma once
 #include <functional>
+#include <memory>
 #include <vector>
 
 #include "interfaces/validator-manager.h"
@@ -30,6 +31,51 @@ struct GlobalBalanceComponents {
 };
 
 using LoadAuxMasterchainState = std::function<td::actor::Task<Ref<MasterchainState>>(BlockIdExt)>;
+
+// A reusable, immutable preparation of one shard (or masterchain) state. Copies
+// share queue cells, but each calculation uses its own dictionary wrappers.
+// The caller controls caching/lifetime; a handle does not retain predecessors.
+class PreparedGlobalBalanceState {
+ public:
+  PreparedGlobalBalanceState() = default;
+  bool empty() const;
+  const BlockIdExt& block_id() const;  // requires !empty()
+  int global_version() const;          // requires !empty()
+
+ private:
+  struct Data;
+  std::shared_ptr<const Data> data_;
+
+  explicit PreparedGlobalBalanceState(std::shared_ptr<const Data> data) : data_(std::move(data)) {
+  }
+  friend td::actor::Task<PreparedGlobalBalanceState> prepare_global_balance_state(
+      Ref<ShardState>, Ref<vm::Cell>, int, std::vector<PreparedGlobalBalanceState>);
+  friend td::actor::Task<GlobalBalanceComponents> calculate_global_balance_at_anchor(
+      Ref<MasterchainState>, Ref<vm::Cell>, PreparedGlobalBalanceState, std::vector<PreparedGlobalBalanceState>,
+      LoadAuxMasterchainState);
+};
+
+// Without prev, prepare a standalone state (including a full scan of legacy
+// queues). Otherwise prev must match the block header's immediate predecessors,
+// in header order, and use the same global_version. This reuses the validator's
+// OutMsgDescr updates and legacy dispatch-queue scan_diff, including split/merge
+// handling. Prepare intermediate shard blocks before their successors.
+// Pass the anchor MC's global version; reprepare without prev when it changes.
+// Nonzero states are checked against their block's state_update. Failures leave
+// all supplied handles usable, so callers can retry or start a new anchor.
+td::actor::Task<PreparedGlobalBalanceState> prepare_global_balance_state(
+    Ref<ShardState> state, Ref<vm::Cell> block_root, int global_version,
+    std::vector<PreparedGlobalBalanceState> prev = {});
+
+// Reuse prepared states for this exact MC snapshot. shard_states must contain
+// exactly its current shard tips (excluding MC); all preparations must use the
+// anchor's global version. An unchanged tip can be reused across MC anchors.
+// Unprocessed-message balances are recalculated using this snapshot's
+// processed_upto, even when every shard tip is cached. No predecessor/global
+// total is trusted as a substitute for any component of the current snapshot.
+td::actor::Task<GlobalBalanceComponents> calculate_global_balance_at_anchor(
+    Ref<MasterchainState> mc_state, Ref<vm::Cell> mc_block_root, PreparedGlobalBalanceState prepared_mc_state,
+    std::vector<PreparedGlobalBalanceState> shard_states, LoadAuxMasterchainState load_aux_mc_state);
 
 // Compute one historical masterchain snapshot without a running validator manager.
 // shard_states must contain exactly the top shard states referenced by mc_state

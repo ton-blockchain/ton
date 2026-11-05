@@ -938,6 +938,126 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
 
 }  // namespace
 
+struct PreparedGlobalBalanceState::Data {
+  BlockIdExt block_id;
+  td::Bits256 state_hash;
+  int global_version;
+  Ref<vm::CellSlice> msg_queue_root;
+  Ref<vm::CellSlice> dispatch_queue_root;
+  Ref<vm::CellSlice> proc_info;
+  td::RefInt256 accounts_balance;
+  td::RefInt256 dispatch_queue_balance;
+  td::RefInt256 mc_total_validator_fees;
+  bool dispatch_queue_balance_stored;
+
+  Data(const detail::ParsedShardState& parsed, td::Bits256 hash, int version)
+      : block_id(parsed.block_id)
+      , state_hash(hash)
+      , global_version(version)
+      , msg_queue_root(parsed.msg_queue->get_root())
+      , dispatch_queue_root(parsed.dispatch_queue ? parsed.dispatch_queue->get_root() : Ref<vm::CellSlice>{})
+      , proc_info(parsed.proc_info)
+      , accounts_balance(parsed.accounts_balance)
+      , dispatch_queue_balance(parsed.dispatch_queue_balance)
+      , mc_total_validator_fees(parsed.mc_total_validator_fees)
+      , dispatch_queue_balance_stored(parsed.dispatch_queue_balance_stored) {
+  }
+
+  std::shared_ptr<detail::ParsedShardState> clone() const {
+    auto parsed = std::make_shared<detail::ParsedShardState>();
+    parsed->block_id = block_id;
+    parsed->msg_queue = std::make_unique<vm::AugmentedDictionary>(msg_queue_root, 352, block::tlb::aug_OutMsgQueue);
+    if (dispatch_queue_root.not_null()) {
+      parsed->dispatch_queue =
+          std::make_unique<vm::AugmentedDictionary>(dispatch_queue_root, 256, block::tlb::aug_DispatchQueue);
+    }
+    parsed->proc_info = proc_info;
+    parsed->accounts_balance = accounts_balance;
+    parsed->dispatch_queue_balance = dispatch_queue_balance;
+    parsed->mc_total_validator_fees = mc_total_validator_fees;
+    parsed->dispatch_queue_balance_stored = dispatch_queue_balance_stored;
+    return parsed;
+  }
+};
+
+bool PreparedGlobalBalanceState::empty() const {
+  return !data_;
+}
+
+const BlockIdExt& PreparedGlobalBalanceState::block_id() const {
+  CHECK(data_);
+  return data_->block_id;
+}
+
+int PreparedGlobalBalanceState::global_version() const {
+  CHECK(data_);
+  return data_->global_version;
+}
+
+td::actor::Task<PreparedGlobalBalanceState> prepare_global_balance_state(Ref<ShardState> state,
+                                                                         Ref<vm::Cell> block_root, int global_version,
+                                                                         std::vector<PreparedGlobalBalanceState> prev) {
+  CO_TRY_BOOL(state.not_null() && global_version >= 0);
+  CO_TRY(detail::verify_state_block_pair(*state, block_root));
+  std::vector<std::shared_ptr<detail::ParsedShardState>> parsed_prev;
+  if (!prev.empty()) {
+    CO_TRY_BOOL(state->get_seqno() != 0);
+    auto header = CO_TRY(block::get_block_header_info(block_root, state->get_block_id()));
+    CO_TRY_BOOL(header.prev.size() == prev.size());
+    for (size_t i = 0; i < prev.size(); ++i) {
+      if (prev[i].empty() || prev[i].block_id() != header.prev[i]) {
+        co_return td::Status::Error("global balance preparation has a wrong predecessor");
+      }
+      if (prev[i].global_version() != global_version) {
+        co_return td::Status::Error("global balance preparation requires reinitialization after a version change");
+      }
+      parsed_prev.push_back(prev[i].data_->clone());
+    }
+  }
+  auto state_hash = state->root_cell()->get_hash().as_bits256();
+  auto parsed = co_await detail::ParsedShardState::fetch(std::move(state), std::move(block_root), global_version,
+                                                         std::move(parsed_prev));
+  co_return PreparedGlobalBalanceState{
+      std::make_shared<PreparedGlobalBalanceState::Data>(*parsed, state_hash, global_version)};
+}
+
+td::actor::Task<GlobalBalanceComponents> calculate_global_balance_at_anchor(
+    Ref<MasterchainState> mc_state, Ref<vm::Cell> mc_block_root, PreparedGlobalBalanceState prepared_mc_state,
+    std::vector<PreparedGlobalBalanceState> shard_states, LoadAuxMasterchainState load_aux_mc_state) {
+  CO_TRY_BOOL(mc_state.not_null() && mc_state->get_block_id().is_masterchain() && load_aux_mc_state);
+  auto mc = Ref<MasterchainStateQ>{mc_state};
+  CO_TRY_BOOL(mc->get_config() != nullptr);
+  CO_TRY(detail::verify_state_block_pair(*mc, mc_block_root));
+  const auto version = mc->get_config()->get_global_version();
+  CO_TRY_BOOL(!prepared_mc_state.empty() && prepared_mc_state.block_id() == mc->get_block_id());
+  CO_TRY_BOOL(prepared_mc_state.global_version() == version &&
+              prepared_mc_state.data_->state_hash == mc->root_cell()->get_hash().as_bits256());
+
+  auto expected = mc->get_shards();
+  CO_TRY_BOOL(expected.size() == shard_states.size());
+  std::map<BlockIdExt, PreparedGlobalBalanceState> by_id;
+  for (auto& entry : shard_states) {
+    CO_TRY_BOOL(!entry.empty() && !entry.block_id().is_masterchain() && entry.global_version() == version);
+    auto id = entry.block_id();
+    CO_TRY_BOOL(by_id.emplace(id, std::move(entry)).second);
+  }
+  std::vector<std::shared_ptr<detail::ParsedShardState>> parsed_states;
+  parsed_states.push_back(prepared_mc_state.data_->clone());
+  for (const auto& desc : expected) {
+    auto it = by_id.find(desc->top_block_id());
+    CO_TRY_BOOL(it != by_id.end());
+    parsed_states.push_back(it->second.data_->clone());
+  }
+  auto load_aux = [loader = std::move(load_aux_mc_state)](BlockIdExt id) -> td::actor::Task<Ref<MasterchainStateQ>> {
+    auto state = co_await loader(id);
+    CO_TRY_BOOL(state.not_null() && state->get_block_id() == id);
+    co_return Ref<MasterchainStateQ>{state};
+  };
+  auto result = co_await compute_global_balance_from_states(std::move(parsed_states), mc, mc_block_root,
+                                                            std::move(load_aux), version);
+  co_return result.components;
+}
+
 td::actor::Task<GlobalBalanceComponents> calculate_global_balance_at_anchor(
     Ref<MasterchainState> mc_state, Ref<vm::Cell> mc_block_root, std::vector<GlobalBalanceShardState> shard_states,
     LoadAuxMasterchainState load_aux_mc_state) {

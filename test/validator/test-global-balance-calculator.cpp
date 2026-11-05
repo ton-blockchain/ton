@@ -38,7 +38,9 @@
 #include "validator/fabric.h"
 #include "validator/global-balance-calculator.hpp"
 #include "validator/impl/global-balance-calculator-internal.hpp"
+#include "validator/impl/shard.hpp"
 #include "vm/cells/MerkleUpdate.h"
+#include "vm/cells/PrunnedCell.h"
 
 namespace ton::validator {
 namespace {
@@ -204,16 +206,16 @@ std::unique_ptr<vm::AugmentedDictionary> copy_test_dispatch_queue(const vm::Augm
   return std::make_unique<vm::AugmentedDictionary>(queue.get_root(), 256, block::tlb::aug_DispatchQueue);
 }
 
-td::Ref<vm::Cell> make_test_shard_accounts(ShardIdFull shard) {
+td::Ref<vm::Cell> make_test_shard_accounts(ShardIdFull shard, long long balance = 0) {
   // An empty ShardAccounts dictionary has no root extra to unpack. Put one
-  // syntactically valid, zero-balance, uninitialized account into the shard.
+  // syntactically valid uninitialized account into the shard.
   StdSmcAddress address = StdSmcAddress::zero();
   address.bits().store_uint(shard.shard, 64);
   CHECK(shard_contains(shard, extract_addr_prefix(shard.workchain, address)));
 
   vm::CellBuilder storage_cb;
   CHECK(storage_cb.store_zeroes_bool(64));  // last_trans_lt:uint64
-  CHECK(block::CurrencyCollection::zero().store(storage_cb));
+  CHECK(block::CurrencyCollection{balance}.store(storage_cb));
   CHECK(storage_cb.store_zeroes_bool(2));  // account_uninit$00
   auto storage = storage_cb.finalize();
 
@@ -252,7 +254,7 @@ td::Ref<vm::Cell> make_test_out_msg_queue_info(const vm::AugmentedDictionary& ms
     CHECK(cb.store_zeroes_bool(1));  // out_queue_size:nothing$0
   }
   auto result = cb.finalize();
-  CHECK(block::gen::t_OutMsgQueueInfo.validate_ref(result));
+  CHECK(block::gen::t_OutMsgQueueInfo.validate_ref(100'000, result));
   return result;
 }
 
@@ -281,7 +283,7 @@ td::Ref<vm::Cell> make_test_shard_state_root(BlockIdExt block_id, const vm::Augm
   CHECK(cb.store_zeroes_bool(1));  // custom:nothing$0
 
   auto result = cb.finalize();
-  CHECK(block::gen::t_ShardStateUnsplit.validate_ref(result));
+  CHECK(block::gen::t_ShardStateUnsplit.validate_ref(100'000, result));
   return result;
 }
 
@@ -974,6 +976,387 @@ long long test_int_value(td::Result<td::RefInt256> result) {
   auto value = result.move_as_ok();
   CHECK(value.not_null() && value->is_valid());
   return value->to_long();
+}
+
+// Public preparation API fixtures. Unlike the low-level queue fixtures above,
+// these have matching block/state hashes and real predecessor references.
+td::Ref<vm::Cell> prepared_ext_ref(const BlockIdExt& id) {
+  return vm::CellBuilder{}
+      .store_long(0, 64)
+      .store_long(id.seqno(), 32)
+      .store_bits(id.root_hash.bits(), 256)
+      .store_bits(id.file_hash.bits(), 256)
+      .finalize();
+}
+
+GlobalBalanceShardState prepared_pair(ShardIdFull shard, BlockSeqno seqno, const vm::AugmentedDictionary& messages,
+                                      const vm::AugmentedDictionary* dispatch,
+                                      const std::vector<GlobalBalanceShardState>& prev = {},
+                                      td::Ref<vm::Cell> mc_extra = {}, td::Ref<vm::CellSlice> processed = {},
+                                      td::Ref<vm::Cell> out_descr = {}) {
+  auto id = make_block_id(shard, seqno);
+  block::gen::ShardStateUnsplit::Record state;
+  CHECK(tlb::unpack_cell(make_test_shard_state_root(id, messages, dispatch), state));
+  state.global_id = -239;
+  state.accounts = make_test_shard_accounts(shard, 100);
+  if (processed.not_null()) {
+    block::gen::OutMsgQueueInfo::Record queues;
+    CHECK(tlb::unpack_cell(state.out_msg_queue_info, queues));
+    queues.proc_info = processed;
+    CHECK(tlb::pack_cell(state.out_msg_queue_info, queues));
+  }
+  if (mc_extra.not_null()) {
+    state.custom = vm::CellBuilder{}.store_long(1, 1).store_ref(mc_extra).as_cellslice_ref();
+    state.r1.total_validator_fees = make_currency(7);
+  }
+  td::Ref<vm::Cell> state_root;
+  CHECK(tlb::pack_cell(state_root, state));
+  if (!seqno) {
+    return {create_shard_state(id, state_root).move_as_ok(), {}};
+  }
+  auto old_root = prev.empty() ? vm::CellBuilder{}.finalize() : prev.front().state->root_cell();
+  auto update = vm::CellBuilder::create_merkle_update(old_root, state_root);
+  block::gen::Block::Record blk;
+  CHECK(tlb::unpack_cell(make_empty_test_block(1000, update, &id), blk));
+  block::gen::BlockInfo::Record info;
+  CHECK(tlb::unpack_cell(blk.info, info));
+  info.after_merge = prev.size() == 2;
+  info.after_split = prev.size() == 1 && prev.front().state->get_shard() != shard;
+  auto prev_id = prev.empty() ? make_block_id(shard, seqno - 1) : prev.front().state->get_block_id();
+  info.prev_ref = prepared_ext_ref(prev_id);
+  if (prev.size() == 2) {
+    info.prev_ref = vm::CellBuilder{}
+                        .store_ref(info.prev_ref)
+                        .store_ref(prepared_ext_ref(prev[1].state->get_block_id()))
+                        .finalize();
+  }
+  if (info.not_master) {
+    info.master_ref = prepared_ext_ref(make_block_id({masterchainId, shardIdAll}, 0));
+  }
+  CHECK(tlb::pack_cell(blk.info, info));
+  block::ValueFlow flow{block::ValueFlow::SetZero{}};
+  flow.burned = block::CurrencyCollection{shard.is_masterchain() ? 3 : 0};
+  vm::CellBuilder flow_cb;
+  CHECK(flow.store(flow_cb));
+  blk.value_flow = flow_cb.finalize();
+  if (out_descr.not_null()) {
+    block::gen::BlockExtra::Record extra;
+    CHECK(tlb::unpack_cell(blk.extra, extra));
+    extra.out_msg_descr = out_descr;
+    CHECK(tlb::pack_cell(blk.extra, extra));
+  }
+  td::Ref<vm::Cell> block_root;
+  CHECK(tlb::pack_cell(block_root, blk));
+  id.root_hash = block_root->get_hash().bits();
+  return {create_shard_state(id, state_root).move_as_ok(), block_root};
+}
+
+td::Ref<vm::Cell> prepared_shard_tree(ShardIdFull shard, const std::vector<GlobalBalanceShardState>& tips) {
+  for (const auto& tip : tips) {
+    if (tip.state->get_shard() == shard) {
+      block::McShardHash desc{tip.state->get_block_id(), 0, 5000};
+      desc.fees_collected_ = desc.funds_created_ = block::CurrencyCollection::zero();
+      vm::CellBuilder cb;
+      CHECK(cb.store_bool_bool(false) && desc.pack(cb));
+      return cb.finalize();
+    }
+  }
+  CHECK(shard.pfx_len() < 2);  // Fixtures use a full shard or its two children.
+  return vm::CellBuilder{}
+      .store_long(1, 1)
+      .store_ref(prepared_shard_tree(shard_child(shard, true), tips))
+      .store_ref(prepared_shard_tree(shard_child(shard, false), tips))
+      .finalize();
+}
+
+GlobalBalanceShardState prepared_mc(const std::vector<GlobalBalanceShardState>& tips, int version,
+                                    const std::vector<GlobalBalanceShardState>& prev = {}) {
+  vm::Dictionary validators{16}, config{32}, shards{32};
+  auto validator = vm::CellBuilder{}
+                       .store_long(0x53, 8)
+                       .store_long(0x8e81278a, 32)
+                       .store_zeroes(256)
+                       .store_long(1, 64)
+                       .as_cellslice_ref();
+  CHECK(validators.set(td::BitArray<16>::zero(), validator));
+  auto vset = vm::CellBuilder{}
+                  .store_long(0x12, 8)
+                  .store_long(0, 32)
+                  .store_long(10000, 32)
+                  .store_long(1, 16)
+                  .store_long(1, 16)
+                  .store_long(1, 64)
+                  .append_cellslice(validators.get_root())
+                  .finalize();
+  CHECK(config.set_ref(td::BitArray<32>{34}, vset));
+  CHECK(config.set_ref(td::BitArray<32>{8},
+                       vm::CellBuilder{}.store_long(0xc4, 8).store_long(version, 32).store_zeroes(64).finalize()));
+  if (!tips.empty()) {
+    CHECK(shards.set_ref(td::BitArray<32>{basechainId}, prepared_shard_tree({basechainId, shardIdAll}, tips)));
+  }
+  vm::AugmentedDictionary old_blocks{32, block::tlb::aug_OldMcBlocksInfo};
+  auto zero_ref = prepared_ext_ref(make_block_id({masterchainId, shardIdAll}, 0));
+  CHECK(old_blocks.set(
+      td::BitArray<32>::zero(),
+      vm::CellBuilder{}.store_long(1, 1).append_cellslice(vm::load_cell_slice(zero_ref)).as_cellslice_ref()));
+  auto aux = vm::CellBuilder{}.store_zeroes(16 + 65).append_cellslice(old_blocks.get_root()).store_zeroes(2).finalize();
+  vm::CellBuilder extra;
+  extra.store_long(0xcc26, 16)
+      .append_cellslice(shards.get_root())
+      .store_zeroes(256)
+      .store_ref(config.get_root_cell())
+      .store_ref(aux);
+  CHECK(block::CurrencyCollection::zero().store(extra));
+  auto messages = make_out_queue();
+  auto seqno = prev.empty() ? 100 : prev.front().state->get_seqno() + 1;
+  return prepared_pair({masterchainId, shardIdAll}, seqno, *messages, nullptr, prev, extra.finalize());
+}
+
+td::Result<PreparedGlobalBalanceState> prepare_test_pair(const GlobalBalanceShardState& pair, int version,
+                                                         std::vector<PreparedGlobalBalanceState> prev = {}) {
+  td::Result<PreparedGlobalBalanceState> result{td::Status::Error("not run")};
+  td::actor::TestScheduler scheduler;
+  scheduler.run([&]() -> td::actor::Task<> {
+    result = co_await prepare_global_balance_state(pair.state, pair.block_root, version, std::move(prev)).wrap();
+    co_return td::Unit{};
+  });
+  return result;
+}
+
+void expect_components(const GlobalBalanceComponents& a, const GlobalBalanceComponents& b) {
+  CHECK(td::cmp(a.accounts, b.accounts) == 0);
+  CHECK(td::cmp(a.dispatch_queue, b.dispatch_queue) == 0);
+  CHECK(td::cmp(a.unprocessed_messages, b.unprocessed_messages) == 0);
+  CHECK(td::cmp(a.unrecovered_validator_fees, b.unrecovered_validator_fees) == 0);
+  CHECK(td::cmp(a.total, b.total) == 0);
+  CHECK(td::cmp(a.burned, b.burned) == 0);
+}
+
+LoadAuxMasterchainState unexpected_aux_loader() {
+  return [](BlockIdExt) -> td::actor::Task<Ref<MasterchainState>> {
+    co_return td::Status::Error("unexpected auxiliary MC load");
+  };
+}
+
+GlobalBalanceComponents check_prepared_snapshot(const std::vector<GlobalBalanceShardState>& tips,
+                                                std::vector<PreparedGlobalBalanceState> prepared, int version) {
+  auto mc = prepared_mc(tips, version);
+  auto mc_prepared = prepare_test_pair(mc, version).move_as_ok();
+  td::Result<GlobalBalanceComponents> result{td::Status::Error("not run")};
+  td::actor::TestScheduler scheduler;
+  scheduler.run([&]() -> td::actor::Task<> {
+    auto independent = co_await calculate_global_balance_at_anchor(Ref<MasterchainState>{mc.state}, mc.block_root, tips,
+                                                                   unexpected_aux_loader());
+    result = co_await calculate_global_balance_at_anchor(Ref<MasterchainState>{mc.state}, mc.block_root, mc_prepared,
+                                                         prepared, unexpected_aux_loader())
+                 .wrap();
+    LOG_CHECK(result.is_ok()) << result.error();
+    expect_components(independent, result.ok());
+    co_return td::Unit{};
+  });
+  return result.move_as_ok();
+}
+
+TEST(GlobalBalanceCalculator, PreparedLegacyChainAndRestart) {
+  const ShardIdFull shard{basechainId, shardIdAll};
+  auto messages = make_out_queue();
+  auto zero = prepared_pair(shard, 0, *messages, nullptr);
+  auto pzero = prepare_test_pair(zero, 15).move_as_ok();
+  expect_int(check_prepared_snapshot({zero}, {pzero}, 15).dispatch_queue, 0);
+  auto queue = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}}, false}});
+  auto first = prepared_pair(shard, 1, *messages, &queue);
+  auto p1 = prepare_test_pair(first, 15).move_as_ok();
+  CHECK(!p1.empty() && p1.block_id() == first.state->get_block_id() && p1.global_version() == 15);
+  expect_int(check_prepared_snapshot({first}, {p1}, 15).dispatch_queue, 107);
+  auto queue2 = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}, {20, 200, 11, 0, 2}}, false}});
+  auto second = prepared_pair(shard, 2, *messages, &queue2, {first});
+  auto other_first = prepared_pair(shard, 1, *messages, &queue2);
+  auto other_p1 = prepare_test_pair(other_first, 15).move_as_ok();
+  CHECK(prepare_test_pair(second, 15, {other_p1}).is_error());  // Same shard/seqno, different block hash.
+  auto p2 = prepare_test_pair(second, 15, {p1}).move_as_ok();
+  expect_int(check_prepared_snapshot({second}, {p2}, 15).dispatch_queue, 318);
+  // Remove an account, insert another, and retain the old handles for a retry.
+  auto queue3 = make_fetch_dispatch_queue({{2, {{30, 50, 3, 0, 3}}, false}});
+  auto third = prepared_pair(shard, 3, *messages, &queue3, {second});
+  auto p3 = prepare_test_pair(third, 15, {p2}).move_as_ok();
+  auto totals = check_prepared_snapshot({third}, {p3}, 15);
+  expect_int(totals.accounts, 200);
+  expect_int(totals.dispatch_queue, 53);
+  expect_int(totals.unrecovered_validator_fees, 7);
+  expect_int(totals.total, 260);
+  expect_int(totals.burned, 3);
+  check_prepared_snapshot({first}, {p1}, 15);
+  check_prepared_snapshot({second}, {prepare_test_pair(second, 15, {p1}).move_as_ok()}, 15);
+  // Restart at an arbitrary anchor, then continue with its immediate successor.
+  auto restart = prepare_test_pair(second, 15).move_as_ok();
+  check_prepared_snapshot({third}, {prepare_test_pair(third, 15, {restart}).move_as_ok()}, 15);
+  auto empty = prepared_pair(shard, 4, *messages, nullptr, {third});
+  expect_int(check_prepared_snapshot({empty}, {prepare_test_pair(empty, 15, {p3}).move_as_ok()}, 15).dispatch_queue, 0);
+}
+
+TEST(GlobalBalanceCalculator, PreparedSplitMergeAndPredecessorChecks) {
+  const ShardIdFull shard{basechainId, shardIdAll};
+  auto messages = make_out_queue();
+  auto left_queue = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}}, false}});
+  auto right_queue = make_fetch_dispatch_queue({{0x9000000000000000ULL, {{20, 200, 11, 0, 2}}, false}});
+  auto queue = make_fetch_dispatch_queue(
+      {{1, {{10, 100, 7, 0, 1}}, false}, {0x9000000000000000ULL, {{20, 200, 11, 0, 2}}, false}});
+  auto parent = prepared_pair(shard, 1, *messages, &queue);
+  auto pp = prepare_test_pair(parent, 15).move_as_ok();
+  auto left = prepared_pair(shard_child(shard, true), 2, *messages, &left_queue, {parent});
+  auto right = prepared_pair(shard_child(shard, false), 2, *messages, &right_queue, {parent});
+  auto pl = prepare_test_pair(left, 15, {pp}).move_as_ok();
+  auto pr = prepare_test_pair(right, 15, {pp}).move_as_ok();
+  expect_int(check_prepared_snapshot({left, right}, {pr, pl}, 15).dispatch_queue, 318);
+  auto merged = prepared_pair(shard, 3, *messages, &queue, {left, right});
+  CHECK(prepare_test_pair(merged, 15, {pr, pl}).is_error());
+  CHECK(prepare_test_pair(merged, 15, {pl}).is_error());
+  CHECK(prepare_test_pair(merged, 15, {pp, pp}).is_error());
+  auto pm = prepare_test_pair(merged, 15, {pl, pr}).move_as_ok();
+  check_prepared_snapshot({merged}, {pm}, 15);
+  check_prepared_snapshot({left, right}, {pl, pr}, 15);
+  CHECK(prepare_test_pair(left, 15, {PreparedGlobalBalanceState{}}).is_error());
+  CHECK(prepare_test_pair({}, 15).is_error());
+  CHECK(prepare_test_pair(parent, -1).is_error());
+  auto mismatched = parent;
+  mismatched.block_root = merged.block_root;
+  CHECK(prepare_test_pair(mismatched, 15).is_error());
+}
+
+TEST(GlobalBalanceCalculator, PreparedVersionBoundary) {
+  const ShardIdFull shard{basechainId, shardIdAll};
+  auto messages = make_out_queue();
+  auto queue = make_fetch_dispatch_queue({{1, {{10, 100, 7, 13, 1}}, false}});
+  auto first = prepared_pair(shard, 1, *messages, &queue);
+  auto old = prepare_test_pair(first, 7).move_as_ok();
+  expect_int(check_prepared_snapshot({first}, {old}, 7).dispatch_queue, 120);
+  auto next = prepared_pair(shard, 2, *messages, &queue, {first});
+  CHECK(prepare_test_pair(next, 12, {old}).is_error());
+  auto fresh = prepare_test_pair(next, 12).move_as_ok();
+  expect_int(check_prepared_snapshot({next}, {fresh}, 12).dispatch_queue, 107);
+  auto stored_queue = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}}, true}});
+  auto stored = prepared_pair(shard, 3, *messages, &stored_queue, {next});
+  CHECK(prepare_test_pair(stored, 16, {fresh}).is_error());
+  auto ps = prepare_test_pair(stored, 16).move_as_ok();
+  check_prepared_snapshot({stored}, {ps}, 16);
+  auto same = prepared_pair(shard, 4, *messages, &stored_queue, {stored});
+  check_prepared_snapshot({same}, {prepare_test_pair(same, 16, {ps}).move_as_ok()}, 16);
+}
+
+TEST(GlobalBalanceCalculator, PreparedSnapshotValidationAndUnchangedTip) {
+  auto messages = make_out_queue();
+  auto queue = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}}, false}});
+  auto tip = prepared_pair({basechainId, shardIdAll}, 1, *messages, &queue);
+  auto prepared = prepare_test_pair(tip, 15).move_as_ok();
+  auto mc = prepared_mc({tip}, 15);
+  auto pmc = prepare_test_pair(mc, 15).move_as_ok();
+  auto next_mc = prepared_mc({tip}, 15, {mc});
+  auto pnext_mc = prepare_test_pair(next_mc, 15, {pmc}).move_as_ok();
+  auto wrong_version = prepare_test_pair(tip, 14).move_as_ok();
+  auto other = prepared_pair({basechainId, shardIdAll}, 2, *messages, &queue, {tip});
+  auto pother = prepare_test_pair(other, 15, {prepared}).move_as_ok();
+  td::actor::TestScheduler scheduler;
+  scheduler.run([&]() -> td::actor::Task<> {
+    auto snapshot = [&](PreparedGlobalBalanceState master, std::vector<PreparedGlobalBalanceState> tips) {
+      return calculate_global_balance_at_anchor(Ref<MasterchainState>{next_mc.state}, next_mc.block_root,
+                                                std::move(master), std::move(tips), unexpected_aux_loader());
+    };
+    CHECK((co_await snapshot(pmc, {prepared}).wrap()).is_error());
+    CHECK((co_await snapshot({}, {prepared}).wrap()).is_error());
+    CHECK((co_await snapshot(pnext_mc, {}).wrap()).is_error());
+    CHECK((co_await snapshot(pnext_mc, {{}}).wrap()).is_error());
+    CHECK((co_await snapshot(pnext_mc, {wrong_version}).wrap()).is_error());
+    CHECK((co_await snapshot(pnext_mc, {pother}).wrap()).is_error());
+    CHECK((co_await snapshot(pnext_mc, {prepared, prepared}).wrap()).is_error());
+    auto result = co_await snapshot(pnext_mc, {prepared});
+    auto independent =
+        co_await calculate_global_balance_at_anchor(Ref<MasterchainState>{next_mc.state}, next_mc.block_root,
+                                                    std::vector<GlobalBalanceShardState>{tip}, unexpected_aux_loader());
+    expect_components(result, independent);
+    co_return td::Unit{};
+  });
+}
+
+TEST(GlobalBalanceCalculator, PreparedSkipsUnchangedDispatchSubtrees) {
+  std::vector<FetchDispatchMessageSpec> entries;
+  for (unsigned i = 1; i <= 256; ++i) {
+    entries.push_back({i, 100, 7, 0, i});
+  }
+  auto queue = make_fetch_dispatch_queue({{1, entries, false}});
+  auto messages = make_out_queue();
+  const ShardIdFull shard{basechainId, shardIdAll};
+  auto first = prepared_pair(shard, 1, *messages, &queue);
+  auto p1 = prepare_test_pair(first, 15).move_as_ok();
+  auto next = prepared_pair(shard, 2, *messages, &queue, {first});
+
+  // Keep the hash and root augmentation, but make the unchanged dictionary
+  // subtree impossible to load. A full traversal MUST fail; scan_diff can skip
+  // it by hash. This tests avoided reads, without a timing-based assertion.
+  // Keep the outer leaf readable for augmentation validation; hide the
+  // sender's messages dictionary referenced from that leaf.
+  auto leaf = vm::load_cell_slice(queue.get_root_cell());
+  CHECK(leaf.size_refs() == 1);
+  auto hidden = vm::PrunnedCell<td::Unit>::create(leaf.fetch_ref(), td::Unit{}).move_as_ok();
+  auto hidden_leaf = vm::CellBuilder{}.store_ref(hidden).append_cellslice(leaf).finalize();
+  CHECK(hidden_leaf->get_hash() == queue.get_root_cell()->get_hash());
+  auto dispatch = vm::CellBuilder{}
+                      .store_long(1, 1)
+                      .store_ref(hidden_leaf)
+                      .append_cellslice(queue.get_root_extra())
+                      .as_cellslice_ref();
+  block::gen::ShardStateUnsplit::Record state;
+  block::gen::OutMsgQueueInfo::Record queues;
+  CHECK(tlb::unpack_cell(next.state->root_cell(), state));
+  CHECK(tlb::unpack_cell(state.out_msg_queue_info, queues));
+  queues.extra = vm::CellBuilder{}
+                     .store_long(1, 1)
+                     .store_long(0, 4)
+                     .append_cellslice(dispatch)
+                     .store_long(0, 1)
+                     .as_cellslice_ref();
+  CHECK(tlb::pack_cell(state.out_msg_queue_info, queues));
+  td::Ref<vm::Cell> root;
+  CHECK(tlb::pack_cell(root, state));
+  CHECK(root->get_hash() == next.state->root_cell()->get_hash());
+  GlobalBalanceShardState hidden_next{create_shard_state(next.state->get_block_id(), root).move_as_ok(),
+                                      next.block_root};
+  CHECK(prepare_test_pair(hidden_next, 15).is_error());
+  auto p2 = prepare_test_pair(hidden_next, 15, {p1}).move_as_ok();
+  expect_int(check_prepared_snapshot({next}, {p2}, 15).dispatch_queue, 256 * 107);
+}
+
+TEST(GlobalBalanceCalculator, PreparedOutgoingUpdatesAndProcessedUpto) {
+  const ShardIdFull shard{basechainId, shardIdAll};
+  auto messages = make_out_queue(), empty = make_out_queue();
+  auto msg = gbc_message(0x1000000000000000ULL, 0x9000000000000000ULL, 0, 96, 100, 1);
+  gbc_enqueue(*messages, msg, 100);
+  auto left = prepared_pair(shard_child(shard, true), 1, *messages, nullptr);
+  auto right = prepared_pair(shard_child(shard, false), 1, *empty, nullptr);
+  auto pl = prepare_test_pair(left, 15).move_as_ok(), pr = prepare_test_pair(right, 15).move_as_ok();
+  expect_int(check_prepared_snapshot({left, right}, {pl, pr}, 15).unprocessed_messages, 1001 + 18);
+
+  block::MsgProcessedUptoCollection processed{right.state->get_shard()};
+  CHECK(processed.insert_infty(100, 10000));
+  vm::CellBuilder proc;
+  CHECK(processed.pack(proc));
+  auto right_next = prepared_pair(right.state->get_shard(), 2, *empty, nullptr, {right}, {}, proc.as_cellslice_ref());
+  auto pr2 = prepare_test_pair(right_next, 15, {pr}).move_as_ok();
+  // Sender tip and its outgoing queue are unchanged. Only the receiving
+  // shard's processed_upto advanced, so the old message must stop contributing.
+  expect_int(check_prepared_snapshot({left, right_next}, {pl, pr2}, 15).unprocessed_messages, 0);
+
+  auto added = gbc_message(0x1000000000000000ULL, 0x9000000000000000ULL, 0, 96, 15000, 2);
+  gbc_enqueue(*messages, added, added.created_lt);
+  auto invalid = prepared_pair(left.state->get_shard(), 2, *messages, nullptr, {left});
+  CHECK(prepare_test_pair(invalid, 15, {pl}).is_error());  // OutMsgDescr did not update the queue.
+  vm::AugmentedDictionary out_msgs{256, block::tlb::aug_OutMsgDescrDefault};
+  gbc_add_out_msg(out_msgs, added.hash, gbc_out_new(added));
+  auto left_next =
+      prepared_pair(left.state->get_shard(), 2, *messages, nullptr, {left}, {}, {}, out_msgs.get_wrapped_dict_root());
+  auto pl2 = prepare_test_pair(left_next, 15, {pl}).move_as_ok();
+  expect_int(check_prepared_snapshot({left_next, right_next}, {pl2, pr2}, 15).unprocessed_messages, 1002 + 19);
+  // Reusing the old handles still produces the old result.
+  expect_int(check_prepared_snapshot({left, right}, {pl, pr}, 15).unprocessed_messages, 1001 + 18);
 }
 
 TEST(GlobalBalanceCalculator, CalculateDispatchQueueBalance) {
