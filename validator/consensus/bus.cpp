@@ -115,6 +115,15 @@ std::string ValidationRequest::response_to_string(const ReturnType& result) {
   return str;
 }
 
+std::string SpeculativeValidationRequest::contents_to_string() const {
+  return PSTRING() << "{candidate=" << candidate_to_string(candidate) << ", parent=" << parent_id
+                   << ", parent_block=" << parent_block_id << ", min_mc_block=" << min_masterchain_block_id << "}";
+}
+
+std::string SpeculativeValidationRequest::response_to_string(const ReturnType& result) {
+  return ValidationRequest::response_to_string(result);
+}
+
 std::string IncomingProtocolMessage::contents_to_string() const {
   return PSTRING() << "{source_validator=" << source << ", source=" << source
                    << ", message=" << message_to_string(message) << "}";
