@@ -94,6 +94,27 @@ Result<SecureString> read_file_secure(CSlice path, int64 size, int64 offset) {
   return read_file_impl<SecureString>(path, size, offset);
 }
 
+Result<BufferSlice> read_file_mmap(CSlice path) {
+#if TD_PORT_POSIX
+  TRY_RESULT(from_file, FileFd::open(path, FileFd::Read));
+  TRY_RESULT(file_size, from_file.get_size());
+  if (file_size <= 0) {
+    // Empty file or error — fall back to read_file which returns an empty BufferSlice cleanly.
+    return read_file(path);
+  }
+  auto native_fd = from_file.get_native_fd().fd();
+  auto reader = BufferAllocator::create_reader_mmap(native_fd, static_cast<size_t>(file_size));
+  // fd may be closed after mmap; mmap retains its own reference.
+  from_file.close();
+  if (!reader) {
+    return Status::Error("mmap failed");
+  }
+  return BufferSlice(std::move(reader));
+#else
+  return read_file(path);
+#endif
+}
+
 // Very straightforward function. Don't expect much of it.
 Status copy_file(CSlice from, CSlice to, int64 size) {
   TRY_RESULT(content, read_file(from, size));
