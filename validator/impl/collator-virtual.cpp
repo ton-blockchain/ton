@@ -30,6 +30,8 @@
 namespace ton::validator {
 namespace {
 
+constexpr size_t EXPECTED_REQUESTS_PER_WORKER = 32;
+
 class MessageDetacher {
  public:
   td::Result<Ref<vm::Cell>> detach(Ref<vm::Cell> cell) {
@@ -146,7 +148,7 @@ struct Collator::VirtualShards {
     explicit Worker(ShardIdFull shard);
     td::Status init(Collator& parent, unsigned index, unsigned partition_bits);
     td::Result<block::Account*> make_account(const StdSmcAddress& address);
-    td::Status create_ordinary_transaction(Request& request);
+    td::Status create_ordinary_transaction(Request& request, MessageDetacher& detacher);
     void run_epoch(EpochBudget budget);
     void begin_epoch();
     void save_checkpoint(Request& request);
@@ -171,9 +173,9 @@ struct Collator::VirtualShards {
   void sync_limits(block::BlockLimitStatus& common);
   bool begin_publish(Request* request, block::BlockLimitStatus& common);
   void end_publish(block::BlockLimitStatus& common);
-  td::Result<Request*> plan(Collator& parent, Ref<vm::Cell> message, const StdSmcAddress& address, bool external,
-                            LogicalTime after_lt);
-  td::actor::Task<bool> run_epoch(Collator& parent, unsigned limit_class);
+  Request* plan(Collator& parent, Ref<vm::Cell> message, const StdSmcAddress& address, bool external,
+                LogicalTime after_lt);
+  td::actor::Task<bool> run_epoch(Collator& parent, unsigned limit_class, td::Timestamp timeout);
   td::actor::Task<bool> finish_epoch(Collator& parent, unsigned limit_class);
   enum class Phase { RunEpoch, Rollback, Finish, NewProofs, OldProofs };
   static td::actor::Task<> run(std::shared_ptr<VirtualShards> state, unsigned i, Phase phase);
@@ -241,10 +243,11 @@ td::Result<block::Account*> Collator::VirtualShards::Worker::make_account(const 
   return CollatorBase::make_account(address.cbits(), true, nullptr);
 }
 
-td::Status Collator::VirtualShards::Worker::create_ordinary_transaction(Request& request) {
+td::Status Collator::VirtualShards::Worker::create_ordinary_transaction(Request& request, MessageDetacher& detacher) {
   if (cancellation_token_) {
     return td::Status::Error(ErrorCode::cancelled, "virtual shard collation cancelled");
   }
+  TRY_RESULT_ASSIGN(request.message, detacher.detach(request.message));
   current_tx_storage_dict_ = nullptr;
   TRY_RESULT(account, make_account(request.address));
   TRY_RESULT_ASSIGN(request.transaction, CollatorBase::create_ordinary_transaction(request.message, account,
@@ -305,12 +308,13 @@ void Collator::VirtualShards::Worker::run_epoch(EpochBudget budget) {
     record_storage_dict_ = {};
     current_tx_storage_dict_ = nullptr;
   };
+  MessageDetacher detacher;
   for (auto* request : pending) {
     if (timeout_.is_in_past()) {
       break;
     }
     save_checkpoint(*request);
-    request->status = create_ordinary_transaction(*request);
+    request->status = create_ordinary_transaction(*request, detacher);
     ++prepared;
     if (request->status.is_error() && request->status.error().code() != -701) {
       break;
@@ -491,9 +495,9 @@ void Collator::VirtualShards::end_publish(block::BlockLimitStatus& common) {
   }
 }
 
-td::Result<Collator::VirtualShards::Request*> Collator::VirtualShards::plan(Collator& parent, Ref<vm::Cell> message,
-                                                                            const StdSmcAddress& address, bool external,
-                                                                            LogicalTime after_lt) {
+Collator::VirtualShards::Request* Collator::VirtualShards::plan(Collator& parent, Ref<vm::Cell> message,
+                                                              const StdSmcAddress& address, bool external,
+                                                              LogicalTime after_lt) {
   auto request = std::make_unique<Request>();
   request->owner = owner(address);
   request->address = address;
@@ -506,13 +510,14 @@ td::Result<Collator::VirtualShards::Request*> Collator::VirtualShards::plan(Coll
     after_lt = std::max(after_lt, it->second);
   }
   request->after_lt = after_lt;
-  TRY_RESULT_ASSIGN(request->message, MessageDetacher().detach(std::move(message)));
+  request->message = std::move(message);
   workers[request->owner]->pending.push_back(request.get());
   requests.push_back(std::move(request));
   return requests.back().get();
 }
 
-td::actor::Task<bool> Collator::VirtualShards::run_epoch(Collator& parent, unsigned limit_class) {
+td::actor::Task<bool> Collator::VirtualShards::run_epoch(Collator& parent, unsigned limit_class,
+                                                         td::Timestamp timeout) {
   const auto& common = *parent.block_limit_status_;
   CHECK(limit_class < block::ParamLimits::limits_cnt);
   auto remaining = [limit_class](const block::ParamLimits& limits, td::uint64 used) {
@@ -524,8 +529,7 @@ td::actor::Task<bool> Collator::VirtualShards::run_epoch(Collator& parent, unsig
             common.limits.start_lt + common.limits.lt_delta.limit(limit_class)};
   for (auto& worker : workers) {
     worker->prepared = worker->selected = 0;
-    worker->timeout_ =
-        limit_class == block::ParamLimits::cl_soft ? parent.external_msg_timeout_ : parent.internal_msg_timeout_;
+    worker->timeout_ = timeout;
   }
   auto result = co_await run_all(parent, Phase::RunEpoch).wrap();
   if (result.is_error()) {
@@ -671,14 +675,15 @@ td::Status Collator::init_virtual_shards() {
   return td::Status::OK();
 }
 
-bool Collator::virtual_shard_budget_exhausted(unsigned cls) {
+bool Collator::virtual_shard_budget_exhausted(unsigned cls, bool need_stop) {
   if (virtual_shards_->requests.empty()) {
     virtual_shards_->sync_limits(*block_limit_status_);
   }
   if (!block_limit_status_->fits(cls)) {
-    virtual_shards_->stopped = true;
+    virtual_shards_->stopped |= need_stop;
     block_full_ = true;
     block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
+    return true;
   }
   return virtual_shards_->stopped;
 }
@@ -731,7 +736,10 @@ td::actor::Task<bool> Collator::process_virtual_externals() {
     SCOPE_EXIT {
       virtual_shards_->clear_requests();
     };
-    while (batch.size() < virtual_shards_->workers.size() * 32) {
+    while (batch.size() < virtual_shards_->workers.size() * EXPECTED_REQUESTS_PER_WORKER) {
+      if (external_msg_timeout_.is_in_past()) {
+        break;
+      }
       std::pair<Ref<ExtMessage>, int> item;
       if (pending_ext_msg_) {
         item = std::move(*pending_ext_msg_);
@@ -762,26 +770,22 @@ td::actor::Task<bool> Collator::process_virtual_externals() {
       }
       VirtualShards::Request* request = nullptr;
       if (register_external_message(message, item.second).is_ok()) {
-        auto planned = virtual_shards_->plan(*this, message->root_cell(), message->addr(), true, 0);
-        if (planned.is_error()) {
-          co_return fatal_error(planned.move_as_error());
-        }
-        request = planned.move_as_ok();
+        request = virtual_shards_->plan(*this, message->root_cell(), message->addr(), true, 0);
       }
-      ++stats_.ext_msgs_total;
       batch_hashes.insert(message->hash_norm());
       batch.push_back({std::move(message), request});
     }
     if (batch.empty()) {
       continue;
     }
-    if (!(co_await virtual_shards_->run_epoch(*this, block::ParamLimits::cl_soft))) {
+    if (!(co_await virtual_shards_->run_epoch(*this, block::ParamLimits::cl_soft, external_msg_timeout_))) {
       co_return false;
     }
     for (auto& item : batch) {
       if (!virtual_shards_->begin_publish(item.request, *block_limit_status_)) {
         break;
       }
+      ++stats_.ext_msgs_total;
       processed_external_messages_ = processed_external_messages_.insert(item.message->hash_norm(), td::Unit{});
       if (!item.request) {
         ++stats_.ext_msgs_filtered;
@@ -820,8 +824,8 @@ td::actor::Task<bool> Collator::process_virtual_internals() {
     if (!check_cancelled()) {
       co_return false;
     }
-    if (virtual_shard_budget_exhausted(block::ParamLimits::cl_normal) || internal_msg_timeout_.is_in_past() ||
-        have_unprocessed_account_dispatch_queue_) {
+    if (virtual_shard_budget_exhausted(block::ParamLimits::cl_normal, /* need_stop = */ false) ||
+        internal_msg_timeout_.is_in_past() || have_unprocessed_account_dispatch_queue_) {
       auto* entry = nb_out_msgs_->cur();
       if (!precheck_inbound_message(entry->msg, entry->lt)) {
         co_return fatal_error("invalid virtual shard inbound frontier");
@@ -838,7 +842,7 @@ td::actor::Task<bool> Collator::process_virtual_internals() {
     SCOPE_EXIT {
       virtual_shards_->clear_requests();
     };
-    while (!nb_out_msgs_->is_eof() && batch.size() < virtual_shards_->workers.size() * 32) {
+    while (!nb_out_msgs_->is_eof() && batch.size() < virtual_shards_->workers.size() * EXPECTED_REQUESTS_PER_WORKER) {
       auto* entry = nb_out_msgs_->cur();
       CHECK(entry);
       if (entry->limit_exceeded) {
@@ -870,11 +874,7 @@ td::actor::Task<bool> Collator::process_virtual_internals() {
         if (!block::tlb::t_MsgAddressInt.extract_std_address(info.dest, wc, address) || wc != workchain()) {
           co_return fatal_error("invalid virtual shard inbound destination");
         }
-        auto planned = virtual_shards_->plan(*this, envelope.msg, address, false, 0);
-        if (planned.is_error()) {
-          co_return fatal_error(planned.move_as_error());
-        }
-        request = planned.move_as_ok();
+        request = virtual_shards_->plan(*this, envelope.msg, address, false, 0);
       }
       batch.push_back({nb_out_msgs_->extract_cur(), request});
       nb_out_msgs_->next();
@@ -882,7 +882,7 @@ td::actor::Task<bool> Collator::process_virtual_internals() {
     if (batch.empty()) {
       continue;
     }
-    if (!(co_await virtual_shards_->run_epoch(*this, block::ParamLimits::cl_normal))) {
+    if (!(co_await virtual_shards_->run_epoch(*this, block::ParamLimits::cl_soft, internal_msg_timeout_))) {
       co_return false;
     }
     for (auto& item : batch) {
@@ -899,10 +899,9 @@ td::actor::Task<bool> Collator::process_virtual_internals() {
       if (!ok) {
         co_return fatal_error("cannot publish virtual shard inbound message");
       }
-      // Still precheck the first unprocessed message on the next iteration.
-      block_full_ |= virtual_shard_budget_exhausted(block::ParamLimits::cl_normal);
+      virtual_shard_budget_exhausted(block::ParamLimits::cl_soft);
     }
-    if (!(co_await virtual_shards_->finish_epoch(*this, block::ParamLimits::cl_normal))) {
+    if (!(co_await virtual_shards_->finish_epoch(*this, block::ParamLimits::cl_soft))) {
       co_return false;
     }
   }
@@ -940,7 +939,7 @@ td::actor::Task<bool> Collator::process_virtual_messages(bool& enqueue_only) {
       std::map<StdSmcAddress, size_t> unprocessed_deferred_messages;
       size_t pending_dispatch = new_msgs_from_dispatch;
       td::uint64 out_queue_size = out_msg_queue_size_;
-      while (!new_msgs.empty() && batch.size() < virtual_shards_->workers.size() * 32) {
+      while (!new_msgs.empty() && batch.size() < virtual_shards_->workers.size() * EXPECTED_REQUESTS_PER_WORKER) {
         auto message = new_msgs.top();
         VirtualShards::Request* request = nullptr;
         block::gen::CommonMsgInfo::Record_int_msg_info info;
@@ -972,11 +971,7 @@ td::actor::Task<bool> Collator::process_virtual_messages(bool& enqueue_only) {
             if (!block::tlb::t_MsgAddressInt.extract_std_address(info.dest, wc, address) || wc != workchain()) {
               co_return fatal_error("invalid virtual shard output destination");
             }
-            auto planned = virtual_shards_->plan(*this, message.msg, address, false, message.lt);
-            if (planned.is_error()) {
-              co_return fatal_error(planned.move_as_error());
-            }
-            request = planned.move_as_ok();
+            request = virtual_shards_->plan(*this, message.msg, address, false, message.lt);
             // Dispatch messages have no sender transaction in this block.
             request->in_msg_accounted = message.trans.not_null();
           }
@@ -995,7 +990,7 @@ td::actor::Task<bool> Collator::process_virtual_messages(bool& enqueue_only) {
     for (auto& item : batch) {
       new_msgs.push(item.message);
     }
-    if (!(co_await virtual_shards_->run_epoch(*this, block::ParamLimits::cl_normal))) {
+    if (!(co_await virtual_shards_->run_epoch(*this, block::ParamLimits::cl_normal, internal_msg_timeout_))) {
       co_return false;
     }
     for (auto& item : batch) {

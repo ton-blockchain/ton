@@ -480,7 +480,7 @@ class Collator final : public td::actor::Actor, private CollatorBase {
   td::actor::Task<bool> process_virtual_externals();
   td::actor::Task<bool> process_virtual_internals();
   td::actor::Task<bool> process_virtual_messages(bool& enqueue_only);
-  bool virtual_shard_budget_exhausted(unsigned cls);
+  bool virtual_shard_budget_exhausted(unsigned cls, bool need_stop = true);
   td::Result<std::unique_ptr<block::transaction::Transaction>> create_virtual_transaction(
       Ref<vm::Cell> msg_root, const StdSmcAddress& addr, bool external, LogicalTime after_lt);
   td::actor::Task<> finalize_virtual_accounts();
