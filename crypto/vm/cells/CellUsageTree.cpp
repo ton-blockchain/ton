@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
+
 #include "vm/boc.h"
 #include "vm/cells/CellUsageTree.h"
 
@@ -40,6 +42,14 @@ CellUsageTree::NodePtr CellUsageTree::NodePtr::create_child(unsigned ref_id, Ref
     return {};
   }
   return {tree_weak_, tree->create_child(node_id_, ref_id, std::move(cell))};
+}
+
+CellUsageTree* CellUsageTree::NodePtr::find_from_trees(td::Span<CellUsageTree*> trees) const {
+  auto tree = tree_weak_.lock();
+  if (tree && std::find(trees.begin(), trees.end(), tree.get()) != trees.end()) {
+    return tree.get();
+  }
+  return nullptr;
 }
 
 bool CellUsageTree::NodePtr::is_from_tree(const CellUsageTree* master_tree) const {
@@ -127,7 +137,7 @@ void CellUsageTree::on_load(NodeId node_id, const Cell::LoadedCell& loaded_cell)
   }
   nodes_[node_id].is_loaded = true;
   if (cell_load_callback_) {
-    cell_load_callback_(loaded_cell);
+    cell_load_callback_(node_id, loaded_cell);
   }
 }
 
@@ -153,6 +163,46 @@ CellUsageTree::NodeId CellUsageTree::create_node(NodeId parent_id, Ref<Cell> cel
   CellSlice parent_cs{NoVm{}, parent.cell};
   node.merkle_depth = parent_cs.child_merkle_depth(parent.merkle_depth);
   return res;
+}
+
+void CellUsageTree::set_cell_load_callback(std::function<void(const LoadedCell&)> f) {
+  if (!f) {
+    cell_load_callback_ = {};
+  } else {
+    cell_load_callback_ = std::bind(f, std::placeholders::_2);
+  }
+}
+
+void CellUsageTree::Recorder::begin_epoch(CellUsageTree* tree) {
+  CHECK(!tree_ && tree);
+  tree_ = tree;
+  previous_callback_ = std::move(tree_->cell_load_callback_);
+  tree_->cell_load_callback_ = [this](NodeId node_id, const LoadedCell& cell) {
+    journal_.push_back(node_id);
+    if (previous_callback_) {
+      previous_callback_(node_id, cell);
+    }
+  };
+}
+
+CellUsageTree::Recorder::Checkpoint CellUsageTree::Recorder::checkpoint() const {
+  CHECK(tree_);
+  return journal_.size();
+}
+
+void CellUsageTree::Recorder::commit_epoch() {
+  CHECK(tree_);
+  tree_->cell_load_callback_ = std::move(previous_callback_);
+  tree_ = nullptr;
+  journal_.clear();
+}
+
+void CellUsageTree::Recorder::rollback(Checkpoint checkpoint) {
+  CHECK(tree_ && checkpoint <= journal_.size());
+  for (size_t i = journal_.size(); i > checkpoint; --i) {
+    tree_->nodes_[journal_[i - 1]].is_loaded = false;
+    journal_.pop_back();
+  }
 }
 
 }  // namespace vm

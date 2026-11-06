@@ -10,6 +10,7 @@ corpus=${COLLATION_BENCH_CORPUS:-}
 iterations=${COLLATION_BENCH_ITERATIONS:-15}
 warmup=${COLLATION_BENCH_WARMUP:-1}
 threads=${COLLATION_BENCH_THREADS:-1}
+virtual_shards=${COLLATION_BENCH_VIRTUAL_SHARDS:-0}
 accounts=${COLLATION_BENCH_ACCOUNTS:-1000000}
 transfers=${COLLATION_BENCH_TRANSFERS:-128}
 workload=${COLLATION_BENCH_WORKLOAD:-jetton}
@@ -31,12 +32,13 @@ Options (all optional):
   --iterations N         measured repetitions per process (default 15)
   --warmup N             unmeasured repetitions per process (default 1)
   --threads N            actor scheduler threads (default 1)
+  --virtual-shards N     collation address partitions: 0 (disabled, default) or 1, 2, 4, 8, 16, 32, 64
   --accounts N           corpus accounts when generating (default 1000000)
   --transfers N          corpus transfers when generating (default 128)
   --workload W           jetton (4 tx/transfer, default) or transfer (plain wallet-to-wallet, 2 tx/transfer);
                          selects the corpus to generate/use, measured runs read it back from the corpus
   --parallel N           N scheduler threads + parallel account validation
-                         (default 1, the single-core headline; collation stays serial)
+                         (default 1; use --virtual-shards to parallelize collation)
   --verbose              per-iteration samples and per-stage attribution
   -h, --help             show this help
 EOF
@@ -67,6 +69,11 @@ while (($#)); do
     --threads)
       (($# >= 2)) || { echo "--threads requires N" >&2; exit 2; }
       threads=$2
+      shift 2
+      ;;
+    --virtual-shards)
+      (($# >= 2)) || { echo "--virtual-shards requires N" >&2; exit 2; }
+      virtual_shards=$2
       shift 2
       ;;
     --accounts)
@@ -108,6 +115,7 @@ done
 [[ "$iterations" =~ ^[1-9][0-9]*$ ]] || { echo "iterations must be positive" >&2; exit 2; }
 [[ "$warmup" =~ ^[0-9]+$ ]] || { echo "warmup must be non-negative" >&2; exit 2; }
 [[ "$threads" =~ ^[1-9][0-9]*$ ]] || { echo "threads must be positive" >&2; exit 2; }
+[[ "$virtual_shards" =~ ^(0|1|2|4|8|16|32|64)$ ]] || { echo "virtual-shards must be 0 or a power of two up to 64" >&2; exit 2; }
 [[ "$parallel" =~ ^[1-9][0-9]*$ ]] || { echo "parallel must be positive" >&2; exit 2; }
 [[ "$workload" == "jetton" || "$workload" == "transfer" ]] || { echo "workload must be jetton or transfer" >&2; exit 2; }
 
@@ -144,7 +152,8 @@ if [[ ! -d "$corpus" ]]; then
     --transfers "$transfers" \
     --warmup 0 \
     --iterations 1 \
-    --threads "$threads"
+    --threads "$threads" \
+    --virtual-shards "$virtual_shards"
 fi
 
 verbose_flag=()
@@ -165,6 +174,7 @@ run_series() {
     --warmup "$warmup" \
     --iterations "$iterations" \
     --threads "$threads" \
+    --virtual-shards "$virtual_shards" \
     ${verbose_flag[@]+"${verbose_flag[@]}"})
   printf '%s\n' "$out"
   # Arithmetic mean: the same statistic as Go's ns/op, so the two wrapper
@@ -184,7 +194,8 @@ run_series "validate (preloaded)" --mode validate --validation-input preloaded \
   ${parallel_validation_flag[@]+"${parallel_validation_flag[@]}"}
 
 parallel_note=
-((parallel == 1)) || parallel_note=", threads=$parallel"
+((threads == 1)) || parallel_note=", threads=$threads"
+((virtual_shards == 0)) || parallel_note+=", virtual_shards=$virtual_shards"
 echo
 echo "results (mean of $iterations iterations, $block_tx transactions per block$parallel_note):"
 for entry in "${results[@]}"; do

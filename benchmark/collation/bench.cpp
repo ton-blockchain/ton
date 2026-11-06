@@ -62,6 +62,7 @@ struct Config {
   int warmup{1};
   int iterations{15};
   int scheduler_threads{1};
+  td::uint32 virtual_shards{0};
   double timeout_s{120.0};
   bool parallel_validation{false};
   bool verbose{false};
@@ -214,6 +215,16 @@ td::Result<Config> parse_config(int argc, char** argv) {
     config.rand_seed = seed;
     return td::Status::OK();
   });
+  parser.add_checked_option('\0', "virtual-shards",
+                            "requested address partitions: 0 (default) or a power of two up to 64",
+                            [&](td::Slice value) {
+                              TRY_RESULT(count, td::to_integer_safe<td::int32>(value));
+                              if (count < 0 || count > 64 || (count & (count - 1))) {
+                                return td::Status::Error("virtual-shards must be 0 or a power of two up to 64");
+                              }
+                              config.virtual_shards = static_cast<td::uint32>(count);
+                              return td::Status::OK();
+                            });
   parser.add_checked_option('\0', "zerostate", "input masterchain zerostate BoC", [&](td::Slice value) {
     config.fixture.zerostate_path = value.str();
     return td::Status::OK();
@@ -408,15 +419,16 @@ class InMemoryManager final : public ton::validator::ValidatorManagerImpl {
   void wait_neighbor_msg_queue_proofs(
       ton::ShardIdFull, std::vector<ton::BlockIdExt> blocks, td::Timestamp,
       td::Promise<std::map<ton::BlockIdExt, td::Ref<ton::validator::OutMsgQueueProof>>> promise) override {
-    if (mc_state_.is_null() ||
-        std::any_of(blocks.begin(), blocks.end(), [&](const auto& block) { return block != mc_id_; })) {
+    if (mc_state_.is_null() || std::any_of(blocks.begin(), blocks.end(), [&](const auto& block) {
+          return block != mc_id_ && block != prev_id_;
+        })) {
       promise.set_error(td::Status::Error("in-memory manager cannot provide a partial or unknown neighbor proof"));
       return;
     }
     std::map<ton::BlockIdExt, td::Ref<ton::validator::OutMsgQueueProof>> result;
-    if (!blocks.empty()) {
-      result.emplace(mc_id_, td::Ref<ton::validator::OutMsgQueueProof>{true, mc_id_, mc_state_->root_cell(),
-                                                                       td::Ref<vm::Cell>{}, true});
+    for (const auto& id : blocks) {
+      auto root = id == mc_id_ ? mc_state_->root_cell() : prev_state_->root_cell();
+      result.emplace(id, td::Ref<ton::validator::OutMsgQueueProof>{true, id, std::move(root), td::Ref<vm::Cell>{}, true});
     }
     promise.set_value(std::move(result));
   }
@@ -434,8 +446,13 @@ class InMemoryManager final : public ton::validator::ValidatorManagerImpl {
                              std::unique_ptr<ton::validator::ExtMsgCallback> callback) override {
     auto feed = [](std::vector<td::Ref<ton::validator::ExtMessage>> messages,
                    std::unique_ptr<ton::validator::ExtMsgCallback> callback) -> td::actor::Task<> {
+      co_await td::actor::detach_from_actor();
       for (auto& message : messages) {
-        co_await callback->queue.push({std::move(message), 0});
+        // A limited block may close its input before consuming the entire pool.
+        auto status = co_await callback->queue.push({std::move(message), 0}).wrap();
+        if (status.is_error()) {
+          co_return {};
+        }
       }
       callback->queue.close();
       co_return {};
@@ -560,6 +577,7 @@ struct StoredCorpusInput {
 
 ton::validator::CollateParams make_collate_params(const Fixture& fixture, const Config& config) {
   auto options = td::Ref<ton::validator::CollatorOptions>{true};
+  options.write().virtual_shards = config.virtual_shards;
   options.write().force_full_collated_data = true;
   const double target_utime = fixture.target_gen_utime_ms
                                   ? static_cast<double>(fixture.target_gen_utime_ms.value()) / 1000.0
@@ -1690,6 +1708,7 @@ int main(int argc, char** argv) {
             << fixture.messages.size() * bench::collation::transactions_per_transfer(config.fixture.workload)
             << " warmup=" << config.warmup << " iterations=" << config.iterations
             << " scheduler_threads=" << config.scheduler_threads
+            << " requested_virtual_shards=" << config.virtual_shards
             << " validation_input=" << bench::collation::validation_variant_name(config.validation_input)
             << " parallel_validation=" << config.parallel_validation
             << " fixture_source=" << (config.corpus_in.empty() ? "generated" : "corpus") << " candidate_source="

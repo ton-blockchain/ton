@@ -19,6 +19,7 @@
 #pragma once
 #include <utility>
 
+#include "td/utils/Span.h"
 #include "td/utils/Status.h"
 #include "vm/cells/Cell.h"
 #include "vm/cells/CellBuilder.h"
@@ -43,6 +44,8 @@ class MerkleUpdate {
                                          td::uint32 from_level, td::uint32 to_level, StoreCellHint *hint = nullptr);
   static td::Result<std::pair<Ref<Cell>, Ref<Cell>>> generate_raw(Ref<Cell> from, Ref<Cell> to,
                                                                   CellUsageTree *usage_tree);
+  static td::Result<Ref<Cell>> generate_to_raw(Ref<Cell> to, td::Span<CellUsageTree *> usage_trees,
+                                               td::Span<Ref<Cell>> subproofs = {});
   static td::Status validate_raw(Ref<Cell> update_from, Ref<Cell> update_to, td::uint32 from_level,
                                  td::uint32 to_level);
 

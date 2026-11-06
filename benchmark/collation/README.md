@@ -30,6 +30,9 @@ compile loudly — adjust `gton/bench_disk_corpus_test.go` or pin `--gton-ref`.
 
 Everything else is opt-in (`--help`):
 
+- `--virtual-shards N` — address partitions: 0 (disabled, default) 
+  or a power of two from 1 to 64. Use `--threads N` to set
+  scheduler threads. 
 - `--workload W` — `jetton` (default): Wallet V5 jetton transfers, four
   transactions per transfer; `transfer`: plain non-bounceable W5 -> W5 TON
   transfers, two transactions per transfer. Both build the identical
@@ -38,7 +41,8 @@ Everything else is opt-in (`--help`):
   generated — measured runs read the workload back from `meta.json`, and the
   per-block transaction count in the tables adjusts automatically.
 - `--parallel N` — multi-core profile: C++ runs N scheduler threads with
-  parallel account validation (its collation stays serial); Go runs with
+  parallel account validation (collation stays serial unless `--virtual-shards`
+  is enabled); Go runs with
   `GOMAXPROCS=N`, enabling gton's parallel collation and lane-parallel
   validation. Default 1 — the single-core CPU-efficiency headline.
 - `--binary PATH` (run-cpp.sh) — benchmark another tree's executable on the
@@ -67,6 +71,21 @@ cmake -S . -B cmake-build-bench \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE='-O3 -DNDEBUG'
 cmake --build cmake-build-bench --target collation-validation-bench
 ```
+
+To measure all three series with virtual-shard collation:
+
+```sh
+./benchmark/collation/run-cpp.sh \
+  --workload transfer --accounts 10000 --transfers 8 \
+  --virtual-shards 4 --threads 4 \
+  --warmup 0 --iterations 1 --verbose
+```
+
+Use `--parallel 4` instead of `--threads 4` to also enable parallel account
+validation.
+
+Masterchain and split/merge collation use the original path. Reported CPU time
+includes worker CPU.
 
 To only generate a corpus (the `--corpus-out` path must not exist yet —
 fixture construction, the masterchain seqno-1 bootstrap, golden collation,

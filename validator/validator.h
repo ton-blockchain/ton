@@ -55,6 +55,7 @@ struct PerfTimerStats {
 };
 
 struct CollatorOptions : public td::CntObject {
+  td::uint32 virtual_shards = 0;
   bool deferring_enabled = true;
 
   // Defer messages from account after Xth message in block (excluding first messages from transactions)

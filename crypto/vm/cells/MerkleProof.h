@@ -20,6 +20,7 @@
 #include <functional>
 #include <utility>
 
+#include "td/utils/Span.h"
 #include "td/utils/buffer.h"
 #include "vm/cells/Cell.h"
 
@@ -42,7 +43,11 @@ class MerkleProof {
 
   // works with unwrapped proofs
   // works fine with cell of non-zero level, but this is not supported (yet?) in MerkleProof special cell
-  static td::Result<Ref<Cell>> generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned);
+  // Subproofs must be non-null raw proofs built for Merkle depth 0.
+  // They replace subtrees matching (proof->get_hash(0), 0).
+  // Their usage must already be recorded: is_prunned is not called inside them.
+  static td::Result<Ref<Cell>> generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned,
+                                            td::Span<Ref<Cell>> subproofs = {});
   static td::Result<Ref<Cell>> generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree, bool is_left_mu = false);
   static Ref<Cell> virtualize_raw(Ref<Cell> cell, td::uint32 effective_level);
   static td::Result<Ref<Cell>> combine_raw(Ref<Cell> a, Ref<Cell> b);
@@ -72,6 +77,9 @@ class MerkleProofBuilder {
     usage_tree->set_cell_load_callback(std::move(f));
   }
   const CellUsageTree &get_usage_tree() const {
+    return *usage_tree;
+  }
+  CellUsageTree &get_usage_tree() {
     return *usage_tree;
   }
 };
