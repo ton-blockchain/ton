@@ -436,6 +436,9 @@ td::actor::Task<> TestNode::dump_validator_registry_inner() {
           }
           sb << ")";
         }
+        if (rec.is_reverse) {
+          sb << " REVERSE";
+        }
         sb << "\n";
         sb << "    voted_weight="
            << td::StringBuilder::FixedDouble{(double)rec.voted_weight / (double)val_set.total_weight * 100.0, 3}

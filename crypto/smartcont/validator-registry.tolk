@@ -80,6 +80,7 @@ struct (0xfb84df63) Voting {
     createdLt: uint64,
     votedWeight: uint64,
     requiredWeight: uint64,
+    isReverse: bool,
     votes: cell,
     validatorSet: cell,
 }
@@ -242,24 +243,13 @@ fun getElectorAddress(): (int8, uint256) {
     return (-1, s.loadUint(256));
 }
 
-fun onInternalMessage(in: InMessage) {
-    val msg = MessageNewVoting.fromSlice(in.body);
-    val config = getRegistryConfig();
-    assert (in.valueCoins >= config.votingPrice) throw ERR_NOT_ENOUGH_GRAMS;
-    assert ((msg.rolesAdd & msg.rolesRemove) == 0) throw ERR_INVALID_ROLES;
-    assert ((msg.rolesAdd | msg.rolesRemove) != 0) throw ERR_INVALID_ROLES;
-    val votingKey = VotingKey{
-        adnlId: msg.adnlId,
-        rolesAdd: msg.rolesAdd,
-        rolesRemove: msg.rolesRemove,
-    };
-    var storage = Storage.fromCell(contract.getData());
-    assert (!storage.votings.exists(votingKey)) throw ERR_DUPLICATE_VOTING;
+fun createVoting(mutate storage: Storage, config: RegistryConfig, key: VotingKey, isReverse: bool = false) {
+    assert (!storage.votings.exists(key)) throw ERR_DUPLICATE_VOTING;
     var i = 0;
     var threshold = 0;
     while (i < 32) {
-        val add = (msg.rolesAdd & (1 << i)) != 0;
-        val remove = (msg.rolesRemove & (1 << i)) != 0;
+        val add = (key.rolesAdd & (1 << i)) != 0;
+        val remove = (key.rolesRemove & (1 << i)) != 0;
         if (add || remove) {
             val f = config.roles.get(i);
             assert (f.isFound) throw ERR_INVALID_ROLES;
@@ -272,20 +262,36 @@ fun onInternalMessage(in: InMessage) {
     val endsAt = blockchain.now() + config.votingTimeout;
     val validatorSetCell = blockchain.configParam(34)!;
     val validatorSet = ValidatorSet.fromCell(validatorSetCell);
-    storage.votings.set(votingKey, Voting{
+    storage.votings.set(key, Voting{
         endsAt: endsAt,
         createdLt: blockchain.logicalTime(),
         votedWeight: 0,
         requiredWeight: validatorSet.totalWeight * threshold / 10000,
+        isReverse: isReverse,
         votes: beginCell().storeZeroes(validatorSet.total).endCell(),
         validatorSet: validatorSetCell,
     });
     storage.votingsGc.set(VotingGcKey{
         endsAt: endsAt,
+        adnlId: key.adnlId,
+        rolesAdd: key.rolesAdd,
+        rolesRemove: key.rolesRemove,
+    }, ());
+}
+
+fun onInternalMessage(in: InMessage) {
+    val msg = MessageNewVoting.fromSlice(in.body);
+    val config = getRegistryConfig();
+    assert (in.valueCoins >= config.votingPrice) throw ERR_NOT_ENOUGH_GRAMS;
+    assert ((msg.rolesAdd & msg.rolesRemove) == 0) throw ERR_INVALID_ROLES;
+    assert ((msg.rolesAdd | msg.rolesRemove) != 0) throw ERR_INVALID_ROLES;
+    val votingKey = VotingKey{
         adnlId: msg.adnlId,
         rolesAdd: msg.rolesAdd,
         rolesRemove: msg.rolesRemove,
-    }, ());
+    };
+    var storage = Storage.fromCell(contract.getData());
+    createVoting(mutate storage, config, votingKey);
 
     createMessage({
         bounce: BounceMode.NoBounce,
@@ -467,6 +473,18 @@ fun requestVote(signature: bits512, requestHash: uint256, request: RequestVote) 
             storage.nodes.set(key.adnlId, node);
         } else {
             storage.nodes.delete(key.adnlId);
+        }
+
+        if (!voting.isReverse) {
+            try {
+                createVoting(mutate storage, config, VotingKey{
+                    adnlId: key.adnlId,
+                    rolesAdd: key.rolesRemove,
+                    rolesRemove: key.rolesAdd,
+                }, true);
+            } catch (e) {
+                // Voting already exists or roles config changed
+            }
         }
     }
 
