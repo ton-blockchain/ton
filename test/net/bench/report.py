@@ -5,7 +5,7 @@ import argparse
 import re
 from pathlib import Path
 
-WIRE = {"quic": "quic", "rldp2": "adnl", "adnl": "adnl"}
+WIRE = {"quic": "quic", "adnl": "adnl"}
 NATIVE_FAMILIES = (
     "bench_connections_current",
     "bench_messages_sent_total",
@@ -87,7 +87,7 @@ def arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", required=True)
     parser.add_argument("--implementation", choices=("ton", "quic-go", "quinn"), required=True)
-    parser.add_argument("--protocol", choices=("quic", "rldp2", "adnl"), required=True)
+    parser.add_argument("--protocol", choices=("quic", "adnl"), required=True)
     parser.add_argument(
         "--workload", choices=("query", "message", "saturate", "idle"), required=True
     )
@@ -169,7 +169,6 @@ def active_peers(sample, implementation, protocol):
         return total(sample, "bench_connections_current")
     metric = {
         "quic": "ton_quic_transport_connections_current",
-        "rldp2": "ton_rldp2_transport_connections",
         "adnl": "ton_adnl_transport_peer_pairs",
     }[protocol]
     return total(sample, metric)
@@ -255,10 +254,6 @@ def main():
                     (client_start, client_end),
                     "ton_quic_message_confirmation_failed_total",
                 )
-            elif args.protocol == "rldp2":
-                require(
-                    "client", (client_start, client_end), "ton_rldp2_message_delivery_failed_total"
-                )
         elif args.workload == "query":
             require(
                 "client",
@@ -269,7 +264,6 @@ def main():
         else:
             peer_metric = {
                 "quic": "ton_quic_transport_connections_current",
-                "rldp2": "ton_rldp2_transport_connections",
                 "adnl": "ton_adnl_transport_peer_pairs",
             }[args.protocol]
             require("test", (start, end), peer_metric)
@@ -290,11 +284,6 @@ def main():
             (f"ton_{args.protocol}_transport_dropped_total", "transport"),
             (f"{app}_dropped_total", "app"),
         )
-        if args.protocol == "rldp2":
-            drop_families += (
-                ("ton_adnl_transport_dropped_total", "adnl-transport"),
-                ("ton_adnl_app_dropped_total", "adnl-app"),
-            )
         require("test", (start, end), *(family for family, _ in drop_families))
         require("peer", (peer_start, peer_end), *(family for family, _ in drop_families))
         for scope, scope_start, scope_end in (("test", start, end), ("peer", peer_start, peer_end)):
@@ -312,8 +301,6 @@ def main():
                 failures += delta(
                     scope_start, scope_end, "ton_quic_message_confirmation_failed_total"
                 )
-            elif args.protocol == "rldp2":
-                failures += delta(scope_start, scope_end, "ton_rldp2_message_delivery_failed_total")
 
     cpu = args.cpu_end - args.cpu_start
     peer_cpu = args.peer_cpu_end - args.peer_cpu_start
@@ -362,7 +349,6 @@ def main():
         if native
         else {
             "quic": "ton_quic_transport_connections_current",
-            "rldp2": "ton_rldp2_transport_connections",
             "adnl": "ton_adnl_transport_peer_pairs",
         }[args.protocol]
     )

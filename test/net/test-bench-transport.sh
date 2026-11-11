@@ -1,10 +1,10 @@
 #!/bin/bash
-# RLDP benchmark - start server once, run benchmarks
+# Transport benchmark - start server once, run benchmarks
 set -e
 cd "$(dirname "$0")/../.."
 
-BENCH="${BUILD_DIR:-cmake-build-relwithdebinfo}/bench-rldp"
-trap 'pkill -f "bench-rldp.*--server" 2>/dev/null' EXIT
+BENCH="${BUILD_DIR:-cmake-build-relwithdebinfo}/bench-transport"
+trap 'pkill -f "bench-transport.*--server" 2>/dev/null' EXIT
 
 "$BENCH" --server -v 1 &
 sleep 1

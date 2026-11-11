@@ -27,8 +27,7 @@ each nesting level appends a segment joined with `_`:
 - `Counter` renders as `<segments>_total`.
 - `Gauge<T>` renders as `<segments>`, except `std::chrono` types which append `_seconds`.
 - `Labeled<Inner, L...>` adds one label per axis over a **closed** value set — `direction`, `kind`,
-  `reason`, `result`, `state`, `trust`, `workchain`, `source`. (An `outcome` axis is defined too, but
-  its only holder `TransferStats` is never instantiated, so no family carries it.) **Every cell of a
+  `reason`, `result`, `state`, `trust`, `workchain`, `source`, `outcome`. **Every cell of a
   closed axis is emitted on every scrape**, including zero-valued ones, so all such label combinations below are
   always present in the exposition (which is why the permanently-zero series in Known gaps still
   show up).
@@ -39,7 +38,7 @@ each nesting level appends a segment joined with `_`:
   families even when nothing was ever observed.
 
 Registered collectors, in order: the exporter itself, `AdnlNetworkManager`, `Adnl`, `QuicSender`,
-`Rldp` (rldp2), `Overlays`, `ValidatorManagerInterface`.
+`Overlays`, `ValidatorManagerInterface`.
 
 ## Scrape semantics
 
@@ -66,9 +65,9 @@ A gather that **fails** — any collector returning an error — answers every w
 that never answers at all wedges the flight and with it the endpoint: that is a bug, not an
 operating mode, and there is deliberately no timeout machinery around it.
 
-Values are cumulative; gathering does not reset them. ADNL peer pairs, RLDP2 connections and
-overlays merge their per-actor deltas during a gather. Worker-liveness gauges are point samples and
-can miss stalls between gathers (see *Known gaps*).
+Values are cumulative; gathering does not reset them. ADNL peer pairs and overlays merge their
+per-actor deltas during a gather. Worker-liveness gauges are point samples and can miss stalls
+between gathers (see *Known gaps*).
 
 ---
 
@@ -76,7 +75,7 @@ can miss stalls between gathers (see *Known gaps*).
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_exporter_collectors` | gauge | — | Registered collector callbacks: 7 in a full validator-engine, 6 when no DHT node is configured (which also drops the `ton_overlay_*` families, since the overlay manager is only created with one). |
+| `ton_exporter_collectors` | gauge | — | Registered collector callbacks: 6 in a full validator-engine, 5 when no DHT node is configured (which also drops the `ton_overlay_*` families, since the overlay manager is only created with one). |
 | `ton_exporter_collections_total` | counter | — | Gather attempts started. Concurrent scrapes sharing one flight increment it once. It stays zero before the seal and while nobody scrapes. |
 | `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** successful gather (the current one sets it after this body is already rendered). How much of a scrape interval collection itself costs. |
 | `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, read straight from the process-global registry on each gather (its totals are already cumulative, so nothing is mirrored). `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …); a site registers on first execution, so one that has never run emits no series. |
@@ -101,8 +100,8 @@ cap. Bind the endpoint to a private interface.
 The actor framework's own view of the scheduler group hosting the exporter, read at gather time from
 tdactor's per-actor-class stat tables (`ActorTypeStatImpl`) and scheduler state. A group registry
 creates one table lazily for each executing thread and worker kind, then retains it until the group
-is destroyed. This keeps independent groups isolated in tools such as `bench-rldp --both` and
-preserves totals after a worker exits. Nothing is mirrored into the exporter: the collector only
+is destroyed. This keeps independent scheduler groups isolated and preserves totals after a worker
+exits. Nothing is mirrored into the exporter: the collector only
 reads, aggregates and demangles the counters tdactor already keeps. Every binary that runs the
 exporter gets this tier, not just `validator-engine`.
 
@@ -234,7 +233,7 @@ exception: the socket-read-error site is fed a synthetic message that was never 
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_adnl_query_duration_seconds` | histogram | `tl`, `le` | Dispatch-to-answer time of an inbound query, measured at the ADNL delivery layer (`AdnlLocalId::deliver_query`) — the single choke point every transport funnels through, so this covers queries arriving over ADNL peer pairs, RLDP2, QUIC and the ext server alike. The clock starts before the subscriber callback is invoked and stops when the answer promise is fulfilled; a promise dropped without an answer counts as a failure with its elapsed time. `tl` comes from the same envelope-resolving logic as the app tier, and magics the schema does not know collapse into `tl="unknown"` so the label space stays bounded by the schema. |
+| `ton_adnl_query_duration_seconds` | histogram | `tl`, `le` | Dispatch-to-answer time of an inbound query, measured at the ADNL delivery layer (`AdnlLocalId::deliver_query`) — the single choke point every transport funnels through, so this covers queries arriving over ADNL peer pairs, QUIC and the ext server alike. The clock starts before the subscriber callback is invoked and stops when the answer promise is fulfilled; a promise dropped without an answer counts as a failure with its elapsed time. `tl` comes from the same envelope-resolving logic as the app tier, and magics the schema does not know collapse into `tl="unknown"` so the label space stays bounded by the schema. |
 | `ton_adnl_query_failed_total` | counter | `tl` | Of those queries, the ones that answered with an error or dropped their answer promise. |
 
 Validator-engine runs DHT in client mode unless started with `--dht-server`; such nodes deliberately
@@ -253,8 +252,7 @@ The outbound mirror is **per transport**, measured where the transport accepts t
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_adnl_query_roundtrip_seconds` / `ton_rldp2_…` / `ton_quic_…` | histogram | `tl`, `le`; QUIC also `trust` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total` with the same non-`le` labels. |
-| `ton_rldp2_message_delivery_seconds` | histogram | `tl`, `le` | Transport-accept to the transfer's completion (`on_sent`) for fire-and-forget messages. Failures land in `ton_rldp2_message_delivery_failed_total{tl}`. |
+| `ton_adnl_query_roundtrip_seconds` / `ton_quic_…` | histogram | `tl`, `le`; QUIC also `trust` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total` with the same non-`le` labels. |
 | `ton_quic_message_confirmation_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to confirmation for stream-based messages: the peer transport's acknowledgement of data and FIN for unidirectional messages, or the receiver's empty receipt for legacy bidirectional messages. DATAGRAM messages have no confirmation sample. Failures land in `ton_quic_message_confirmation_failed_total` with the same non-`le` labels. |
 | `ton_quic_message_delivery_seconds` | histogram | `trust`, `tl`, `le` | Deprecated, temporary rolling-upgrade alias of `ton_quic_message_confirmation_seconds`; its matching `…_failed_total` is also an exact alias. |
 
@@ -368,53 +366,6 @@ Described in full under ADNL → *Outbound: roundtrips and deliveries*; the QUIC
 | `ton_quic_message_confirmation_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to confirmation for stream-based messages: the peer transport's acknowledgement of data and FIN for unidirectional messages, or the receiver's empty receipt for legacy bidirectional messages. DATAGRAM messages have no confirmation sample. |
 | `ton_quic_message_confirmation_failed_total` | counter | `trust`, `tl` | Of the stream-based messages measured above, the ones whose stream was reset or connection closed before confirmation. |
 | `ton_quic_message_delivery_seconds` / `ton_quic_message_delivery_failed_total` | histogram / counter | same as the corresponding confirmation family | Deprecated, temporary exact aliases for rolling-upgrade compatibility; see the fallback rule above. |
-
----
-
-## RLDP2
-
-One collector on `Rldp`. Per-connection counters are drained into an aggregate the same way ADNL
-drains peer pairs; a dropped connection drains from `tear_down`, so counts survive connection churn.
-Removal is not an idle timeout: every use pushes the connection's deadline to
-`max(current deadline, this transfer's deadline + 120 s)`, so a transfer due at T holds its
-connection until T + 120 s. Two sites bypass the per-connection drain and write the aggregate
-directly, having no connection to attribute to: the wire bytes of a datagram from a peer with no
-permitted connection, and a reassembled message that fails to parse.
-
-### Wire
-
-| metric | type | labels | meaning |
-|---|---|---|---|
-| `ton_rldp2_wire_bytes_total` | counter | `direction` | Bytes of RLDP2 datagrams exchanged with ADNL. |
-| `ton_rldp2_wire_packets_total` | counter | `direction` | Count of those datagrams. |
-
-### Transport
-
-| metric | type | labels | meaning |
-|---|---|---|---|
-| `ton_rldp2_transport_transfers_total` | counter | `direction`, `state=completed\|failed\|timeout` | Terminal outcome of a whole transfer (a reassembled message, not a packet); errors carrying `ErrorCode::timeout` are classified as `timeout`, everything else as `failed`. |
-| `ton_rldp2_transport_connections` | gauge | — | Live connections. |
-| `ton_rldp2_transport_queries_pending` | gauge | — | Outbound queries awaiting an answer. |
-| `ton_rldp2_transport_dropped_total` | counter | `direction`, `reason` | Protocol-layer rejects: malformed TL, bad FEC type or symbol size, bad seqno, a declared `total_size` too large for a `size_t`, part index or size mismatch, undecodable FEC symbol (`invalid`); transfer over the size cap (`limited`). All are inbound; `out` and `internal` are always 0. |
-
-### App
-
-| metric | type | labels | meaning |
-|---|---|---|---|
-| `ton_rldp2_app_bytes_total` | counter | `kind`, `direction`, `tl` | Payload bytes crossing the RLDP↔app boundary. |
-| `ton_rldp2_app_messages_total` | counter | same | Message count. |
-| `ton_rldp2_app_dropped_total` | counter | `direction`, `reason` | `in,limited`: datagram from a peer with no permitted connection, or an inbound answer exceeding our query's `max_answer_size`. `out,limited`: our answer exceeded the requester's `max_answer_size`. |
-
-### Outbound latency
-
-Described in full under ADNL → *Outbound: roundtrips and deliveries*; the RLDP2 families are:
-
-| metric | type | labels | meaning |
-|---|---|---|---|
-| `ton_rldp2_query_roundtrip_seconds` | histogram | `tl`, `le` | Send-accept to answer for queries we send over RLDP2. |
-| `ton_rldp2_query_roundtrip_failed_total` | counter | `tl` | Of those, the ones that errored or timed out. |
-| `ton_rldp2_message_delivery_seconds` | histogram | `tl`, `le` | Send-accept to the transfer's completion (`on_sent`) for fire-and-forget messages. Only sends that carried a timeout are measured: without one the transfer gets no deadline and `on_sent` may never fire, so those messages are left out entirely rather than counted as never delivered. |
-| `ton_rldp2_message_delivery_failed_total` | counter | `tl` | Of those, the ones whose transfer never completed. |
 
 ---
 
@@ -768,7 +719,7 @@ shares within a node (`empty / (accepted + empty)`) are the safe reading.
 
 ### Mempool
 
-Read on demand from `ExtMessagePool` as one small value snapshot. Like the ADNL, RLDP2 and overlay
+Read on demand from `ExtMessagePool` as one small value snapshot. Like the ADNL and overlay
 collectors, the validator-manager collector waits for its child actor before it emits the families.
 Values are therefore current for that scrape rather than cached. If the pool disappears while the
 request is in flight, only the mempool and applied-external families are omitted; the rest of the
@@ -857,20 +808,14 @@ Swap `messages`→`bytes` for traffic share; to fold in response volume (answers
 bytes) widen to `kind=~"query|answer"` — `kind` is an equality matcher, so a second `kind="answer"`
 would match nothing rather than add a case.
 
-**Do not reach for `{__name__=~"ton_(adnl|quic|rldp2)_app_bytes_total"}` to do all three at once.**
-`rate()` drops `__name__`; ADNL and RLDP2 then have the same label set and collide, so Prometheus
-fails the whole query with `vector cannot contain metrics with the same labelset`. QUIC's extra
-`trust` label does not repair that collision. Nothing after `rate()` can repair it —
-`label_replace` runs too late. If you want a cross-transport total, synthesize the distinguishing
-label in a recording rule, where each `rate()` is evaluated separately (this example deliberately
-aggregates QUIC trust classes):
+For a cross-transport total, synthesize a distinguishing label in a recording rule. This example
+deliberately aggregates QUIC trust classes:
 
 ```yaml
 - record: ton:app_bytes:rate5m
   expr: sum by (transport, kind, direction, tl) (
           label_replace(rate(ton_quic_app_bytes_total[5m]),  "transport", "quic",  "", "")
-       or label_replace(rate(ton_adnl_app_bytes_total[5m]),  "transport", "adnl",  "", "")
-       or label_replace(rate(ton_rldp2_app_bytes_total[5m]), "transport", "rldp2", "", ""))
+       or label_replace(rate(ton_adnl_app_bytes_total[5m]), "transport", "adnl", "", ""))
 ```
 
 **What content am I gossiping?** Broadcast content, post-FEC-reassembly:
@@ -886,9 +831,8 @@ sum by (direction) (rate(ton_quic_wire_bytes_total[5m]))
   / sum by (direction) (rate(ton_quic_app_bytes_total[5m]))
 ```
 
-Same shape for `adnl` and `rldp2` (measured on a small mixed workload: ADNL ≈ 1.3×, QUIC ≈ 1.8× —
-small-message-heavy flows pay more per-packet overhead). Remember ADNL's app tier includes rldp2's
-datagrams (`tl="rldp2.messagePart"`), so don't sum adnl and rldp2 app tiers together.
+The same shape works for ADNL (measured on a small mixed workload: ADNL ≈ 1.3×, QUIC ≈ 1.8×;
+small-message-heavy flows pay more per-packet overhead).
 
 **FEC tax**: transport-tier FEC part bytes versus reassembled content bytes:
 
@@ -922,7 +866,7 @@ sum by (tl) (rate(ton_adnl_query_failed_total[5m]))
 type — processing is our cost, roundtrip adds network + the peer:
 
 ```promql
-histogram_quantile(0.95, sum by (le) (rate(ton_rldp2_query_roundtrip_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
+histogram_quantile(0.95, sum by (le) (rate(ton_quic_query_roundtrip_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
 histogram_quantile(0.95, sum by (le) (rate(ton_adnl_query_duration_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
 ```
 
@@ -1130,9 +1074,8 @@ Worth knowing before building dashboards or alerts on these.
 `ton_adnl_wire_dropped_total{direction="out",reason="invalid"|"limited"}`;
 `ton_quic_wire_dropped_total{direction="in",reason="internal"}` and
 `{direction="out",reason="invalid"}`;
-`ton_rldp2_transport_dropped_total{direction="out"}` and `{reason="internal"}`;
-four of the six cells of `ton_rldp2_app_dropped_total` and four of the six of
-`ton_adnl_app_dropped_total` (both only ever use `in,limited` and `out,limited`);
+four of the six cells of `ton_adnl_app_dropped_total` (it only ever uses `in,limited` and
+`out,limited`);
 and six of the 56 block-stats series — `candidate_stored` is unreachable in both families
 (four series), and `ton_received_total{source="unknown"}` cannot fire (two series;
 `ton_first_received_total`'s `unknown` cell *can*). The three block-broadcast sources have live

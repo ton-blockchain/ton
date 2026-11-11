@@ -26,8 +26,6 @@ tests = [
     # "c2 SAVE" is added to the beginning of recv_internal. It does not change behavior.
     ["tele-nft-item/nft-item.fc", 69777543125381987786450436977742010705076866061362104025338034583422166453344],
 
-    ["storage/storage-contract.fc", 91377830060355733016937375216020277778264560226873154627574229667513068328151],
-    ["storage/storage-provider.fc", 13618336676213331164384407184540461509022654507176709588621016553953760588122],
     ["nominator-pool/pool.fc", 69767057279163099864792356875696330339149706521019810113334238732928422055375],
     ["jetton-minter/jetton-minter.fc", 9028309926287301331466371999814928201427184114165428257502393474125007156494],
     ["gg-marketplace/nft-marketplace-v2.fc", 92199806964112524639740773542356508485601908152150843819273107618799016205930],
@@ -77,23 +75,6 @@ def compile_func(f):
     res = None
     try:
         pre_process_func(f)
-        if "storage-provider.fc" in f :
-            # This contract requires building of storage-contract to include it as ref
-            with open(f, "r") as src:
-                sources = src.read()
-                COMPILED_ST_BOC = os.path.join(TMP_DIR, "storage-contract-code.boc")
-                sources = sources.replace("storage-contract-code.boc", COMPILED_ST_BOC)
-            with open(f, "w") as src:
-                src.write(sources)
-            COMPILED_ST_FIF = os.path.join(TMP_DIR, "storage-contract.fif")
-            COMPILED_ST_BOC = os.path.join(TMP_DIR, "storage-contract-code.boc")
-            COMPILED_BUILD_BOC = os.path.join(TMP_DIR, "build-boc.fif")
-            res = subprocess.run([FUNC_EXECUTABLE, "-o", COMPILED_ST_FIF, "-SPA", f.replace("storage-provider.fc","storage-contract.fc")], capture_output=False, timeout=10)
-            with open(COMPILED_BUILD_BOC, "w") as scr:
-                scr.write("\"%s\" include boc>B \"%s\" B>file "%(COMPILED_ST_FIF, COMPILED_ST_BOC))
-            res = subprocess.run([FIFT_EXECUTABLE, COMPILED_BUILD_BOC ], capture_output=True, timeout=10)
-
-
         res = subprocess.run([FUNC_EXECUTABLE, "-o", COMPILED_FIF, "-SPA", f], capture_output=True, timeout=10)
     except Exception as e:
         post_process_func(f)

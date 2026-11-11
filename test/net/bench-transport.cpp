@@ -24,7 +24,6 @@
 #include "keys/keys.hpp"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
-#include "rldp2/rldp.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/as.h"
 #include "td/utils/format.h"
@@ -53,11 +52,11 @@ ton::PrivateKey client_private_key(td::uint32 client_id = 0) {
 }  // namespace
 
 enum class Mode { unset, server, client };
-enum class Protocol { rldp2, quic, adnl };
+enum class Protocol { quic, adnl };
 
 struct Config {
   Mode mode = Mode::unset;
-  Protocol protocol = Protocol::rldp2;
+  Protocol protocol = Protocol::quic;
   td::uint32 client_id = 0;
   td::uint32 server_id = 0;
   td::uint32 servers = 1;  // client fans out over servers at consecutive ports from --server-addr
@@ -94,8 +93,6 @@ struct Config {
 
 const char* protocol_name(Protocol p) {
   switch (p) {
-    case Protocol::rldp2:
-      return "rldp2";
     case Protocol::quic:
       return "quic";
     case Protocol::adnl:
@@ -141,7 +138,6 @@ struct Node {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<ton::PrometheusExporter> exporter;
   std::vector<ton::adnl::AdnlNodeIdShort> local_ids;
@@ -154,9 +150,6 @@ struct Node {
 
 td::actor::ActorId<ton::adnl::AdnlSenderInterface> pick_sender(Protocol protocol, const Node& node) {
   switch (protocol) {
-    case Protocol::rldp2:
-      CHECK(!node.rldp2.empty());
-      return node.rldp2.get();
     case Protocol::quic:
       CHECK(!node.quic_sender.empty());
       return node.quic_sender.get();
@@ -205,13 +198,7 @@ Node make_node(const Config& config, const std::string& db_root, ton::PrivateKey
   }
 
   auto max_size = static_cast<td::uint64>(std::max(config.query_size, config.response_size)) + 1024;
-  if (config.protocol == Protocol::rldp2) {
-    node.rldp2 = ton::rldp2::Rldp::create(node.adnl.get());
-    td::actor::send_closure(node.rldp2, &ton::rldp2::Rldp::set_default_mtu, max_size);
-    for (auto id : node.local_ids) {
-      td::actor::send_closure(node.rldp2, &ton::rldp2::Rldp::add_id, id);
-    }
-  } else if (config.protocol == Protocol::quic) {
+  if (config.protocol == Protocol::quic) {
     node.quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get(),
         quic_options(config));
@@ -227,10 +214,6 @@ Node make_node(const Config& config, const std::string& db_root, ton::PrivateKey
                             node.network_manager.get(), &ton::adnl::AdnlNetworkManager::collect);
     td::actor::send_closure(node.exporter, &ton::PrometheusExporter::add<ton::adnl::Adnl>, node.adnl.get(),
                             &ton::adnl::Adnl::collect);
-    if (!node.rldp2.empty()) {
-      td::actor::send_closure(node.exporter, &ton::PrometheusExporter::add<ton::rldp2::Rldp>, node.rldp2.get(),
-                              &ton::rldp2::Rldp::collect);
-    }
     if (!node.quic_sender.empty()) {
       td::actor::send_closure(node.exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>,
                               node.quic_sender.get(), &ton::quic::QuicSender::collect);
@@ -504,7 +487,7 @@ class BenchmarkRunner : public td::actor::Actor {
 };
 
 void run_server(Config config) {
-  std::string db_root = "tmp-dir-bench-rldp-server-" + std::to_string(config.server_id);
+  std::string db_root = "tmp-dir-bench-transport-server-" + std::to_string(config.server_id);
   td::rmrf(db_root).ignore();
   td::mkdir(db_root).ensure();
 
@@ -522,7 +505,7 @@ void run_server(Config config) {
 }
 
 void run_client(Config config) {
-  std::string db_root = "tmp-dir-bench-rldp-client-" + std::to_string(config.client_id);
+  std::string db_root = "tmp-dir-bench-transport-client-" + std::to_string(config.client_id);
   td::rmrf(db_root).ignore();
   td::mkdir(db_root).ensure();
 
@@ -572,7 +555,7 @@ int main(int argc, char* argv[]) {
   bool prometheus_default_port = false;
 
   td::OptionParser p;
-  p.set_description("transport benchmark (adnl / rldp2 / quic)");
+  p.set_description("transport benchmark (adnl / quic)");
   p.add_option('h', "help", "print help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});
@@ -584,15 +567,11 @@ int main(int argc, char* argv[]) {
     int v = VERBOSITY_NAME(FATAL) + td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(v);
   });
-  p.add_checked_option('\0', "rldp2", "use RLDP v2 (default)", [&]() {
-    config.protocol = Protocol::rldp2;
-    return td::Status::OK();
-  });
-  p.add_checked_option('\0', "quic", "use QUIC", [&]() {
+  p.add_checked_option('\0', "quic", "use QUIC (default)", [&]() {
     config.protocol = Protocol::quic;
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "adnl", "use raw ADNL queries (no RLDP2, no QUIC)", [&]() {
+  p.add_checked_option('\0', "adnl", "use raw ADNL queries", [&]() {
     config.protocol = Protocol::adnl;
     return td::Status::OK();
   });
