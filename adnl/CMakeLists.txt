@@ -51,6 +51,8 @@ set(ADNL_SOURCE
 set(ADNL_TEST_SOURCE
   adnl-test-loopback-implementation.h
   adnl-test-loopback-implementation.cpp
+  adnl-test-network.h
+  adnl-test-network.cpp
 )
 
 #FIXME
