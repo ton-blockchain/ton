@@ -36,7 +36,7 @@ class BlockQ : public BlockData {
   td::Status init();
 
  public:
-  BlockQ(BlockIdExt id, td::BufferSlice data);
+  BlockQ(BlockIdExt id, td::BufferSlice data, td::Ref<vm::Cell> root = {});
   BlockQ(BlockQ&& other) = default;
   ~BlockQ() override;
   td::BufferSlice data() const override {
@@ -54,7 +54,7 @@ class BlockQ : public BlockData {
   BlockQ* make_copy() const override {
     return new BlockQ(*this);
   }
-  static td::Result<td::Ref<BlockQ>> create(BlockIdExt id, td::BufferSlice data);
+  static td::Result<td::Ref<BlockQ>> create(BlockIdExt id, td::BufferSlice data, td::Ref<vm::Cell> root = {});
 };
 
 }  // namespace validator

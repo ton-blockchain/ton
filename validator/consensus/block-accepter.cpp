@@ -28,7 +28,10 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   td::actor::Task<> process(BusHandle, std::shared_ptr<FinalizeBlock> event) {
     auto& bus = *owning_bus();
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
-    auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
+    auto block_data =
+        create_block(block.id, block.data.clone(),
+                     event->candidate->roots.not_null() ? event->candidate->roots->block_root : td::Ref<vm::Cell>{})
+            .move_as_ok();
     int finality_broadcast_mode =
         block.id.seqno() + 8 > last_mc_finalized_seqno_
             ? (fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync)

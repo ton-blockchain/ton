@@ -11,6 +11,7 @@
 #include "adnl/adnl-node-id.hpp"
 #include "keys/keys.hpp"
 #include "ton/ton-types.h"
+#include "validator/candidate-roots.h"
 
 namespace ton::validator::consensus {
 
@@ -181,13 +182,15 @@ struct Candidate : td::CntObject {
                                                                    td::uint32 expected_slot);
 
   Candidate(CandidateId id, ParentId parent_id, PeerValidatorId leader, std::variant<BlockIdExt, BlockCandidate> block,
-            td::BufferSlice signature, std::optional<Delegation> delegation = std::nullopt)
+            td::BufferSlice signature, std::optional<Delegation> delegation = std::nullopt,
+            CandidateRootsRef roots = {})
       : id(id)
       , parent_id(std::move(parent_id))
       , leader(leader)
       , block(std::move(block))
       , signature(std::move(signature))
-      , delegation(std::move(delegation)) {
+      , delegation(std::move(delegation))
+      , roots(std::move(roots)) {
     CHECK(std::holds_alternative<BlockCandidate>(this->block) || this->parent_id.has_value());
   }
 
@@ -213,6 +216,7 @@ struct Candidate : td::CntObject {
   std::variant<BlockIdExt, BlockCandidate> block;
   td::BufferSlice signature;
   std::optional<Delegation> delegation;
+  CandidateRootsRef roots;  // Optional decoded roots
 };
 
 using CandidateRef = td::Ref<Candidate>;
