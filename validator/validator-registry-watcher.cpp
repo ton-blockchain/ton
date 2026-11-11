@@ -516,9 +516,9 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
   void update_local_validator_legacy(PublicKeyHash key_hash, LocalValidator& validator);
   Ref<vm::Cell> make_entry_cell();
 
-  td::actor::Task<> sign_and_send_request(StdSmcAddress addr, PublicKeyHash key_hash, Ref<vm::Cell> request_cell,
-                                          bool new_format = false);
-  td::actor::Task<> send_external_message(StdSmcAddress addr, vm::CellSlice body);
+  td::actor::Task<> sign_and_send_request(StdSmcAddress addr, std::string name, PublicKeyHash key_hash,
+                                          Ref<vm::Cell> request_cell, bool new_format = false);
+  td::actor::Task<> send_external_message(StdSmcAddress addr, std::string name, vm::CellSlice body);
 };
 
 void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<ValidatorManagerOptions> opts) {
@@ -619,9 +619,9 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
           .valid_until = (UnixTime)td::Clocks::system() + 60};
       Ref<vm::Cell> request_cell;
       CHECK(block::gen::pack_cell(request_cell, request));
-      sign_and_send_request(registry_state_->get_config().contract_address, key_hash, request_cell, true)
+      sign_and_send_request(registry_state_->get_config().contract_address, "vote", key_hash, request_cell, true)
           .start()
-          .detach("send vote");
+          .detach();
       voted = true;
     }
     if (voted) {
@@ -635,25 +635,25 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
   if (is_current_validator_ && vset.not_null() && td::Random::fast(1, (int)vset->size()) == 1) {
     if (registry_state_->need_votings_gc() && try_votings_gc_at_.is_in_past()) {
       VLOG(validator, INFO) << "Update registry: gc votings";
-      send_external_message(registry_state_->get_config().contract_address,
+      send_external_message(registry_state_->get_config().contract_address, "gc votings",
                             vm::CellBuilder{}
                                 .store_long(block::gen::ValRegistryMessageGcVotings::cons_tag[0], 32)
                                 .store_long(td::Random::fast_uint64(), 64)
                                 .as_cellslice())
           .start()
-          .detach("send votings gc");
+          .detach();
       try_votings_gc_at_ = td::Timestamp::in(60.0);
     }
     if (registry_state_->need_update_validator_set(mc_state->last_key_block_id().seqno()) &&
         try_update_validator_set_at_.is_in_past()) {
       VLOG(validator, INFO) << "Update registry: update validator set";
-      send_external_message(registry_state_->get_config().contract_address,
+      send_external_message(registry_state_->get_config().contract_address, "update validator set",
                             vm::CellBuilder{}
                                 .store_long(block::gen::ValRegistryMessageUpdateValidatorSet::cons_tag[0], 32)
                                 .store_long(td::Random::fast_uint64(), 64)
                                 .as_cellslice())
           .start()
-          .detach("send update validator set");
+          .detach();
       try_update_validator_set_at_ = td::Timestamp::in(60.0);
     }
   }
@@ -777,9 +777,10 @@ void ValidatorRegistryWatcherImpl::update_local_adnl_id(adnl::AdnlNodeIdShort id
       .new_adnl_node = vm::CellBuilder{}.store_ref(node_cell).store_ones(1).as_cellslice_ref()};
   Ref<vm::Cell> request_cell;
   CHECK(block::gen::pack_cell(request_cell, request));
-  sign_and_send_request(registry_state_->get_config().contract_address, id.pubkey_hash(), std::move(request_cell), true)
+  sign_and_send_request(registry_state_->get_config().contract_address, "update adnl id", id.pubkey_hash(),
+                        std::move(request_cell), true)
       .start()
-      .detach("send registry adnl id request");
+      .detach();
   info.update_at.relax(td::Timestamp::in(20.0));
 }
 
@@ -808,10 +809,10 @@ void ValidatorRegistryWatcherImpl::update_legacy(Ref<ValidatorManagerOptions> op
       td::Random::fast(1, (int)vset->size()) == 1 && try_cleanup_at_.is_in_past()) {
     VLOG(validator, INFO) << "Update registry: cleanup";
     send_external_message(
-        registry_state_->get_config().contract_address,
+        registry_state_->get_config().contract_address, "cleanup",
         vm::CellBuilder{}.store_long(block::gen::ValRegistryMessageCleanup::cons_tag[0], 32).as_cellslice())
         .start()
-        .detach("send registry cleanup");
+        .detach();
     try_cleanup_at_ = td::Timestamp::in(60.0);
   }
 }
@@ -872,9 +873,10 @@ void ValidatorRegistryWatcherImpl::update_local_validator_legacy(PublicKeyHash k
                                                     .new_entry = cb.as_cellslice_ref()};
   Ref<vm::Cell> request_cell;
   CHECK(block::gen::pack_cell(request_cell, request));
-  sign_and_send_request(registry_state_legacy->get_config().contract_address, key_hash, std::move(request_cell))
+  sign_and_send_request(registry_state_legacy->get_config().contract_address, "update entry", key_hash,
+                        std::move(request_cell))
       .start()
-      .detach("send registry request");
+      .detach();
   validator.update_at.relax(td::Timestamp::in(60.0));
 }
 
@@ -906,7 +908,8 @@ Ref<vm::Cell> ValidatorRegistryWatcherImpl::make_entry_cell() {
   return result;
 }
 
-td::actor::Task<> ValidatorRegistryWatcherImpl::sign_and_send_request(StdSmcAddress addr, PublicKeyHash key_hash,
+td::actor::Task<> ValidatorRegistryWatcherImpl::sign_and_send_request(StdSmcAddress addr, std::string name,
+                                                                      PublicKeyHash key_hash,
                                                                       Ref<vm::Cell> request_cell, bool new_format) {
   td::BufferSlice to_sign{request_cell->get_hash().as_slice()};
   td::BufferSlice signature =
@@ -921,11 +924,12 @@ td::actor::Task<> ValidatorRegistryWatcherImpl::sign_and_send_request(StdSmcAddr
     cb.store_bytes(signature);
     cb.append_cellslice(vm::load_cell_slice(request_cell));
   }
-  co_await send_external_message(addr, cb.as_cellslice());
+  co_await send_external_message(addr, std::move(name), cb.as_cellslice());
   co_return {};
 }
 
-td::actor::Task<> ValidatorRegistryWatcherImpl::send_external_message(StdSmcAddress addr, vm::CellSlice body) {
+td::actor::Task<> ValidatorRegistryWatcherImpl::send_external_message(StdSmcAddress addr, std::string name,
+                                                                      vm::CellSlice body) {
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
   info.src = vm::CellBuilder{}.store_zeroes(2).as_cellslice_ref();  // addr_none$00
   info.dest = block::tlb::t_MsgAddressInt.pack_std_address(masterchainId, addr);
@@ -941,7 +945,12 @@ td::actor::Task<> ValidatorRegistryWatcherImpl::send_external_message(StdSmcAddr
     cb.store_ref(vm::CellBuilder{}.append_cellslice(body).finalize_novm());
   }
   td::BufferSlice data = vm::std_boc_serialize(cb.finalize_novm()).ensure().move_as_ok();
-  co_await td::actor::ask(manager_, &ValidatorManager::new_external_message_query, std::move(data));
+  auto S = co_await td::actor::ask(manager_, &ValidatorManager::new_external_message_query, std::move(data)).wrap();
+  if (S.is_error()) {
+    VLOG(validator, INFO) << "Failed to send " << name << ": " << S.move_as_error();
+  } else {
+    VLOG(validator, INFO) << "Sent" << name;
+  }
   co_return {};
 }
 
