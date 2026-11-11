@@ -26,6 +26,7 @@ const ERR_WRONG_VALIDATOR_IDX = 912;
 const ERR_ALREADY_VOTED = 913;
 const ERR_WRONG_SIGNATURE = 914;
 const ERR_MAX_NODES_EXCEEDED = 915;
+const ERR_VAL_SET_UPDATE_NOT_REQUIRED = 916;
 
 contract ValidatorRegistry {
     storage: Storage
@@ -36,15 +37,23 @@ struct (0x9bc722a9) Storage {
     votings: map<VotingKey, Voting>,
     votingsGc: map<VotingGcKey, ()>,
     extra: Cell<StorageExtra>,
+    lastValidatorSetUpdateSeqno: uint32,
 }
 
 struct (0xc0c74297) StorageExtra {
     nodesCountByRole: map<uint5, uint32>,
+    currentValidatorSets: Cell<AllValidatorSets>,
+}
+
+struct (0xca4882d5) AllValidatorSets {
+    set32: cell?,
+    set34: cell?,
+    set36: cell?,
 }
 
 struct (0xac83c7be) NodeInfo {
     roles: uint32 = 0,
-    isValidator: uint8 = 0,
+    isValidator: uint32 = 0,
 }
 
 struct VotingKey {
@@ -86,12 +95,13 @@ struct (0xe19f2d29) RoleConfig {
 struct ValidatorSet {
     total: uint16,
     totalWeight: uint64,
-    validators: dict,
+    validators: map<uint16, slice>,
 }
 
 struct ValidatorDescr {
     publicKey: uint256,
     weight: uint64,
+    adnlId: uint256?,
 }
 
 struct (0x3b02088d) MessageNewVoting {
@@ -105,6 +115,10 @@ struct (0x34bdaa6c) MessageUpdateCode {
 }
 
 struct (0x6065837c) MessageGcVotings {
+    nonce: uint64,
+}
+
+struct (0x5cf70d63) MessageUpdateValidatorSet {
     nonce: uint64,
 }
 
@@ -122,7 +136,7 @@ struct (0xfcfffd3b) RequestVote {
     validUntil: uint32,
 }
 
-type ExternalMessage = MessageUpdateCode | MessageGcVotings | MessageSignedRequest;
+type ExternalMessage = MessageUpdateCode | MessageGcVotings | MessageUpdateValidatorSet | MessageSignedRequest;
 
 fun ValidatorSet.unpackFromSlice(mutate s: slice) {
     // validators_ext#12 utime_since:uint32 utime_until:uint32
@@ -135,7 +149,7 @@ fun ValidatorSet.unpackFromSlice(mutate s: slice) {
     val totalWeight = s.loadUint(64);
     val validators = s.loadDict();
     return ValidatorSet{
-        total: total, totalWeight: totalWeight, validators: validators,
+        total: total, totalWeight: totalWeight, validators: createMapFromLowLevelDict(validators),
     };
 }
 
@@ -147,14 +161,51 @@ fun ValidatorDescr.unpackFromSlice(mutate s: slice) {
     assert (s.loadUint(32) == 0x8e81278a) throw ERR_PARSING_FAILED;
     val publicKey = s.loadUint(256);
     val weight = s.loadUint(64);
+    var adnlId: uint256? = null;
     if (tag == 0x73) {
-        s.skipBits(256);
+        adnlId = s.loadUint(256);
     } else {
         assert (tag == 0x53) throw ERR_PARSING_FAILED;
     }
     return ValidatorDescr{
-        publicKey: publicKey, weight: weight
+        publicKey: publicKey, weight: weight, adnlId: adnlId,
     };
+}
+
+fun publicKeyToShortId(key: uint256): uint256 {
+    return beginCell().storeUint(0xc6b41348, 32).storeUint(key, 256).endCell().beginParse().bitsHash();
+}
+
+fun ValidatorDescr.getAdnlId(self): uint256 {
+    if (self.adnlId != null && self.adnlId != 0) {
+        return self.adnlId;
+    }
+    return publicKeyToShortId(self.publicKey);
+}
+
+fun AllValidatorSets.get(self, i: int): cell? {
+    if (i == 0) {
+        return self.set32;
+    }
+    if (i == 1) {
+        return self.set34;
+    }
+    if (i == 2) {
+        return self.set36;
+    }
+    throw VmExitCode.IntegerOutOfRange;
+}
+
+fun AllValidatorSets.set(mutate self, i: int, v: cell?) {
+    if (i == 0) {
+        self.set32 = v;
+    } else if (i == 1) {
+        self.set34 = v;
+    } else if (i == 2) {
+        self.set36 = v;
+    } else {
+        throw VmExitCode.IntegerOutOfRange;
+    }
 }
 
 fun getLastKeyBlockSeqno(): uint32
@@ -269,6 +320,70 @@ fun gcVotings() {
     contract.setData(storage.toCell());
 }
 
+fun updateValidatorSetNodes(mutate storage: Storage, validatorSetCell: cell?, diff: int) {
+    if (validatorSetCell == null) {
+        return;
+    }
+    val validatorSet = ValidatorSet.fromCell(validatorSetCell);
+    var f = validatorSet.validators.findFirst();
+    while (f.isFound) {
+        val adnlId = ValidatorDescr.fromSlice(f.loadValue()).getAdnlId();
+        val f2 = storage.nodes.get(adnlId);
+        var node = f2.isFound ? f2.loadValue() : NodeInfo{
+        };
+        node.isValidator += diff;
+        if (node.roles != 0 || node.isValidator != 0) {
+            storage.nodes.set(adnlId, node);
+        } else {
+            storage.nodes.delete(adnlId);
+        }
+        f = validatorSet.validators.iterateNext(f);
+    }
+}
+
+fun updateValidatorSet() {
+    var storage = Storage.fromCell(contract.getData());
+    val lastKeyBlockSeqno = getLastKeyBlockSeqno();
+    assert (storage.lastValidatorSetUpdateSeqno != lastKeyBlockSeqno) throw ERR_VAL_SET_UPDATE_NOT_REQUIRED;
+    storage.lastValidatorSetUpdateSeqno = lastKeyBlockSeqno;
+    contract.setData(storage.toCell());
+    commitContractDataAndActions();
+    acceptExternalMessage();
+
+    var storageExtra = storage.extra.load();
+    var prev = storageExtra.currentValidatorSets.load();
+    val next = AllValidatorSets{
+        set32: blockchain.configParam(32),
+        set34: blockchain.configParam(34),
+        set36: blockchain.configParam(36),
+    };
+    var i = 0;
+    while (i < 3) {
+        val set = next.get(i);
+        if (set != null) {
+            var j = 0;
+            while (j < 3 && (prev.get(j) == null || prev.get(j)!.hash() != set.hash())) {
+                j += 1;
+            }
+            if (j < 3) {
+                prev.set(j, null);
+            } else {
+                updateValidatorSetNodes(mutate storage, set, 1);
+            }
+        }
+        i += 1;
+    }
+    i = 0;
+    while (i < 3) {
+        updateValidatorSetNodes(mutate storage, prev.get(i), -1);
+        i += 1;
+    }
+
+    storageExtra.currentValidatorSets = next.toCell();
+    storage.extra = storageExtra.toCell();
+    contract.setData(storage.toCell());
+}
+
 fun requestVote(signature: bits512, requestHash: uint256, request: RequestVote) {
     assert (blockchain.now() < request.validUntil) throw ERR_REQUEST_EXPIRED;
     var storage = Storage.fromCell(contract.getData());
@@ -290,7 +405,7 @@ fun requestVote(signature: bits512, requestHash: uint256, request: RequestVote) 
     newVotes.storeSlice(votes);
 
     val validatorSet = ValidatorSet.fromCell(voting.validatorSet);
-    val validatorDescr = ValidatorDescr.fromSlice(validatorSet.validators.uDictGet(16, request.validatorIdx).0!);
+    val validatorDescr = ValidatorDescr.fromSlice(validatorSet.validators.mustGet(request.validatorIdx));
     assert (isSignatureValid(requestHash, signature as slice, validatorDescr.publicKey)) throw ERR_WRONG_SIGNATURE;
     acceptExternalMessage();
 
@@ -353,6 +468,9 @@ fun onExternalMessage(inMsg: slice) {
         }
         MessageGcVotings => {
             gcVotings();
+        }
+        MessageUpdateValidatorSet => {
+            updateValidatorSet();
         }
         MessageSignedRequest => {
             val request = msg.request.load();

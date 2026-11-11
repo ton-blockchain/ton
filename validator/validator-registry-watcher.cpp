@@ -155,11 +155,13 @@ class ValidatorRegistryStateImpl : public ValidatorRegistryState {
       : ValidatorRegistryState(std::move(config)) {
     block::gen::ValRegistryStorage::Record rec;
     if (!block::gen::unpack_cell(data, rec)) {
+      fail_ = true;
       return;
     }
     nodes_ = vm::Dictionary{rec.nodes, 256, false};
     votings_ = vm::Dictionary{rec.votings, 256 + 32 + 32, false};
     votings_gc_ = vm::Dictionary{rec.votings_gc, 32 + 256 + 32 + 32, false};
+    last_validator_set_update_seqno_ = rec.last_validator_set_update_seqno;
   }
 
   std::set<adnl::AdnlNodeIdShort> get_all_collators(Ref<MasterchainState> mc_state) override {
@@ -200,10 +202,16 @@ class ValidatorRegistryStateImpl : public ValidatorRegistryState {
     }
   }
 
+  bool need_update_validator_set(BlockSeqno last_key_block_seqno) override {
+    return !fail_ && last_key_block_seqno != last_validator_set_update_seqno_;
+  }
+
  private:
   vm::Dictionary nodes_{256};
   vm::Dictionary votings_{256 + 32 + 32};
   vm::Dictionary votings_gc_{32 + 256 + 32 + 32};
+  BlockSeqno last_validator_set_update_seqno_ = 0;
+  bool fail_ = false;
 
   vm::Dictionary get_nodes_dict() override {
     return nodes_;
@@ -399,6 +407,7 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
   std::map<PublicKeyHash, LocalValidator> local_validators_;
   td::Timestamp try_cleanup_at_ = td::Timestamp::now();
   td::Timestamp try_votings_gc_at_ = td::Timestamp::now();
+  td::Timestamp try_update_validator_set_at_ = td::Timestamp::now();
   bool is_current_validator_ = false;
   bool inited_ = false;
 
@@ -549,17 +558,30 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
   }
 
   auto vset = mc_state_->get_total_validator_set(0);
-  if (is_current_validator_ && vset.not_null() && registry_state_->need_votings_gc() &&
-      td::Random::fast(1, (int)vset->size()) == 1 && try_votings_gc_at_.is_in_past()) {
-    VLOG(validator, INFO) << "Update registry: gc votings";
-    send_external_message(registry_state_->get_config().contract_address,
-                          vm::CellBuilder{}
-                              .store_long(block::gen::ValRegistryMessageGcVotings::cons_tag[0], 32)
-                              .store_long(td::Random::fast_uint64(), 64)
-                              .as_cellslice())
-        .start()
-        .detach("send votings gc");
-    try_votings_gc_at_ = td::Timestamp::in(60.0);
+  if (is_current_validator_ && vset.not_null() && td::Random::fast(1, (int)vset->size()) == 1) {
+    if (registry_state_->need_votings_gc() && try_votings_gc_at_.is_in_past()) {
+      VLOG(validator, INFO) << "Update registry: gc votings";
+      send_external_message(registry_state_->get_config().contract_address,
+                            vm::CellBuilder{}
+                                .store_long(block::gen::ValRegistryMessageGcVotings::cons_tag[0], 32)
+                                .store_long(td::Random::fast_uint64(), 64)
+                                .as_cellslice())
+          .start()
+          .detach("send votings gc");
+      try_votings_gc_at_ = td::Timestamp::in(60.0);
+    }
+    if (registry_state_->need_update_validator_set(mc_state->last_key_block_id().seqno()) &&
+        try_update_validator_set_at_.is_in_past()) {
+      VLOG(validator, INFO) << "Update registry: update validator set";
+      send_external_message(registry_state_->get_config().contract_address,
+                            vm::CellBuilder{}
+                                .store_long(block::gen::ValRegistryMessageUpdateValidatorSet::cons_tag[0], 32)
+                                .store_long(td::Random::fast_uint64(), 64)
+                                .as_cellslice())
+          .start()
+          .detach("send update validator set");
+      try_update_validator_set_at_ = td::Timestamp::in(60.0);
+    }
   }
 
   update_legacy(std::move(opts));
