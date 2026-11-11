@@ -647,6 +647,9 @@ engine.validator.shardBlockVerifierConfig.shard shard_id:(tonNode.shardId) trust
 engine.validator.shardBlockVerifierConfig shards:(vector engine.validator.shardBlockVerifierConfig.shard)
     = engine.validator.ShardBlockVerifierConfig;
 
+engine.validator.registryVotingConfig.node adnl_id:int256 roles_add:int roles_remove:int = engine.validator.registryVotingConfig.Node;
+engine.validator.registryVotingConfig nodes:(vector engine.validator.registryVotingConfig.node) = engine.validator.RegistryVotingConfig;
+
 ---functions---
 
 ---types---
@@ -801,6 +804,9 @@ engine.validator.delFastSyncClient adnl_id:int256 = engine.validator.Success;
 
 engine.validator.setShardBlockVerifierConfig config:engine.validator.shardBlockVerifierConfig = engine.validator.Success;
 engine.validator.showShardBlockVerifierConfig = engine.validator.ShardBlockVerifierConfig;
+
+engine.validator.setRegistryVotingConfig config:engine.validator.registryVotingConfig = engine.validator.Success;
+engine.validator.showRegistryVotingConfig = engine.validator.RegistryVotingConfig;
 
 engine.validator.waitForLiteServer = engine.validator.Success;
 engine.validator.waitForInitialSync = engine.validator.Success;

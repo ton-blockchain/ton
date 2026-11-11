@@ -200,6 +200,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::tl_object_ptr<ton::ton_api::engine_validator_collatorsList> collators_list_;
   ton::tl_object_ptr<ton::ton_api::engine_validator_shardBlockVerifierConfig> shard_block_verifier_config_;
   ton::tl_object_ptr<ton::ton_api::consensus_noncriticalParamsOverrideList> noncritical_params_overrides_;
+  ton::tl_object_ptr<ton::ton_api::engine_validator_registryVotingConfig> registry_voting_config_;
 
   std::set<ton::PublicKeyHash> running_gc_;
 
@@ -447,6 +448,7 @@ class ValidatorEngine : public td::actor::Actor {
   void load_config(td::Promise<td::Unit> promise);
   void set_shard_check_function();
   void load_collators_list();
+  void load_registry_voting_config();
   void load_shard_block_verifier_config();
   void load_noncritical_params_overrides();
 
@@ -557,6 +559,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   std::string collators_list_file() const {
     return db_root_ + "/collators-list.json";
+  }
+  std::string registry_voting_config_file() const {
+    return db_root_ + "/registry-voting-config.json";
   }
   std::string shard_block_verifier_config_file() const {
     return db_root_ + "/shard-block-verifier-config.json";
@@ -704,6 +709,10 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_setShardBlockVerifierConfig &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showShardBlockVerifierConfig &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setRegistryVotingConfig &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_showRegistryVotingConfig &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides &query,
                          td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

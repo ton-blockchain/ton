@@ -2097,14 +2097,18 @@ td::Result<ValidatorRegistryConfig> Config::get_validator_registry_config() cons
   if (param.is_null()) {
     return td::Status::Error("configuration parameter 46 is absent");
   }
-  gen::ValRegistryConfig::Record rec;
-  if (!gen::unpack_cell(param, rec)) {
-    return td::Status::Error("configuration parameter 46 is invalid");
+  if (gen::ValRegistryConfig::Record_val_registry_config_old rec; gen::unpack_cell(param, rec)) {
+    return ValidatorRegistryConfig{
+        .contract_address = rec.contract_address,
+        .legacy_max_collators_per_validator = rec.max_collators_per_validator,
+    };
   }
-  return ValidatorRegistryConfig{
-      .contract_address = rec.contract_address,
-      .max_collators_per_validator = rec.max_collators_per_validator,
-  };
+  if (gen::ValRegistryConfig::Record_val_registry_config rec; gen::unpack_cell(param, rec)) {
+    return ValidatorRegistryConfig{
+        .contract_address = rec.contract_address,
+    };
+  }
+  return td::Status::Error("configuration parameter 46 is invalid");
 }
 
 std::unique_ptr<vm::Dictionary> Config::get_suspended_addresses(ton::UnixTime now) const {
