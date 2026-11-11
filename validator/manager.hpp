@@ -367,14 +367,14 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
     if (validator_keys_.insert(key).second) {
-      validator_registry_watchers_[key] =
-          td::actor::create_actor<ValidatorRegistryWatcher>("ValidatorRegistry", key, actor_id(this), keyring_);
+      td::actor::send_closure(validator_registry_watcher_, &ValidatorRegistryWatcher::add_validator_key, key);
     }
     promise.set_value(td::Unit());
   }
   void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    validator_keys_.erase(key);
-    validator_registry_watchers_.erase(key);
+    if (validator_keys_.erase(key)) {
+      td::actor::send_closure(validator_registry_watcher_, &ValidatorRegistryWatcher::del_validator_key, key);
+    }
     promise.set_value(td::Unit());
   }
 
@@ -708,7 +708,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  private:
   std::set<PublicKeyHash> validator_keys_;
-  std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorRegistryWatcher>> validator_registry_watchers_;
+  td::actor::ActorOwn<ValidatorRegistryWatcher> validator_registry_watcher_;
   std::set<adnl::AdnlNodeIdShort> local_collator_adnl_ids_;
   td::actor::ActorOwn<CollatorScoreboard> collator_scoreboard_ =
       td::actor::create_actor<CollatorScoreboard>("CollatorScoreboard");
