@@ -1047,8 +1047,8 @@ val_registry_storage#9bc722a9
 val_registry_storage_extra#c0c74297 nodes_count_by_role:(HashmapE 5 uint32)
     current_validator_sets:^Cell = ValRegistryStorageExtra;
 val_registry_node#ac83c7be roles:uint32 is_validator:uint32 allow_update_adnl_node_at:uint32 adnl_node:(Maybe ^Cell) = ValRegistryNode;
-val_registry_voting#fb84df63 ends_at:uint32 created_lt:uint64 voted_weight:uint64 required_weight:uint64 votes:^Cell
-    validator_set:^ValidatorSet = ValRegistryVoting;
+val_registry_voting#fb84df63 ends_at:uint32 created_lt:uint64 voted_weight:uint64 required_weight:uint64 is_reverse:Bool
+    votes:^Cell validator_set:^ValidatorSet = ValRegistryVoting;
 
 val_registry_message_new_voting#3b02088d adnl_id:bits256 roles_add:uint32 roles_remove:uint32 = ValRegistryMessageNewVoting;
 val_registry_message_update_code#34bdaa6c new_code:^Cell = ValRegistryMessageUpdateCode;
