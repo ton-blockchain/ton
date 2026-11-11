@@ -30,6 +30,7 @@
 #include "td/actor/SharedFuture.h"
 #include "td/db/utils/BlobView.h"
 #include "td/utils/Random.h"
+#include "td/utils/ScopeGuard.h"
 #include "ton/ton-io.hpp"
 #include "ton/ton-shard.h"
 #include "vm/boc.h"
@@ -40,6 +41,7 @@
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
 #include "top-shard-descr.hpp"
+#include "transaction.h"
 
 #define FAIL_UNLESS_MSG(condition, msg) \
   if (!(condition)) {                   \
@@ -75,8 +77,6 @@ using namespace std::literals::string_literals;
 static constexpr td::uint32 FORCE_SPLIT_QUEUE_SIZE = 4096;
 static constexpr td::uint32 SPLIT_MAX_QUEUE_SIZE = 100000;
 static constexpr td::uint32 MERGE_MAX_QUEUE_SIZE = 2047;
-static constexpr td::uint32 SKIP_EXTERNALS_QUEUE_SIZE = 8000;
-static constexpr int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority externals when queue is big
 
 static constexpr int MAX_ATTEMPTS = 5;
 
@@ -90,8 +90,8 @@ static constexpr int MAX_ATTEMPTS = 5;
  */
 Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
                    td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise)
-    : params_(std::move(params))
-    , shard_(params_.shard)
+    : CollatorBase(params.shard)
+    , params_(std::move(params))
     , prev_blocks(params_.prev)
     , manager(manager)
     , timeout_(params_.hard_timeout)
@@ -1368,7 +1368,7 @@ bool Collator::split_last_state(block::ShardState& ss) {
 /**
  * Imports the shard state data into the Collator object.
  *
- * SETS: account_dict = account_dict_estimator_, shard_libraries_, mc_state_extra
+ * SETS: account_dict, old_account_dict, shard_libraries_, mc_state_extra
  *    total_balance_ = old_total_balance_, total_validator_fees_
  * SETS: overload_history_, underload_history_
  * SETS: prev_state_utime_, prev_state_lt_, prev_vert_seqno_
@@ -1382,7 +1382,6 @@ bool Collator::import_shard_state_data(block::ShardState& ss) {
   account_dict = std::move(ss.account_dict_);
   old_account_dict =
       std::make_unique<vm::AugmentedDictionary>(account_dict->get_root(), 256, block::tlb::aug_ShardAccounts);
-  account_dict_estimator_ = std::make_unique<vm::AugmentedDictionary>(*account_dict);
   shard_libraries_ = std::move(ss.shard_libraries_);
   mc_state_extra_ = std::move(ss.mc_state_extra_);
   overload_history_ = ss.overload_history_;
@@ -2487,11 +2486,12 @@ td::actor::Task<> Collator::do_collate_inner() {
       co_return td::Status::Error("cannot process dispatch queue");
     }
   }
+  co_await init_virtual_shards();
   {
     // 4. import inbound internal messages, process or transit
     LOG(INFO) << "process inbound internal messages";
     td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.import_internals};
-    if (!process_inbound_internal_messages()) {
+    if (!(virtual_shards_ ? co_await process_virtual_internals() : process_inbound_internal_messages())) {
       co_return td::Status::Error("cannot process inbound internal messages");
     }
   }
@@ -2501,6 +2501,10 @@ td::actor::Task<> Collator::do_collate_inner() {
     co_await process_external_and_new_messages();
   }
   auto post_ext_token = perf_log_.start_action("post_ext_processing");
+  // All InMsg descriptors are collected; tock outputs below are only enqueued.
+  if (!flush_in_msg_descriptors()) {
+    co_return td::Status::Error("cannot build final InMsgDescr");
+  }
   if (before_split_) {
     // 7. split prepare / split install
     LOG(DEBUG) << "create split prepare/install transactions (NOT IMPLEMENTED YET)";
@@ -2521,6 +2525,10 @@ td::actor::Task<> Collator::do_collate_inner() {
       co_return td::Status::Error("cannot process newly-generated outbound messages");
     }
   }
+  // All OutMsg descriptors, including tock outputs, are collected.
+  if (!flush_out_msg_descriptors()) {
+    co_return td::Status::Error("cannot build final OutMsgDescr");
+  }
   // 10. check block overload/underload
   LOG(DEBUG) << "check block overload/underload";
   if (!check_block_overload()) {
@@ -2538,7 +2546,7 @@ td::actor::Task<> Collator::do_collate_inner() {
     // A. serialize ShardAccountBlocks and new ShardAccounts
     LOG(DEBUG) << "serialize account states and blocks";
     td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.combine_account_transactions};
-    if (!combine_account_transactions()) {
+    if (!(co_await combine_account_transactions())) {
       co_return td::Status::Error("cannot combine separate Account transactions into a new ShardAccountBlocks");
     }
   }
@@ -2555,7 +2563,7 @@ td::actor::Task<> Collator::do_collate_inner() {
     }
     // C. serialize ShardState
     LOG(DEBUG) << "serialize ShardState";
-    if (!create_shard_state()) {
+    if (!(co_await create_shard_state())) {
       co_return td::Status::Error("cannot create new ShardState");
     }
   }
@@ -2567,20 +2575,10 @@ td::actor::Task<> Collator::do_collate_inner() {
       co_return td::Status::Error("cannot create new Block");
     }
   }
-  {
-    // E. create collated data
-    td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.create_collated_data};
-    if (!create_collated_data()) {
-      co_return td::Status::Error("cannot create collated data for new Block candidate");
-    }
-  }
-  {
-    // F. create a block candidate
-    LOG(DEBUG) << "create a Block candidate";
-    td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.create_block_candidate};
-    if (!create_block_candidate()) {
-      co_return td::Status::Error("cannot serialize a new Block candidate");
-    }
+  // E-F. Build collated data and serialize the candidate. With virtual shards,
+  // proof construction and serialization run alongside block serialization.
+  if (!(co_await create_block_candidate())) {
+    co_return td::Status::Error("cannot serialize a new Block candidate");
   }
   post_ext_token.finish(td::Result<td::Unit>(td::Unit()));
   co_return {};
@@ -2786,156 +2784,8 @@ bool Collator::out_msg_queue_cleanup() {
   return register_out_msg_queue_op(true);
 }
 
-/**
- * Creates a new Account object from the given address and serialized account data.
- *
- * @param addr A pointer to the 256-bit address of the account.
- * @param account A cell slice with an account serialized using ShardAccount TLB-scheme.
- * @param force_create A flag indicating whether to force the creation of a new account if `account` is null.
- *
- * @returns A unique pointer to the created Account object, or nullptr if the creation failed.
- */
-std::unique_ptr<block::Account> Collator::make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,
-                                                            bool force_create) {
-  if (account.is_null() && !force_create) {
-    return nullptr;
-  }
-  auto ptr = std::make_unique<block::Account>(workchain(), addr);
-  if (account.is_null()) {
-    if (!ptr->init_new(now_)) {
-      return nullptr;
-    }
-  } else if (!ptr->unpack(std::move(account), now_, is_masterchain() && config_->is_special_smartcontract(addr))) {
-    return nullptr;
-  }
-  ptr->block_lt = start_lt;
-  if (!init_account_storage_dict(*ptr)) {
-    return nullptr;
-  }
-  return ptr;
-}
-
-/**
- * If full collated data is enabled, initialize account storage dict and prepare MerkleProofBuilder for it
- *
- * @param account Account to initialize storage dict for
- * @return True on success, False on failure
- */
-bool Collator::init_account_storage_dict(block::Account& account) {
-  if (!account.storage_dict_hash || account.storage.is_null()) {
-    return true;
-  }
-  td::Bits256 storage_dict_hash = account.storage_dict_hash.value();
-  if (storage_dict_hash.is_zero()) {
-    return true;
-  }
-  td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.prelim_storage_stat};
-  td::Ref<vm::Cell> cached_dict_root =
-      storage_stat_cache_ ? storage_stat_cache_(storage_dict_hash) : td::Ref<vm::Cell>{};
-  if (cached_dict_root.not_null()) {
-    FAIL_UNLESS(td::Bits256{cached_dict_root->get_hash().bits()} == storage_dict_hash);
-    LOG(DEBUG) << "Inited storage stat from cache for account " << account.addr.to_hex() << " ("
-               << account.storage_used.cells << " cells)";
-    storage_stat_cache_update_.emplace_back(cached_dict_root, account.storage_used.cells);
-    stats_.storage_stat_cache.hit_cnt++;
-    stats_.storage_stat_cache.hit_cells += account.storage_used.cells;
-  } else if (account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
-    stats_.storage_stat_cache.miss_cnt++;
-    stats_.storage_stat_cache.miss_cells += account.storage_used.cells;
-  } else {
-    stats_.storage_stat_cache.small_cnt++;
-    stats_.storage_stat_cache.small_cells += account.storage_used.cells;
-  }
-  if (!full_collated_data_ || is_masterchain()) {
-    if (cached_dict_root.not_null()) {
-      auto S = account.init_account_storage_stat(cached_dict_root);
-      if (S.is_error()) {
-        return fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
-                                                            << account.addr.to_hex() << ": "));
-      }
-    }
-    return true;
-  }
-
-  AccountStorageDict& dict = account_storage_dicts_[storage_dict_hash];
-  if (!dict.inited) {
-    dict.inited = true;
-    td::Ref<vm::Cell> dict_root;
-    if (cached_dict_root.not_null()) {
-      dict_root = cached_dict_root;
-    } else {
-      // don't mark cells in account state as loaded during compute_account_storage_dict
-      state_usage_tree_->set_ignore_loads(true);
-      auto res = account.compute_account_storage_dict();
-      state_usage_tree_->set_ignore_loads(false);
-      if (res.is_error()) {
-        return fatal_error(res.move_as_error_prefix(PSTRING() << "Failed to init account storage dict for "
-                                                              << account.addr.to_hex() << ": "));
-      }
-      dict_root = res.move_as_ok();
-      if (dict_root.is_null()) {  // Impossible if storage_dict_hash is not zero
-        return fatal_error(PSTRING() << "Failed to init account storage dict for " << account.addr.to_hex()
-                                     << ": dict is empty");
-      }
-    }
-    dict.mpb = vm::MerkleProofBuilder(std::move(dict_root));
-    dict.mpb.set_cell_load_callback([&](const vm::LoadedCell& cell) { on_cell_loaded(cell); });
-  }
-  auto S = account.init_account_storage_stat(dict.mpb.root());
-  if (S.is_error()) {
-    return fatal_error(S.move_as_error_prefix(PSTRING() << "Failed to init account storage dict for "
-                                                        << account.addr.to_hex() << ": "));
-  }
-  return true;
-}
-
-/**
- * Looks up an account in the Collator's account map.
- *
- * @param addr A pointer to the 256-bit address of the account to be looked up.
- *
- * @returns A pointer to the Account object if found, otherwise returns nullptr.
- */
-block::Account* Collator::lookup_account(td::ConstBitPtr addr) const {
-  auto found = accounts.find(addr);
-  return found != accounts.end() ? found->second.get() : nullptr;
-}
-
-/**
- * Retreives an Account object from the data in the shard state.
- * Accounts are cached in the Collator's map.
- *
- * @param addr The 256-bit address of the account.
- * @param force_create Flag indicating whether to create a new account if it does not exist.
- *
- * @returns A Result object containing a pointer to the account if found or created successfully, or an error status.
- *          Returns nullptr if account does not exist and not force_create.
- */
 td::Result<block::Account*> Collator::make_account(td::ConstBitPtr addr, bool force_create) {
-  auto found = lookup_account(addr);
-  if (found) {
-    return found;
-  }
-  auto dict_entry = account_dict->lookup_extra(addr, 256);
-  if (dict_entry.first.is_null()) {
-    if (!force_create) {
-      return nullptr;
-    }
-  }
-  auto new_acc = make_account_from(addr, std::move(dict_entry.first), force_create);
-  if (!new_acc) {
-    return td::Status::Error(PSTRING() << "cannot load account " << addr.to_hex(256) << " from previous state");
-  }
-  if (!new_acc->belongs_to_shard(shard_)) {
-    return td::Status::Error(PSTRING() << "account " << addr.to_hex(256) << " does not really belong to current shard "
-                                       << shard_);
-  }
-  auto ins = accounts.emplace(addr, std::move(new_acc));
-  if (!ins.second) {
-    return td::Status::Error(PSTRING() << "cannot insert newly-extracted account " << addr.to_hex(256)
-                                       << "into account collection");
-  }
-  return ins.first->second.get();
+  return CollatorBase::make_account(addr, force_create, config_.get());
 }
 
 /**
@@ -3005,7 +2855,7 @@ static td::Result<td::Ref<vm::Cell>> clean_usage_cells(td::Ref<vm::Cell> old_roo
  *
  * @returns True if the operation is successful, false otherwise.
  */
-bool Collator::process_account_storage_dict(block::Account& account) {
+bool CollatorBase::process_account_storage_dict(block::Account& account) {
   td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.final_storage_stat};
   bool store_dict_to_cache = account.storage_dict_hash && account.account_storage_stat &&
                              account.account_storage_stat.value().is_dict_ready() &&
@@ -3026,14 +2876,18 @@ bool Collator::process_account_storage_dict(block::Account& account) {
     }
     return true;
   }
-  FAIL_UNLESS(full_collated_data_ && !is_masterchain());
+  if (!full_collated_data_ || shard_.is_masterchain()) {
+    LOG(ERROR) << "unexpected account storage proof";
+    return false;
+  }
   AccountStorageDict& dict = it->second;
   td::Ref<vm::Cell> original_dict_root = dict.mpb.original_root();
   if (store_dict_to_cache) {
     td::Ref<vm::Cell> dict_root = account.account_storage_stat.value().get_dict_root().move_as_ok();
     auto r_dict_root = clean_usage_cells(original_dict_root, dict_root, dict.mpb.get_usage_tree());
     if (r_dict_root.is_error()) {
-      return fatal_error(r_dict_root.move_as_error());
+      LOG(ERROR) << r_dict_root.error();
+      return false;
     }
     dict_root = r_dict_root.move_as_ok();
     storage_stat_cache_update_.emplace_back(dict_root, account.storage_used.cells);
@@ -3111,114 +2965,20 @@ bool Collator::process_account_storage_dict(block::Account& account) {
     calculate_proof_size_diff = false;
     visited.clear();
     for (const auto& cell : dict.storage_stat_updates) {
-      FAIL_UNLESS(dfs(cell));
+      if (!dfs(cell)) {
+        LOG(ERROR) << "cannot record account storage proof reads";
+        return false;
+      }
     }
   }
 
   return true;
 }
 
-/**
- * Combines account transactions and updates the ShardAccountBlocks and ShardAccounts.
- *
- * @returns True if the operation is successful, false otherwise.
- */
-bool Collator::combine_account_transactions() {
-  vm::AugmentedDictionary dict{256, block::tlb::aug_ShardAccountBlocks};
-  for (auto& z : accounts) {
-    block::Account& acc = *(z.second);
-    FAIL_UNLESS(acc.addr == z.first);
-    if (!acc.transactions.empty()) {
-      // have transactions for this account
-      vm::CellBuilder cb;
-      if (!acc.create_account_block(cb)) {
-        return fatal_error("cannot create AccountBlock for account "s + z.first.to_hex());
-      }
-      auto cell = cb.finalize();
-      auto csr = vm::load_cell_slice_ref(cell);
-      if (verbosity > 2) {
-        FLOG(INFO) {
-          sb << "new AccountBlock for " << z.first.to_hex() << ": ";
-          block::gen::t_AccountBlock.print_ref(sb, cell);
-          csr->print_rec(sb);
-        };
-      }
-      if (!dict.set(z.first, csr, vm::Dictionary::SetMode::Add)) {
-        return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
-                           " could not be added to ShardAccountBlocks");
-      }
-      // update account_dict
-      if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
-        // account changed
-        if (acc.orig_status == block::Account::acc_nonexist) {
-          // account created
-          FAIL_UNLESS(acc.status != block::Account::acc_nonexist);
-          vm::CellBuilder cb;
-          if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
-                && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
-                && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-                && account_dict->set_builder(acc.addr, cb, vm::Dictionary::SetMode::Add))) {
-            return fatal_error(std::string{"cannot add newly-created account "} + acc.addr.to_hex() +
-                               " into ShardAccounts");
-          }
-        } else if (acc.status == block::Account::acc_nonexist) {
-          // account deleted
-          if (verbosity > 2) {
-            FLOG(INFO) {
-              sb << "deleting account " << acc.addr.to_hex() << " with empty new value ";
-              block::gen::t_Account.print_ref(sb, acc.total_state);
-            };
-          }
-          if (account_dict->lookup_delete(acc.addr).is_null()) {
-            return fatal_error(std::string{"cannot delete account "} + acc.addr.to_hex() + " from ShardAccounts");
-          }
-        } else {
-          // existing account modified
-          if (verbosity > 4) {
-            FLOG(INFO) {
-              sb << "modifying account " << acc.addr.to_hex() << " to ";
-              block::gen::t_Account.print_ref(sb, acc.total_state);
-            };
-          }
-          if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
-                && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
-                && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-                && account_dict->set_builder(acc.addr, cb, vm::Dictionary::SetMode::Replace))) {
-            return fatal_error(std::string{"cannot modify existing account "} + acc.addr.to_hex() +
-                               " in ShardAccounts");
-          }
-        }
-      }
-      if (!process_account_storage_dict(acc)) {
-        return false;
-      }
-    } else {
-      if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
-        return fatal_error(std::string{"total state of account "} + z.first.to_hex() +
-                           " miraculously changed without transactions");
-      }
-    }
-  }
-  vm::CellBuilder cb;
-  if (!(cb.append_cellslice_bool(std::move(dict).extract_root()) && cb.finalize_to(shard_account_blocks_))) {
-    return fatal_error("cannot serialize ShardAccountBlocks");
-  }
-  if (verbosity > 2) {
-    FLOG(INFO) {
-      sb << "new ShardAccountBlocks: ";
-      block::gen::t_ShardAccountBlocks.print_ref(sb, shard_account_blocks_);
-      vm::load_cell_slice(shard_account_blocks_).print_rec(sb);
-    };
-  }
-  auto shard_accounts = account_dict->get_root();
-  if (verbosity > 2) {
-    FLOG(INFO) {
-      sb << "new ShardAccounts: ";
-      block::gen::t_ShardAccounts.print(sb, shard_accounts);
-      shard_accounts->print_rec(sb);
-    };
-  }
-  return true;
+td::actor::Task<bool> Collator::combine_account_transactions() {
+  auto status =
+      virtual_shards_ ? co_await finalize_virtual_accounts().wrap() : CollatorBase::combine_account_transactions();
+  co_return status.is_ok() || fatal_error(status.move_as_error());
 }
 
 /**
@@ -3346,17 +3106,10 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot serialize new transaction for smart contract "} + smc_addr.to_hex()));
   }
-  if (!trans->update_limits(*block_limit_status_, /* with_gas = */ false)) {
-    return fatal_error(-666, "cannot update block limit status to include the new transaction");
+  auto status = commit_transaction(*trans, *acc, /* with_gas = */ false);
+  if (status.is_error()) {
+    return fatal_error(status.move_as_error());
   }
-  if (trans->commit(*acc).is_null()) {
-    return fatal_error(
-        td::Status::Error(-666, std::string{"cannot commit new transaction for smart contract "} + smc_addr.to_hex()));
-  }
-  if (!update_account_dict_estimation(*trans)) {
-    return fatal_error(-666, "cannot update account dict size estimation");
-  }
-  update_account_storage_dict_info(*trans);
   FAIL_UNLESS(update_max_lt(acc->last_trans_end_lt_));
   block::MsgMetadata new_msg_metadata{0, acc->workchain, acc->addr, trans->start_lt};
   FAIL_UNLESS(register_new_msgs(*trans, std::move(new_msg_metadata)));
@@ -3412,28 +3165,25 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
     return {};
   }
   LOG(DEBUG) << "inbound message to our smart contract " << addr.to_hex();
-  auto acc_res = make_account(addr.cbits(), true);
-  if (acc_res.is_error()) {
-    fatal_error(acc_res.move_as_error());
-    return {};
-  }
-  block::Account* acc = acc_res.move_as_ok();
-  assert(acc);
-
   if (external) {
     after_lt = std::max(after_lt, last_proc_int_msg_.first);
   }
-  auto it = last_dispatch_queue_emitted_lt_.find(acc->addr);
+  auto it = last_dispatch_queue_emitted_lt_.find(addr);
   if (it != last_dispatch_queue_emitted_lt_.end()) {
     after_lt = std::max(after_lt, it->second);
   }
-  set_current_tx_storage_dict(*acc);
+  block::Account* account = nullptr;
   td::Result<std::unique_ptr<block::transaction::Transaction>> res;
-  {
-    td::ScopedRealCpuTimer::Guard timer{work_timer_,
-                                        nullptr};  // trx time is updated in impl_reate_ordinary_transaction
-    res = impl_create_ordinary_transaction(msg_root, acc, now_, start_lt, &storage_phase_cfg_, &compute_phase_cfg_,
-                                           &action_phase_cfg_, &serialize_cfg_, external, after_lt, &stats_);
+  if (virtual_shards_) {
+    res = create_virtual_transaction(msg_root, addr, external, after_lt);
+  } else {
+    auto acc_res = make_account(addr.cbits(), true);
+    if (acc_res.is_error()) {
+      fatal_error(acc_res.move_as_error());
+      return {};
+    }
+    account = acc_res.move_as_ok();
+    res = CollatorBase::create_ordinary_transaction(msg_root, account, external, after_lt);
   }
   if (res.is_error()) {
     auto error = res.move_as_error();
@@ -3446,22 +3196,16 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
     return {};
   }
   std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
-
-  if (!trans->update_limits(*block_limit_status_,
-                            /* with_gas = */ !(is_special_tx && compute_phase_cfg_.special_gas_full))) {
-    fatal_error("cannot update block limit status to include the new transaction");
-    return {};
+  const block::Account* acc = &trans->account;
+  if (!virtual_shards_) {
+    auto status = commit_transaction(*trans, *account,
+                                     /* with_gas = */ !(is_special_tx && compute_phase_cfg_.special_gas_full));
+    if (status.is_error()) {
+      fatal_error(status.move_as_error());
+      return {};
+    }
   }
-  auto trans_root = trans->commit(*acc);
-  if (trans_root.is_null()) {
-    fatal_error("cannot commit new transaction for smart contract "s + addr.to_hex());
-    return {};
-  }
-  if (!update_account_dict_estimation(*trans)) {
-    fatal_error("cannot update account dict size estimation");
-    return {};
-  }
-  update_account_storage_dict_info(*trans);
+  auto trans_root = trans->root;
 
   td::optional<block::MsgMetadata> new_msg_metadata;
   if (external || is_special_tx) {
@@ -3471,7 +3215,9 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
     ++new_msg_metadata.value().depth;
   }
   FAIL_UNLESS(register_new_msgs(*trans, std::move(new_msg_metadata)));
-  FAIL_UNLESS(update_max_lt(acc->last_trans_end_lt_));
+  if (!virtual_shards_) {
+    FAIL_UNLESS(update_max_lt(acc->last_trans_end_lt_));
+  }
   value_flow_.burned += trans->blackhole_burned;
   ++stats_.transactions;
   return trans_root;
@@ -3496,7 +3242,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
  *          Returns error_code == 669 if the error is fatal and the block can not be produced.
  *          Returns error_code == 701 if the transaction can not be included into block, but it's ok (external or too early internal).
  */
-td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_create_ordinary_transaction(
+td::Result<std::unique_ptr<block::transaction::Transaction>> CollatorBase::impl_create_ordinary_transaction(
     Ref<vm::Cell> msg_root, block::Account* acc, UnixTime utime, LogicalTime lt,
     block::StoragePhaseConfig* storage_phase_cfg, block::ComputePhaseConfig* compute_phase_cfg,
     block::ActionPhaseConfig* action_phase_cfg, block::SerializeConfig* serialize_cfg, bool external,
@@ -3674,6 +3420,29 @@ bool Collator::is_our_address(const ton::StdSmcAddress& addr) const {
   return ton::shard_contains(get_shard(), addr);
 }
 
+// Called only for messages not from DispatchQueue. The caller supplies either
+// the published counters or temporary counters used to plan an execution epoch.
+const char* Collator::check_message_deferring(const block::NewOutMsg& msg, const StdSmcAddress& src_addr,
+                                              std::map<StdSmcAddress, td::uint32>& sender_generated_messages_count,
+                                              bool has_unprocessed_deferred_messages, td::uint64 out_msg_queue_size,
+                                              size_t new_msgs_from_dispatch, bool is_special) {
+  bool is_special_account = is_masterchain() && config_->is_special_smartcontract(src_addr);
+  if (deferring_messages_enabled_ && params_.collator_opts->deferring_enabled && !is_special && !is_special_account &&
+      !params_.collator_opts->whitelist.count({workchain(), src_addr}) && msg.msg_idx != 0) {
+    if (++sender_generated_messages_count[src_addr] >= params_.collator_opts->defer_messages_after ||
+        out_msg_queue_size > defer_out_queue_size_limit_) {
+      return " because account sent too many messages in this block";
+    }
+  }
+  if (dispatch_queue_->lookup(src_addr).not_null() || has_unprocessed_deferred_messages) {
+    return " because account dispatch queue is not empty";
+  }
+  if (out_msg_queue_size + new_msgs_from_dispatch >= out_msg_queue_size_hard_limit_ && !is_special) {
+    return " due to out msg queue overflow";
+  }
+  return nullptr;
+}
+
 /**
  * Processes a message generated in this block or a message from DispatchQueue.
  *
@@ -3740,26 +3509,11 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   StdSmcAddress src_addr;
   FAIL_UNLESS_ERRCODE(block::tlb::t_MsgAddressInt.extract_std_address(src, src_wc, src_addr), -1);
   FAIL_UNLESS_ERRCODE(src_wc == workchain(), -1);
-  bool is_special_account = is_masterchain() && config_->is_special_smartcontract(src_addr);
-  bool defer = false;
-  const char* defer_reason = "";
+  const char* defer_reason = nullptr;
   if (!from_dispatch_queue) {
-    if (deferring_messages_enabled_ && params_.collator_opts->deferring_enabled && !is_special && !is_special_account &&
-        !params_.collator_opts->whitelist.count({src_wc, src_addr}) && msg.msg_idx != 0) {
-      if (++sender_generated_messages_count_[src_addr] >= params_.collator_opts->defer_messages_after ||
-          out_msg_queue_size_ > defer_out_queue_size_limit_) {
-        defer = true;
-        defer_reason = " because account sent too many messages in this block";
-      }
-    }
-    if (!defer && (dispatch_queue_->lookup(src_addr).not_null() || unprocessed_deferred_messages_.count(src_addr))) {
-      defer = true;
-      defer_reason = " because account dispatch queue is not empty";
-    }
-    if (!defer && out_msg_queue_size_ + new_msgs_from_dispatch >= out_msg_queue_size_hard_limit_ && !is_special) {
-      defer = true;
-      defer_reason = " due to out msg queue overflow";
-    }
+    defer_reason = check_message_deferring(msg, src_addr, sender_generated_messages_count_,
+                                           unprocessed_deferred_messages_.count(src_addr), out_msg_queue_size_,
+                                           new_msgs_from_dispatch, is_special != nullptr);
   } else {
     auto& x = unprocessed_deferred_messages_[src_addr];
     FAIL_UNLESS_ERRCODE(x > 0, -1);
@@ -3768,6 +3522,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     }
   }
 
+  bool defer = defer_reason != nullptr;
   if (enqueue || defer) {
     bool ok;
     if (from_dispatch_queue) {
@@ -4317,7 +4072,7 @@ td::actor::Task<> Collator::process_external_and_new_messages() {
     LOG(INFO) << "process inbound external messages";
     {
       td::ScopedRealCpuTimer::Guard timer_total{work_timer_total_, nullptr};
-      if (!co_await process_inbound_external_messages()) {
+      if (!(virtual_shards_ ? co_await process_virtual_externals() : co_await process_inbound_external_messages())) {
         co_return td::Status::Error("cannot process inbound external messages");
       }
     }
@@ -4326,7 +4081,7 @@ td::actor::Task<> Collator::process_external_and_new_messages() {
     LOG(INFO) << "process newly-generated messages";
     {
       td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.process_new_msgs};
-      if (!process_new_messages(enqueue_only)) {
+      if (!(virtual_shards_ ? co_await process_virtual_messages(enqueue_only) : process_new_messages(enqueue_only))) {
         co_return td::Status::Error("cannot process newly-generated outbound messages");
       }
     }
@@ -4338,7 +4093,8 @@ td::actor::Task<> Collator::process_external_and_new_messages() {
       LOG(INFO) << "Processing external messages is disabled, don't wait for new external messages";
       break;
     }
-    if (!block_limit_status_->fits(block::ParamLimits::cl_soft) || external_msg_timeout_.is_in_past()) {
+    if ((virtual_shards_ && virtual_shard_budget_exhausted(block::ParamLimits::cl_soft)) ||
+        !block_limit_status_->fits(block::ParamLimits::cl_soft) || external_msg_timeout_.is_in_past()) {
       LOG(INFO) << "MEDIUM LIMIT is reached, don't wait for new external messages";
       break;
     }
@@ -4805,9 +4561,27 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
     }
     msg = cs2.prefetch_ref();  // use hash of (Message Any)
   }
+  auto value = td::make_ref<vm::CellBuilder>();
+  if (!value.write().append_cellslice_bool(cs)) {
+    return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
+  }
+  pending_in_msg_descriptors_.emplace_back(td::Bits256{msg->get_hash().bits()}, std::move(value));
+  block_limit_status_->pending_msg_descrs++;
+  return block_limit_status_->add_cell(std::move(in_msg));
+}
+
+bool Collator::flush_in_msg_descriptors() {
+  if (pending_in_msg_descriptors_.empty()) {
+    return true;
+  }
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> updates;
+  updates.reserve(pending_in_msg_descriptors_.size());
+  for (const auto& [key, value] : pending_in_msg_descriptors_) {
+    updates.emplace_back(key.bits(), value);
+  }
   bool ok;
   try {
-    ok = in_msg_dict->set(msg->get_hash().bits(), 256, cs, vm::Dictionary::SetMode::Add);
+    ok = in_msg_dict->multiset(updates, vm::Dictionary::SetMode::Add);
   } catch (vm::VmError&) {
     LOG(ERROR) << "cannot add an InMsg into InMsgDescr dictionary!";
     ok = false;
@@ -4815,9 +4589,9 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
   if (!ok) {
     return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
   }
-  ++in_descr_cnt_;
-  return block_limit_status_->add_cell(std::move(in_msg)) &&
-         ((in_descr_cnt_ & 63) || block_limit_status_->add_cell(in_msg_dict->get_root_cell()));
+  block_limit_status_->pending_msg_descrs -= pending_in_msg_descriptors_.size();
+  pending_in_msg_descriptors_.clear();
+  return block_limit_status_->add_cell(in_msg_dict->get_root_cell());
 }
 
 /**
@@ -4860,9 +4634,28 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
  * @returns True if the insertion was successful, false otherwise.
  */
 bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
+  auto value = td::make_ref<vm::CellBuilder>();
+  if (!value.write().append_cellslice_bool(load_cell_slice(out_msg))) {
+    LOG(ERROR) << "cannot add an OutMsg into OutMsgDescr dictionary!";
+    return false;
+  }
+  pending_out_msg_descriptors_.emplace_back(td::Bits256{msg_hash}, std::move(value));
+  block_limit_status_->pending_msg_descrs++;
+  return block_limit_status_->add_cell(std::move(out_msg));
+}
+
+bool Collator::flush_out_msg_descriptors() {
+  if (pending_out_msg_descriptors_.empty()) {
+    return true;
+  }
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> updates;
+  updates.reserve(pending_out_msg_descriptors_.size());
+  for (const auto& [key, value] : pending_out_msg_descriptors_) {
+    updates.emplace_back(key.bits(), value);
+  }
   bool ok;
   try {
-    ok = out_msg_dict->set(msg_hash, 256, load_cell_slice(out_msg), vm::Dictionary::SetMode::Add);
+    ok = out_msg_dict->multiset(updates, vm::Dictionary::SetMode::Add);
   } catch (vm::VmError&) {
     ok = false;
   }
@@ -4870,9 +4663,9 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
     LOG(ERROR) << "cannot add an OutMsg into OutMsgDescr dictionary!";
     return false;
   }
-  ++out_descr_cnt_;
-  return block_limit_status_->add_cell(std::move(out_msg)) &&
-         ((out_descr_cnt_ & 63) || block_limit_status_->add_cell(out_msg_dict->get_root_cell()));
+  block_limit_status_->pending_msg_descrs -= pending_out_msg_descriptors_.size();
+  pending_out_msg_descriptors_.clear();
+  return block_limit_status_->add_cell(out_msg_dict->get_root_cell());
 }
 
 /**
@@ -5003,7 +4796,8 @@ bool Collator::process_new_messages(bool& enqueue_only) {
     stats_.load_fraction_new_msgs = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
   };
   while (!new_msgs.empty()) {
-    if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
+    if (virtual_shards_ ? virtual_shard_budget_exhausted(block::ParamLimits::cl_normal)
+                        : !block_limit_status_->fits(block::ParamLimits::cl_normal)) {
       block_full_ = true;
     }
     if (!block_full_ && internal_msg_timeout_.is_in_past()) {
@@ -5900,34 +5694,34 @@ bool Collator::register_dispatch_queue_op(bool force) {
 }
 
 /**
- * Update size estimation for the account dictionary.
+ * Stores each account's first changed state in ShardAccounts and estimates its proof size.
+ * Other changes are applied in combine_account_transactions.
  * This is required to count the depth of the ShardAccounts dictionary in the block size estimation.
- * account_dict_estimator_ is used for block limits only.
  *
  * @param trans Newly-created transaction.
  *
  * @returns True on success, false otherwise.
  */
-bool Collator::update_account_dict_estimation(const block::transaction::Transaction& trans) {
+bool CollatorBase::update_account_dict(const block::transaction::Transaction& trans) {
   const block::Account& acc = trans.account;
   if (acc.orig_total_state->get_hash() != acc.total_state->get_hash() &&
-      account_dict_estimator_added_accounts_.insert(acc.addr).second) {
+      account_dict_updated_accounts_.insert(acc.addr).second) {
     // see combine_account_transactions
     if (acc.status == block::Account::acc_nonexist) {
-      account_dict_estimator_->lookup_delete(acc.addr);
+      account_dict->lookup_delete(acc.addr);
     } else {
       vm::CellBuilder cb;
       if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
             && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
             && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-            && account_dict_estimator_->set_builder(acc.addr, cb))) {
+            && account_dict->set_builder(acc.addr, cb))) {
         return false;
       }
     }
   }
   ++account_dict_ops_;
   if (!(account_dict_ops_ & 15)) {
-    return block_limit_status_->add_proof(account_dict_estimator_->get_root_cell());
+    return block_limit_status_->add_proof(account_dict->get_root_cell());
   }
   return true;
 }
@@ -5937,7 +5731,7 @@ bool Collator::update_account_dict_estimation(const block::transaction::Transact
  *
  * @param trans Newly-created transaction.
  */
-void Collator::update_account_storage_dict_info(const block::transaction::Transaction& trans) {
+void CollatorBase::update_account_storage_dict_info(const block::transaction::Transaction& trans) {
   if (!trans.account.orig_storage_dict_hash) {
     return;
   }
@@ -5957,7 +5751,7 @@ void Collator::update_account_storage_dict_info(const block::transaction::Transa
  *
  * @returns True if the shard state and Merkle update were successfully created, false otherwise.
  */
-bool Collator::create_shard_state() {
+td::actor::Task<bool> Collator::create_shard_state() {
   Ref<vm::Cell> msg_q_info;
   vm::CellBuilder cb, cb2;
   if (!(cb.store_long_bool(0x9023afe2, 32)          // shard_state#9023afe2
@@ -5986,7 +5780,7 @@ bool Collator::create_shard_state() {
         && cb.store_ref_bool(cb2.finalize())         // ]
         && cb.store_maybe_ref(mc_state_extra_)       // custom:(Maybe ^McStateExtra)
         && cb.finalize_to(state_root))) {
-    return fatal_error("cannot create new ShardState");
+    co_return fatal_error("cannot create new ShardState");
   }
   LOG(DEBUG) << "min_ref_mc_seqno is " << min_ref_mc_seqno_;
   if (verbosity > 2) {
@@ -5997,9 +5791,11 @@ bool Collator::create_shard_state() {
     };
   }
   LOG(INFO) << "creating Merkle update for the ShardState";
-  auto r_state_update = vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
+  auto r_state_update = virtual_shards_
+                            ? co_await generate_virtual_update().wrap()
+                            : vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
   if (r_state_update.is_error()) {
-    return fatal_error("cannot create Merkle update for ShardState");
+    co_return fatal_error("cannot create Merkle update for ShardState");
   }
   state_update = r_state_update.move_as_ok();
   if (verbosity > 2) {
@@ -6009,10 +5805,12 @@ bool Collator::create_shard_state() {
       cs.print_rec(sb);
     };
   }
-  LOG(INFO) << "updating block profile statistics";
-  block_limit_status_->add_proof(state_root);
+  if (!virtual_shards_) {
+    LOG(INFO) << "updating block profile statistics";
+    block_limit_status_->add_proof(state_root);
+  }
   LOG(INFO) << "new ShardState and corresponding Merkle update created";
-  return true;
+  co_return true;
 }
 
 /**
@@ -6397,8 +6195,10 @@ Ref<vm::Cell> Collator::collate_shard_block_descr_set() {
  * @returns True on success, False if error occurred
  */
 bool Collator::prepare_proofs() {
-  auto res = old_account_dict->scan_diff(
-      *account_dict, [](td::ConstBitPtr, int, Ref<vm::CellSlice>, Ref<vm::CellSlice>) { return true; }, 2);
+  // Virtual shards prepare account proofs while generating the state update.
+  auto res = virtual_shards_ ||
+             old_account_dict->scan_diff(
+                 *account_dict, [](td::ConstBitPtr, int, Ref<vm::CellSlice>, Ref<vm::CellSlice>) { return true; }, 2);
   if (!res) {
     return false;
   }
@@ -6458,217 +6258,19 @@ bool Collator::prepare_proofs() {
 }
 
 /**
- * Creates collated data for the block.
+ * Publishes the serialized block candidate.
  *
- * @returns True if the collated data was successfully created, false otherwise.
- */
-bool Collator::create_collated_data() {
-  // 1.1 store the set of used shard block descriptions
-  if (!used_shard_block_descr_.empty()) {
-    auto cell = collate_shard_block_descr_set();
-    if (cell.not_null()) {
-      collated_roots_.push_back(std::move(cell));
-    }
-  }
-  // 1.2 store ConsensusExtraData
-  {
-    // consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
-    auto cell = vm::CellBuilder{}.store_long(0x638eb292, 32).store_long(0, 32).store_long(now_ms_, 64).finalize_novm();
-    collated_roots_.push_back(std::move(cell));
-  }
-  if (!full_collated_data_) {
-    return true;
-  }
-  // 2. Proofs for hashes of states: previous states + neighbors
-  for (const auto& p : block_state_proofs_) {
-    collated_roots_.push_back(p.second);
-  }
-  bool new_collated_data_format = global_version_ >= 16;
-  std::vector<Ref<vm::Cell>> new_proof_roots;
-  // 3. Previous state proof (only shardchains)
-  std::map<td::Bits256, Ref<vm::Cell>> old_proofs;
-  if (!is_masterchain()) {
-    if (!prepare_proofs()) {
-      return fatal_error("cannot prepare proof for collated data");
-    }
-
-    if (new_collated_data_format) {
-      for (auto prev_state : prev_states) {
-        new_proof_roots.push_back(prev_state->root_cell());
-        Ref<vm::Cell> cell;
-        FAIL_UNLESS(
-            block::gen::t_CollatedDataRootState.cell_pack_collated_data_root_state(cell, prev_state->root_hash()));
-        collated_roots_.push_back(std::move(cell));
-      }
-    } else {
-      state_usage_tree_->set_ignore_loads(true);
-      auto r_state_proof = vm::MerkleProof::generate(
-          prev_state_root_, [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-      if (r_state_proof.is_error()) {
-        return fatal_error("cannot generate Merkle proof for previous state");
-      }
-      auto state_proof = r_state_proof.move_as_ok();
-      if (after_merge_) {
-        bool special;
-        auto cs = vm::load_cell_slice_special(state_proof, special);
-        FAIL_UNLESS(cs.special_type() == vm::CellTraits::SpecialType::MerkleProof);
-        cs = vm::load_cell_slice(cs.prefetch_ref(0));
-        FAIL_UNLESS(cs.size_refs() == 2);
-        FAIL_UNLESS(cs.size() == 32);
-        FAIL_UNLESS(cs.prefetch_ulong(32) == 0x5f327da5U);
-        old_proofs[cs.prefetch_ref(0)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(0));
-        old_proofs[cs.prefetch_ref(1)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(1));
-      } else {
-        old_proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
-      }
-    }
-  }
-  // 4. Proofs for message queues
-  for (auto& [block_id, mpb] : neighbor_proof_builders_) {
-    if (prev_block_idx(block_id) != -1) {
-      // This was already generated in "3. Previous state proof"
-      continue;
-    }
-    if (new_collated_data_format) {
-      new_proof_roots.push_back(mpb.original_root());
-      Ref<vm::Cell> cell;
-      FAIL_UNLESS(block::gen::t_CollatedDataRootState.cell_pack_collated_data_root_state(
-          cell, mpb.root()->get_hash().as_bits256()));
-      collated_roots_.push_back(std::move(cell));
-    } else {
-      auto r_proof = vm::MerkleProof::generate(
-          mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-      if (r_proof.is_error()) {
-        return fatal_error("cannot generate Merkle proof for neighbor");
-      }
-      auto proof = r_proof.move_as_ok();
-      auto it = old_proofs.emplace(mpb.root()->get_hash().bits(), proof);
-      if (!it.second) {
-        auto r_combine = vm::MerkleProof::combine(it.first->second, std::move(proof));
-        if (r_combine.is_error()) {
-          return fatal_error("cannot combine merkle proofs");
-        }
-        it.first->second = r_combine.move_as_ok();
-      }
-    }
-  }
-
-  for (auto& p : old_proofs) {
-    collated_roots_.push_back(std::move(p.second));
-  }
-
-  // 5. Proofs for account storage dicts
-  for (auto& [_, dict] : account_storage_dicts_) {
-    if (!dict.add_to_collated_data) {
-      continue;
-    }
-    if (new_collated_data_format) {
-      new_proof_roots.push_back(dict.mpb.original_root());
-      Ref<vm::Cell> cell;
-      FAIL_UNLESS(block::gen::t_CollatedDataRootStorageDict.cell_pack_collated_data_root_storage_dict(
-          cell, new_proof_roots.back()->get_hash().as_bits256()));
-      collated_roots_.push_back(std::move(cell));
-    } else {
-      auto r_proof = vm::MerkleProof::generate(dict.mpb.original_root(), [&](const Ref<vm::Cell>& c) {
-        return !collated_data_stat.is_loaded(c->get_hash());
-      });
-      if (r_proof.is_error()) {
-        return fatal_error("cannot generate Merkle proof for neighbor");
-      }
-      auto proof = r_proof.move_as_ok();
-      // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
-      collated_roots_.push_back(vm::CellBuilder()
-                                    .store_long(block::gen::AccountStorageDictProof::cons_tag[0], 32)
-                                    .store_ref(proof)
-                                    .finalize_novm());
-    }
-  }
-
-  if (new_collated_data_format) {
-    Ref<vm::Cell> separator;
-    FAIL_UNLESS(block::gen::t_CollatedDataSeparator.cell_pack_collated_data_separator(separator));
-    collated_roots_.push_back(std::move(separator));
-    state_usage_tree_->set_ignore_loads(true);
-    td::HashMap<vm::CellHash, Ref<vm::Cell>> cache;
-    std::function<Ref<vm::Cell>(const Ref<vm::Cell>&)> dfs = [&](const Ref<vm::Cell>& cell) -> Ref<vm::Cell> {
-      auto it = cache.find(cell->get_hash());
-      if (it != cache.end()) {
-        return it->second;
-      }
-      if (!collated_data_stat.is_loaded(cell->get_hash())) {
-        return cache[cell->get_hash()] = vm::CellBuilder::create_pruned_branch(cell, vm::Cell::max_level);
-      }
-      vm::CellSlice cs(vm::NoVm(), cell);
-      vm::CellBuilder cb;
-      cb.store_bits(cs.fetch_bits(cs.size()));
-      for (unsigned i = 0; i < cs.size_refs(); i++) {
-        cb.store_ref(dfs(cs.prefetch_ref(i)));
-      }
-      auto hash_hint = [&](unsigned level, const vm::Cell::LevelMask&, vm::CellHash& hash) {
-        if (level <= cell->get_level()) {
-          hash = cell->get_hash(level);
-          return true;
-        }
-        return false;
-      };
-      return cache[cell->get_hash()] = cb.finalize(cs.is_special(), std::move(hash_hint));
-    };
-    for (const auto& root : new_proof_roots) {
-      collated_roots_.push_back(dfs(root));
-    }
-  }
-  return true;
-}
-
-/**
- * Creates a block candidate for the Collator.
- *
- * This function serializes the new block and collated data, and creates a BlockCandidate object
- * with the necessary information. It then checks if the size of the block candidate exceeds the
- * limits specified in the consensus configuration.
- *
- * Finally, the block candidate is saved to the disk.
+ * Creates a BlockCandidate from the completed block and collated-data BOCs,
+ * checks consensus size limits, and schedules returning the candidate.
  * If there are any bad external messages or delayed external messages, the ValidatorManager is called to handle them.
  *
  * @returns True if the block candidate was created successfully, false otherwise.
  */
-bool Collator::create_block_candidate() {
+bool Collator::publish_block_candidate(td::BufferSlice blk_slice, td::BufferSlice cdata_slice) {
   auto consensus_config = config_->get_new_consensus_config(workchain());
-  // 1. serialize block
-  LOG(INFO) << "serializing new Block";
-  vm::BagOfCells boc;
-  boc.set_root(new_block);
-  auto res = boc.import_cells();
-  if (res.is_error()) {
-    return fatal_error(res.move_as_error());
-  }
-  auto blk_res = boc.serialize_to_slice(31);
-  if (blk_res.is_error()) {
-    LOG(ERROR) << "cannot serialize block";
-    return fatal_error(blk_res.move_as_error());
-  }
-  auto blk_slice = blk_res.move_as_ok();
-  // 2. serialize collated data
-  td::BufferSlice cdata_slice;
-  if (collated_roots_.empty()) {
-    cdata_slice = td::BufferSlice{0};
-  } else {
-    vm::BagOfCells boc_collated;
-    boc_collated.set_roots(collated_roots_);
-    res = boc_collated.import_cells();
-    if (res.is_error()) {
-      return fatal_error(res.move_as_error());
-    }
-    auto cdata_res = boc_collated.serialize_to_slice(2);
-    if (cdata_res.is_error()) {
-      LOG(ERROR) << "cannot serialize collated data";
-      return fatal_error(cdata_res.move_as_error());
-    }
-    cdata_slice = cdata_res.move_as_ok();
-  }
   LOG(INFO) << "serialized block size " << blk_slice.size() << " bytes (preliminary estimate was "
             << block_size_estimate_ << ")";
-  auto st = block_limit_status_->st_stat.get_total_stat();
+  auto st = block_limit_status_->st_stat.get_total_stat() + block_limit_status_->additional_stat;
   LOG(INFO) << "size regression stats: " << blk_slice.size() << " " << st.cells << " " << st.bits << " "
             << st.internal_refs << " " << st.external_refs << " " << block_limit_status_->accounts << " "
             << block_limit_status_->transactions;
@@ -6679,8 +6281,7 @@ bool Collator::create_block_candidate() {
   // 3. create a BlockCandidate
   block_candidate = std::make_unique<BlockCandidate>(params_.creator, new_block_id_ext,
                                                      block::compute_file_hash(cdata_slice.as_slice()),
-                                                     blk_slice.clone(), cdata_slice.clone());
-
+                                                     std::move(blk_slice), std::move(cdata_slice));
   // 3.1 check block and collated data size
   if (block_candidate->data.size() > consensus_config.max_block_size) {
     return fatal_error(PSTRING() << "block size (" << block_candidate->data.size()
@@ -6865,6 +6466,197 @@ void Collator::finalize_stats() {
 }
 
 /**
+ * Combines account transactions and updates the ShardAccountBlocks and ShardAccounts.
+ *
+ * @returns Status indicating whether the operation succeeded.
+ */
+td::Status CollatorBase::combine_account_transactions() {
+  vm::AugmentedDictionary dict{256, block::tlb::aug_ShardAccountBlocks};
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> account_blocks, account_updates;
+  account_blocks.reserve(accounts.size());
+  for (auto& z : accounts) {
+    block::Account& acc = *(z.second);
+    TRY_BOOL(acc.addr == z.first);
+    if (!acc.transactions.empty()) {
+      // have transactions for this account
+      auto block_cb = td::make_ref<vm::CellBuilder>();
+      if (!acc.create_account_block(block_cb.write())) {
+        return td::Status::Error("cannot create AccountBlock for account "s + z.first.to_hex());
+      }
+      account_blocks.emplace_back(z.first.bits(), std::move(block_cb));
+      const bool updated = account_dict_updated_accounts_.contains(acc.addr);
+      // account_dict contains the first changed state of each updated account.
+      // So we apply remaining account updates.
+      if (acc.transactions.size() > 1 || !updated) {
+        if (acc.status == block::Account::acc_nonexist) {
+          if (account_dict->lookup(acc.addr).not_null()) {
+            account_updates.emplace_back(z.first.bits(), Ref<vm::CellBuilder>{});
+          }
+        } else {
+          auto account_cb = td::make_ref<vm::CellBuilder>();
+          auto& cb = account_cb.write();
+          if (!(cb.store_ref_bool(acc.total_state)                 // account_descr$_ account:^Account
+                && cb.store_bits_bool(acc.last_trans_hash_)        // last_trans_hash:bits256
+                && cb.store_long_bool(acc.last_trans_lt_, 64))) {  // last_trans_lt:uint64
+            return td::Status::Error("cannot serialize final ShardAccount for "s + acc.addr.to_hex());
+          }
+          account_updates.emplace_back(z.first.bits(), std::move(account_cb));
+        }
+      }
+    } else {
+      if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
+        return td::Status::Error(std::string{"total state of account "} + z.first.to_hex() +
+                                 " miraculously changed without transactions");
+      }
+    }
+  }
+  if (!account_dict->multiset(account_updates)) {
+    return td::Status::Error("cannot update final ShardAccounts");
+  }
+  for (auto& [_, acc] : accounts) {
+    if (!acc->transactions.empty() && !process_account_storage_dict(*acc)) {
+      return td::Status::Error("cannot process account storage dictionary");
+    }
+  }
+  vm::CellBuilder cb;
+  if (!dict.multiset(account_blocks, vm::Dictionary::SetMode::Add)) {
+    return td::Status::Error("cannot build ShardAccountBlocks");
+  }
+  if (!(cb.append_cellslice_bool(std::move(dict).extract_root()) && cb.finalize_to(shard_account_blocks_))) {
+    return td::Status::Error("cannot serialize ShardAccountBlocks");
+  }
+  if (verbosity > 2) {
+    FLOG(INFO) {
+      sb << "new ShardAccountBlocks: ";
+      block::gen::t_ShardAccountBlocks.print_ref(sb, shard_account_blocks_);
+      vm::load_cell_slice(shard_account_blocks_).print_rec(sb);
+    };
+  }
+  auto shard_accounts = account_dict->get_root();
+  if (verbosity > 2) {
+    FLOG(INFO) {
+      sb << "new ShardAccounts: ";
+      block::gen::t_ShardAccounts.print(sb, shard_accounts);
+      shard_accounts->print_rec(sb);
+    };
+  }
+  return td::Status::OK();
+}
+
+td::Result<std::unique_ptr<block::transaction::Transaction>> CollatorBase::create_ordinary_transaction(
+    Ref<vm::Cell> msg_root, block::Account* acc, bool external, LogicalTime after_lt) {
+  CHECK(acc);
+  set_current_tx_storage_dict(*acc);
+  td::ScopedRealCpuTimer::Guard timer{work_timer_, nullptr};  // trx time is updated in impl_create_ordinary_transaction
+  return impl_create_ordinary_transaction(msg_root, acc, now_, start_lt, &storage_phase_cfg_, &compute_phase_cfg_,
+                                          &action_phase_cfg_, &serialize_cfg_, external, after_lt, &stats_);
+}
+
+td::Status CollatorBase::commit_transaction(block::transaction::Transaction& trans, block::Account& acc,
+                                            bool with_gas) {
+  CHECK(&acc == &trans.account);
+  if (!trans.update_limits(*block_limit_status_, with_gas)) {
+    return td::Status::Error("cannot update block limit status to include the new transaction");
+  }
+  if (trans.commit(acc).is_null()) {
+    return td::Status::Error("cannot commit new transaction for smart contract "s + trans.account.addr.to_hex());
+  }
+  if (!update_account_dict(trans)) {
+    return td::Status::Error("cannot update account dictionary and size estimate");
+  }
+  update_account_storage_dict_info(trans);
+  return td::Status::OK();
+}
+
+/**
+ * Creates a new Account object from the given address and serialized account data.
+ *
+ * @param addr A pointer to the 256-bit address of the account.
+ * @param account A cell slice with an account serialized using ShardAccount TLB-scheme.
+ * @param force_create A flag indicating whether to force the creation of a new account if `account` is null.
+ * @param config Configuration for special masterchain accounts; may be null on shardchains.
+ *
+ * @returns A unique pointer to the created Account object, or nullptr if the creation failed.
+ *          Returns an error if storage dictionary initialization failed.
+ */
+td::Result<std::unique_ptr<block::Account>> CollatorBase::make_account_from(td::ConstBitPtr addr,
+                                                                            Ref<vm::CellSlice> account,
+                                                                            bool force_create,
+                                                                            const block::Config* config) {
+  CHECK(!shard_.is_masterchain() || config);
+  if (account.is_null() && !force_create) {
+    return nullptr;
+  }
+  auto ptr = std::make_unique<block::Account>(shard_.workchain, addr);
+  if (account.is_null()) {
+    if (!ptr->init_new(now_)) {
+      return nullptr;
+    }
+  } else if (!ptr->unpack(std::move(account), now_,
+                          shard_.is_masterchain() && config->is_special_smartcontract(addr))) {
+    return nullptr;
+  }
+  ptr->block_lt = start_lt;
+  auto status = init_account_storage_dict(*ptr);
+  if (status.is_error()) {
+    return status.move_as_error_prefix(PSTRING()
+                                       << "Failed to init account storage dict for " << ptr->addr.to_hex() << ": ");
+  }
+  return ptr;
+}
+
+/**
+ * Looks up an account in the Collator's account map.
+ *
+ * @param addr A pointer to the 256-bit address of the account to be looked up.
+ *
+ * @returns A pointer to the Account object if found, otherwise returns nullptr.
+ */
+block::Account* CollatorBase::lookup_account(td::ConstBitPtr addr) const {
+  auto found = accounts.find(addr);
+  return found != accounts.end() ? found->second.get() : nullptr;
+}
+
+/**
+ * Retreives an Account object from the data in the shard state.
+ * Accounts are cached in the Collator's map.
+ *
+ * @param addr The 256-bit address of the account.
+ * @param force_create Flag indicating whether to create a new account if it does not exist.
+ * @param config Configuration for special masterchain accounts; may be null on shardchains.
+ *
+ * @returns A Result object containing a pointer to the account if found or created successfully, or an error status.
+ *          Returns nullptr if account does not exist and not force_create.
+ */
+td::Result<block::Account*> CollatorBase::make_account(td::ConstBitPtr addr, bool force_create,
+                                                       const block::Config* config) {
+  auto found = lookup_account(addr);
+  if (found) {
+    return found;
+  }
+  auto dict_entry = old_account_dict->lookup_extra(addr, 256);
+  if (dict_entry.first.is_null()) {
+    if (!force_create) {
+      return nullptr;
+    }
+  }
+  TRY_RESULT(new_acc, make_account_from(addr, std::move(dict_entry.first), force_create, config));
+  if (!new_acc) {
+    return td::Status::Error(PSTRING() << "cannot load account " << addr.to_hex(256) << " from previous state");
+  }
+  if (!new_acc->belongs_to_shard(shard_)) {
+    return td::Status::Error(PSTRING() << "account " << addr.to_hex(256) << " does not really belong to current shard "
+                                       << shard_);
+  }
+  auto ins = accounts.emplace(addr, std::move(new_acc));
+  if (!ins.second) {
+    return td::Status::Error(PSTRING() << "cannot insert newly-extracted account " << addr.to_hex(256)
+                                       << "into account collection");
+  }
+  return ins.first->second.get();
+}
+
+/**
  * This method is called when cell from shard state is loaded.
  * Only if full_collated_data is set.
  * When storage stat is calculated, StorageStatCalculationContext::calculating_storage_stat() returns true.
@@ -6872,7 +6664,7 @@ void Collator::finalize_stats() {
  *
  * @param loaded_cell Loaded cell
  */
-void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
+void CollatorBase::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
   auto context = block::StorageStatCalculationContext::get();
   vm::ProofStorageStat* stat = (context && context->calculating_storage_stat() && current_tx_storage_dict_
                                     ? &current_tx_storage_dict_->proof_stat
@@ -6891,13 +6683,73 @@ void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
  *
  * @param account Account of the current transaction
  */
-void Collator::set_current_tx_storage_dict(const block::Account& account) {
+void CollatorBase::set_current_tx_storage_dict(const block::Account& account) {
   if (!account.orig_storage_dict_hash) {
     current_tx_storage_dict_ = nullptr;
     return;
   }
   auto it = account_storage_dicts_.find(account.orig_storage_dict_hash.value());
   current_tx_storage_dict_ = it == account_storage_dicts_.end() ? nullptr : &it->second;
+  if (current_tx_storage_dict_ && record_storage_dict_) {
+    record_storage_dict_(it->first, it->second, false);
+  }
+}
+
+/**
+ * If full collated data is enabled, initialize account storage dict and prepare MerkleProofBuilder for it
+ *
+ * @param account Account to initialize storage dict for
+ * @return Result indicating the success or failure
+ */
+td::Status CollatorBase::init_account_storage_dict(block::Account& account) {
+  if (!account.storage_dict_hash || account.storage_dict_hash.value().is_zero() || account.storage.is_null()) {
+    return td::Status::OK();
+  }
+  td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.prelim_storage_stat};
+  auto storage_dict_hash = account.storage_dict_hash.value();
+  auto cached_dict_root = storage_stat_cache_ ? storage_stat_cache_(storage_dict_hash) : td::Ref<vm::Cell>{};
+  if (cached_dict_root.not_null()) {
+    TRY_BOOL(cached_dict_root->get_hash().as_bits256() == storage_dict_hash);
+    LOG(DEBUG) << "Inited storage stat from cache for account " << account.addr.to_hex() << " ("
+               << account.storage_used.cells << " cells)";
+    storage_stat_cache_update_.emplace_back(cached_dict_root, account.storage_used.cells);
+    ++stats_.storage_stat_cache.hit_cnt;
+    stats_.storage_stat_cache.hit_cells += account.storage_used.cells;
+  } else if (account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+    ++stats_.storage_stat_cache.miss_cnt;
+    stats_.storage_stat_cache.miss_cells += account.storage_used.cells;
+  } else {
+    ++stats_.storage_stat_cache.small_cnt;
+    stats_.storage_stat_cache.small_cells += account.storage_used.cells;
+  }
+  if (!full_collated_data_ || shard_.is_masterchain()) {
+    return cached_dict_root.not_null() ? account.init_account_storage_stat(std::move(cached_dict_root))
+                                       : td::Status::OK();
+  }
+
+  auto [it, inserted] = account_storage_dicts_.try_emplace(storage_dict_hash);
+  auto& dict = it->second;
+  if (!dict.inited) {
+    auto dict_root = std::move(cached_dict_root);
+    if (dict_root.is_null()) {
+      // Rebuilding the dictionary must not add preparation reads to the state proof.
+      state_usage_tree_->set_ignore_loads(true);
+      SCOPE_EXIT {
+        state_usage_tree_->set_ignore_loads(false);
+      };
+      TRY_RESULT_ASSIGN(dict_root, account.compute_account_storage_dict());
+    }
+    if (dict_root.is_null()) {
+      return td::Status::Error("nonzero storage dict hash has an empty dictionary");
+    }
+    dict.mpb = vm::MerkleProofBuilder(std::move(dict_root));
+    dict.mpb.set_cell_load_callback([this](const vm::LoadedCell& cell) { on_cell_loaded(cell); });
+    dict.inited = true;
+  }
+  if (record_storage_dict_) {
+    record_storage_dict_(storage_dict_hash, dict, inserted);
+  }
+  return account.init_account_storage_stat(dict.mpb.root());
 }
 
 }  // namespace validator

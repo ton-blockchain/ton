@@ -260,7 +260,7 @@ struct BouncePhase {
   Ref<vm::Cell> out_msg;
 };
 
-struct Account {
+struct AccountStateFields {
   enum { acc_nonexist = 0, acc_uninit = 1, acc_frozen = 2, acc_active = 3, acc_deleted = 4 };
   int status{acc_nonexist}, orig_status{acc_nonexist};
   bool is_special{false};
@@ -289,7 +289,6 @@ struct Account {
   StorageUsed storage_used;
   td::optional<td::Bits256> storage_dict_hash;
   td::optional<td::Bits256> orig_storage_dict_hash;
-  td::optional<AccountStorageStat> account_storage_stat;
 
   block::CurrencyCollection balance;
   td::RefInt256 due_payment;
@@ -300,9 +299,15 @@ struct Account {
   ton::Bits256 state_hash;         // hash of StateInit for frozen accounts
   Ref<vm::Cell> code, data, library;
   Ref<vm::Cell> orig_code, orig_data, orig_library;
+};
+
+struct Account : AccountStateFields {
+  td::optional<AccountStorageStat> account_storage_stat;
   std::vector<LtCellRef> transactions;
   Account() = default;
-  Account(ton::WorkchainId wc, td::ConstBitPtr _addr) : workchain(wc), addr(_addr) {
+  Account(ton::WorkchainId wc, td::ConstBitPtr _addr) {
+    workchain = wc;
+    addr = _addr;
   }
   block::CurrencyCollection get_balance() const {
     return balance;
@@ -327,6 +332,14 @@ struct Account {
   void push_transaction(Ref<vm::Cell> trans_root, ton::LogicalTime trans_lt);
   bool libraries_changed() const;
   bool create_account_block(vm::CellBuilder& cb);  // stores an AccountBlock with all transactions
+
+  struct Checkpoint {
+    AccountStateFields state;
+    size_t transaction_count = 0;
+    td::optional<AccountStorageStat::Checkpoint> storage_stat;
+  };
+  Checkpoint checkpoint() const;
+  void rollback(Checkpoint&& checkpoint);
 
  protected:
   friend struct transaction::Transaction;

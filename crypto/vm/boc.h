@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <functional>
 #include <map>
 #include <set>
 
@@ -69,6 +70,13 @@ class NewCellStorageStat {
       external_refs += other.external_refs;
       return *this;
     }
+    Stat& operator-=(const Stat& other) {
+      cells -= other.cells;
+      bits -= other.bits;
+      internal_refs -= other.internal_refs;
+      external_refs -= other.external_refs;
+      return *this;
+    }
     Stat operator+(const Stat& other) const {
       return Stat{cells + other.cells, bits + other.bits, internal_refs + other.internal_refs,
                   external_refs + other.external_refs};
@@ -94,17 +102,30 @@ class NewCellStorageStat {
   }
 
   void add_cell(Ref<Cell> cell);
+  // The subtree must already be included in the block estimate elsewhere.
+  // Skip its ordinary cells, but still count incoming references and proof cells.
+  void mark_subtree_accounted(const Cell::Hash& hash) {
+    seen_.insert(hash);
+  }
   void add_proof(Ref<Cell> cell, CellUsageTree* usage_tree, MerkleUpdateLeftStat* merkle_update_left_stat = nullptr);
   void add_cell_and_proof(Ref<Cell> cell, CellUsageTree* usage_tree);
   Stat tentative_add_cell(Ref<Cell> cell) const;
   Stat tentative_add_proof(Ref<Cell> cell, CellUsageTree* usage_tree) const;
+  // These trees must describe the same old state and outlive this estimator.
+  void set_additional_usage_trees(std::vector<CellUsageTree*> trees) {
+    additional_usage_trees_ = std::move(trees);
+  }
   void set_zero() {
+    seen_.clear();
+    proof_seen_.clear();
+    mu_left_seen_.clear();
     stat_.set_zero();
     proof_stat_.set_zero();
   }
 
  private:
-  CellUsageTree* usage_tree_;
+  CellUsageTree* usage_tree_ = nullptr;
+  std::vector<CellUsageTree*> additional_usage_trees_;
   td::HashSet<Cell::Hash> seen_;
   Stat stat_;
   td::HashSet<std::pair<Cell::Hash, unsigned>> proof_seen_;  // hash, merkle_depth
@@ -172,6 +193,8 @@ struct VmStorageStat {
 
 class ProofStorageStat {
  public:
+  class Recorder;
+
   void add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level = Cell::max_level);
   void add_loaded_cell(const Ref<Cell>& cell);
   void add_loaded_cells(const ProofStorageStat& other);
@@ -189,6 +212,29 @@ class ProofStorageStat {
  private:
   td::HashMap<Cell::Hash, std::pair<CellStatus, td::uint64>> cells_;
   td::uint64 proof_size_ = 0;
+  using callback_t = std::function<void(const Cell::Hash&, CellStatus, td::uint64)>;
+  callback_t callback_;
+
+  bool update_cell(const Cell::Hash& hash, CellStatus status, td::uint64 size);
+};
+
+class ProofStorageStat::Recorder {
+ public:
+  using Checkpoint = size_t;
+
+  void begin_epoch(ProofStorageStat* stat);
+  Checkpoint checkpoint() const;
+  void commit_epoch();
+  void rollback(Checkpoint checkpoint);
+
+ private:
+  struct Change {
+    Cell::Hash hash;
+    std::pair<CellStatus, td::uint64> previous;
+  };
+  ProofStorageStat* stat_ = nullptr;
+  callback_t previous_callback_;
+  std::vector<Change> journal_;
 };
 
 class MerkleUpdateLeftStat {

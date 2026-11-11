@@ -742,12 +742,12 @@ bool BlockLimits::fits(unsigned cls, td::uint64 size, td::uint64 gas_value, ton:
 }
 
 td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::Stat* extra) const {
-  auto sum = st_stat.get_total_stat();
+  auto sum = st_stat.get_total_stat() + additional_stat;
   if (extra) {
     sum += *extra;
   }
   return 2000 + (sum.bits >> 3) + sum.cells * 12 + sum.internal_refs * 3 + sum.external_refs * 40 + transactions * 200 +
-         (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700 +
+         (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700 + pending_msg_descrs * 160 +
          merkle_update_left_stat.estimate_proof_size();
 }
 
