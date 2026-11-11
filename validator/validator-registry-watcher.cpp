@@ -430,11 +430,11 @@ void ValidatorRegistryWatcherImpl::update_local_validator(PublicKeyHash key_hash
   VLOG(validator, INFO) << "Update registry: updating entry";
   vm::CellBuilder cb;
   cb.store_maybe_ref(new_entry_cell_);
-  block::gen::ValRegistryRequest::Record request{.last_key_block_seqno = mc_state_->last_key_block_id().seqno(),
-                                                 .val_set = (int)val_set_idx,
-                                                 .val_idx = (int)val_idx,
-                                                 .valid_until = (UnixTime)td::Clocks::system() + 60,
-                                                 .new_entry = cb.as_cellslice_ref()};
+  block::gen::ValRegistryRequestOld::Record request{.last_key_block_seqno = mc_state_->last_key_block_id().seqno(),
+                                                    .val_set = (int)val_set_idx,
+                                                    .val_idx = (int)val_idx,
+                                                    .valid_until = (UnixTime)td::Clocks::system() + 60,
+                                                    .new_entry = cb.as_cellslice_ref()};
   Ref<vm::Cell> request_cell;
   CHECK(block::gen::pack_cell(request_cell, request));
   sign_and_send_request(registry_state_legacy->get_config().contract_address, key_hash, std::move(request_cell))
