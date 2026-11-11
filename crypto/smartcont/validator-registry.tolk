@@ -25,6 +25,7 @@ const ERR_WRONG_CREATED_LT = 911;
 const ERR_WRONG_VALIDATOR_IDX = 912;
 const ERR_ALREADY_VOTED = 913;
 const ERR_WRONG_SIGNATURE = 914;
+const ERR_MAX_NODES_EXCEEDED = 915;
 
 contract ValidatorRegistry {
     storage: Storage
@@ -34,6 +35,11 @@ struct (0x9bc722a9) Storage {
     nodes: map<uint256, NodeInfo>,
     votings: map<VotingKey, Voting>,
     votingsGc: map<VotingGcKey, ()>,
+    extra: Cell<StorageExtra>,
+}
+
+struct (0xc0c74297) StorageExtra {
+    nodesCountByRole: map<uint5, uint32>,
 }
 
 struct (0xac83c7be) NodeInfo {
@@ -298,11 +304,37 @@ fun requestVote(signature: bits512, requestHash: uint256, request: RequestVote) 
         storage.votingsGc.delete(VotingGcKey{
             endsAt: voting.endsAt, adnlId: key.adnlId, rolesAdd: key.rolesAdd, rolesRemove: key.rolesRemove,
         });
+        contract.setData(storage.toCell());
+        commitContractDataAndActions();
         val f2 = storage.nodes.get(key.adnlId);
         var node = f2.isFound ? f2.loadValue() : NodeInfo{
         };
-        node.roles |= key.rolesAdd;
-        node.roles &= ~key.rolesRemove;
+
+        val config = getRegistryConfig();
+        var newRoles = node.roles;
+        newRoles |= key.rolesAdd;
+        newRoles &= ~key.rolesRemove;
+        var storageExtra = storage.extra.load();
+        var i = 0;
+        while (i < 32) {
+            val diff = ((newRoles >> i) & 1) - ((node.roles >> i) & 1);
+            if (diff != 0) {
+                val f = storageExtra.nodesCountByRole.get(i);
+                val count = (f.isFound ? f.loadValue() : 0 as uint32) + diff;
+                if (diff > 0 && count > config.roles.mustGet(i).maxNodes) {
+                    throw ERR_MAX_NODES_EXCEEDED;
+                }
+                if (count == 0) {
+                    storageExtra.nodesCountByRole.delete(i);
+                } else {
+                    storageExtra.nodesCountByRole.set(i, count);
+                }
+            }
+            i += 1;
+        }
+
+        storage.extra = storageExtra.toCell();
+        node.roles = newRoles;
         if (node.roles != 0 || node.isValidator != 0) {
             storage.nodes.set(key.adnlId, node);
         } else {

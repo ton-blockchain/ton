@@ -67,6 +67,7 @@ int main(int argc, char* argv[]) {
   auto state = ton::create_tl_object<ton_api::registryState_state>();
   ton_api::from_json(*state, json.get_object()).ensure();
 
+  std::vector<td::uint32> count_by_role(32, 0);
   vm::Dictionary dict{256};
   for (auto& node : state->nodes_) {
     LOG(INFO) << "Node " << node->adnl_id_ << " roles=" << node->roles_;
@@ -75,12 +76,29 @@ int main(int argc, char* argv[]) {
     CHECK(block::gen::pack(cb, rec));
     bool ok = dict.set_builder(node->adnl_id_, cb, vm::Dictionary::SetMode::Add);
     LOG_CHECK(ok) << "Duplicate node " << node->adnl_id_;
+    for (size_t i = 0; i < 32; ++i) {
+      if ((td::uint32)node->roles_ & (1 << i)) {
+        ++count_by_role[i];
+      }
+    }
   }
   LOG(INFO) << "Total " << state->nodes_.size() << " nodes";
 
+  vm::Dictionary count_by_role_dict{5};
+  for (size_t i = 0; i < count_by_role.size(); ++i) {
+    if (count_by_role[i] > 0) {
+      count_by_role_dict.set_builder(td::BitArray<5>(i), vm::CellBuilder{}.store_long(count_by_role[i], 32));
+    }
+  }
+
+  block::gen::ValRegistryStorageExtra::Record extra{.nodes_count_by_role = count_by_role_dict.get_root()};
+  td::Ref<vm::Cell> extra_cell;
+  CHECK(block::gen::pack_cell(extra_cell, extra));
+
   block::gen::ValRegistryStorage::Record rec{.nodes = dict.get_root(),
                                              .votings = vm::Dictionary{320}.get_root(),
-                                             .votings_gc = vm::Dictionary{352}.get_root()};
+                                             .votings_gc = vm::Dictionary{352}.get_root(),
+                                             .extra = extra_cell};
   td::Ref<vm::Cell> cell;
   CHECK(block::gen::pack_cell(cell, rec));
   auto serialized = vm::std_boc_serialize(cell).ensure().move_as_ok();

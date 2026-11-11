@@ -1041,7 +1041,9 @@ val_registry_storage#9bc722a9
     nodes:(HashmapE 256 ValRegistryNode)
     votings:(HashmapE 320 ValRegistryVoting)  // Key: adnl_id, roles_add, roles_remove
     votings_gc:(HashmapE 352 Unit)  // Key: ends_at, adnl_id, roles_add, roles_remove
+    extra:^ValRegistryStorageExtra
     = ValRegistryStorage;
+val_registry_storage_extra#c0c74297 nodes_count_by_role:(HashmapE 5 uint32) = ValRegistryStorageExtra;
 val_registry_node#ac83c7be roles:uint32 is_validator:uint8 = ValRegistryNode;
 val_registry_voting#fb84df63 ends_at:uint32 created_lt:uint64 voted_weight:uint64 required_weight:uint64 votes:^Cell
     validator_set:^ValidatorSet = ValRegistryVoting;
