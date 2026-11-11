@@ -383,12 +383,29 @@ void QuicSender::set_quic_options(QuicServer::Options options) {
   server_options_ = options;
 }
 
+void QuicSender::has_ready_connection(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
+                                      td::Promise<bool> promise) {
+  auto ready = [&](const auto &connections) {
+    auto it = connections.find({local_id, peer_id});
+    return it != connections.end() && it->second->is_ready;
+  };
+  promise.set_value(ready(outbound_) || ready(inbound_));
+}
+
+void QuicSender::enable_bidirectional_queries() {
+  bidirectional_queries_ = true;
+}
+
 void QuicSender::add_id(adnl::AdnlNodeIdShort local_id) {
   add_local_id_coro(local_id).start().detach("add local id");
 }
 
 td::actor::Task<> QuicSender::add_id_and_wait(adnl::AdnlNodeIdShort local_id) {
   return add_local_id_coro(local_id);
+}
+
+td::actor::Task<> QuicSender::add_client_id(adnl::AdnlNodeIdShort local_id) {
+  return add_local_id_coro(local_id, true);
 }
 
 void QuicSender::log_stats(std::string reason) {
@@ -524,7 +541,7 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
     co_return connection_wait_timeout();
   }
   auto magic = metrics::resolve_tl_magic(data.as_slice());
-  auto conn = get_or_create_connection({src, dst});
+  auto conn = get_or_create_connection({src, dst}, bidirectional_queries_);
   auto trust = conn->trust;
   peer_metrics_.at(trust).app.record(metrics::Kind::query, metrics::Direction::out, magic, data.size());
   // Connection setup is excluded from round-trip latency, but not from the caller's deadline.
@@ -562,9 +579,12 @@ td::actor::Task<std::string> QuicSender::get_conn_ip_str_coro(adnl::AdnlNodeIdSh
   co_return "<quic connection>";
 }
 
-td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) {
-  adnl::AdnlNode node = co_await td::actor::ask(adnl_, &adnl::Adnl::get_self_node, local_id);
-  auto port = (co_await get_ip_address(node)).get_port();
+td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id, bool client_only) {
+  int port = 0;
+  if (!client_only) {
+    adnl::AdnlNode node = co_await td::actor::ask(adnl_, &adnl::Adnl::get_self_node, local_id);
+    port = (co_await get_ip_address(node)).get_port();
+  }
   auto priv_key = co_await td::actor::ask(keyring_, &keyring::Keyring::export_private_key, local_id.pubkey_hash());
   auto ed25519_key = co_await priv_key.export_as_ed25519();
   local_keys_.emplace(local_id, td::Ed25519::PrivateKey(ed25519_key.as_octet_string()));
@@ -601,11 +621,16 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
   co_return td::Unit{};
 }
 
-std::shared_ptr<QuicSender::Connection> QuicSender::get_or_create_connection(AdnlPath path) {
+std::shared_ptr<QuicSender::Connection> QuicSender::get_or_create_connection(AdnlPath path, bool allow_inbound) {
   if (!waiter_timeouts_.empty() && waiter_timeouts_.top_key().is_in_past()) {
     alarm();
   }
   auto iter = outbound_.find(path);
+  if (allow_inbound && (iter == outbound_.end() || !iter->second->is_ready)) {
+    if (auto in = inbound_.find(path); in != inbound_.end() && in->second->is_ready) {
+      return in->second;
+    }
+  }
   if (iter == outbound_.end()) {
     auto connection = std::make_shared<Connection>();
     connection->is_outbound = true;
@@ -620,7 +645,7 @@ std::shared_ptr<QuicSender::Connection> QuicSender::get_or_create_connection(Adn
 td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::wait_connection_ready(
     std::shared_ptr<Connection> connection, td::Timestamp timeout) {
   if (timeout && timeout.is_in_past()) {
-    if (!connection->init_started) {
+    if (connection->is_outbound && !connection->init_started) {
       CHECK(outbound_.erase(connection->path) == 1);
     }
     co_return connection_wait_timeout();
@@ -854,17 +879,16 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;  // a legacy bidi message triggers an empty response as its confirmation
   }
 
-  // Requests are accepted only on inbound connections, answers only on outbound ones: an outbound
-  // connection carries our own queries, so a request arriving on it (or an answer on an inbound one)
-  // is misdirected.
-  if (!connection->is_outbound) {
+  const bool locally_initiated = ((stream_id & 1) == 0) == connection->is_outbound;
+  const bool is_request = bidirectional_queries_ ? !locally_initiated : !connection->is_outbound;
+  if (is_request) {
     auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
     if (req_R.is_ok()) {
       auto request = req_R.move_as_ok();
       ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
       return;
     }
-  } else {
+  } else if (ngtcp2_is_bidi_stream(stream_id)) {
     auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
     if (answer_R.is_ok()) {
       on_answer(*connection, stream_id, *answer_R.move_as_ok());
@@ -925,6 +949,8 @@ void QuicSender::on_closed(QuicConnectionId cid) {
   }
   auto connection = it->second;
   auto path = connection->path;
+  connection->is_ready = false;
+  auto responses = std::exchange(connection->responses, {});
 
   by_cid_.erase(it);
   // Only erase from outbound_/inbound_ if cid matches (avoid race with newer connection)
@@ -941,11 +967,19 @@ void QuicSender::on_closed(QuicConnectionId cid) {
   }
 
   auto status = std::move(connection->init_error).value_or(td::Status::Error("connection closed"));
-  finish_connection_init(connection, std::move(status));
+  finish_connection_init(connection, status.clone());
+  for (auto &[_, query] : responses) {
+    query.promise.set_error(status.clone());
+  }
 }
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                             ton_api::quic_query &query) {
+  if (!ngtcp2_is_bidi_stream(stream_id)) {
+    LOG(DEBUG) << "Rejecting QUIC query on unidirectional stream CID:" << connection->cid << " SID:" << stream_id;
+    td::actor::send_closure(connection->server, &QuicServer::shutdown_stream, connection->cid, stream_id);
+    return;
+  }
   on_inbound_query(connection, stream_id, std::move(query.data_)).start_immediate().detach();
 }
 
@@ -970,8 +1004,16 @@ td::actor::Task<> QuicSender::on_inbound_query(std::shared_ptr<Connection> conne
                                                td::BufferSlice query) {
   auto trust = connection->trust;
   peer_metrics_.at(trust).app.record(metrics::Kind::query, metrics::Direction::in, query.as_slice());
-  auto answer = co_await td::actor::ask(adnl_, &adnl::AdnlPeerTable::deliver_query, connection->path.second,
-                                        connection->path.first, std::move(query));
+  auto result = co_await td::actor::ask(adnl_, &adnl::AdnlPeerTable::deliver_query, connection->path.second,
+                                        connection->path.first, std::move(query))
+                    .wrap();
+  if (result.is_error()) {
+    LOG(DEBUG) << "Failed to process QUIC query CID:" << connection->cid << " SID:" << stream_id << ": "
+               << result.error();
+    td::actor::send_closure(connection->server, &QuicServer::shutdown_stream, connection->cid, stream_id);
+    co_return {};
+  }
+  auto answer = result.move_as_ok();
   peer_metrics_.at(trust).app.record(metrics::Kind::answer, metrics::Direction::out, answer.as_slice());
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_answer>(std::move(answer));
   td::actor::send_closure(connection->server, &QuicServer::send_stream, connection->cid, stream_id,

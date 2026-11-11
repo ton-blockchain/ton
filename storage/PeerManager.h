@@ -17,29 +17,29 @@
 #pragma once
 
 #include "overlay/overlay.h"
-#include "rldp2/rldp.h"
 #include "td/actor/actor.h"
+#include "td/utils/LRUCache.h"
 
 #include "NodeActor.h"
-
-namespace ton_rldp = ton::rldp2;
 
 class PeerManager : public td::actor::Actor {
  public:
   PeerManager(ton::adnl::AdnlNodeIdShort adnl_id, ton::overlay::OverlayIdFull overlay_id, bool client_mode,
               td::actor::ActorId<ton::overlay::Overlays> overlays, td::actor::ActorId<ton::adnl::Adnl> adnl,
-              td::actor::ActorId<ton_rldp::Rldp> rldp)
+              td::actor::ActorId<ton::adnl::AdnlSenderInterface> rldp2,
+              td::actor::ActorId<ton::adnl::AdnlSenderInterface> quic)
       : overlay_id_(std::move(overlay_id))
       , client_mode_(client_mode)
       , overlays_(std::move(overlays))
       , adnl_(std::move(adnl))
-      , rldp_(std::move(rldp)) {
+      , rldp2_(std::move(rldp2))
+      , quic_(std::move(quic)) {
     CHECK(register_adnl_id(adnl_id) == 1);
   }
   void start_up() override {
   }
   void tear_down() override {
-    for (const auto& p : subscribed_peers_) {
+    for (const auto &p : subscribed_peers_) {
       if (p.second > 0) {
         auto adnl_id = peer_to_andl(p.first);
         if (adnl_id.is_ok()) {
@@ -52,12 +52,23 @@ class PeerManager : public td::actor::Actor {
   void send_query(ton::PeerId src, ton::PeerId dst, td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
     TRY_RESULT_PROMISE(promise, src_id, peer_to_andl(src));
     TRY_RESULT_PROMISE(promise, dst_id, peer_to_andl(dst));
+    ask_peer_capabilities(src_id, dst_id);
+    auto use_quic = (peer_capabilities_.get({src_id, dst_id}).capabilities & CAPABILITY_QUIC) != 0;
+    LOG(DEBUG) << "Selected Storage transport: " << (use_quic ? "QUIC" : "RLDP2");
     send_closure(overlays_, &ton::overlay::Overlays::send_query_via, dst_id, src_id, overlay_id_.compute_short_id(), "",
-                 std::move(promise), td::Timestamp::in(10), std::move(query), 1 << 25, rldp_);
+                 std::move(promise), td::Timestamp::in(10), std::move(query), 1 << 25, use_quic ? quic_ : rldp2_);
   }
 
   void execute_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                      td::Promise<td::BufferSlice> promise) {
+    td::TlParser parser(data.as_slice());
+    if (parser.fetch_int() == ton::ton_api::storage_getCapabilities::ID) {
+      TRY_RESULT_PROMISE(promise, query, ton::fetch_tl_object<ton::ton_api::storage_getCapabilities>(data, true));
+      update_peer_capabilities(dst, src, static_cast<td::uint64>(query->capabilities_));
+      promise.set_result(ton::create_serialize_tl_object<ton::ton_api::storage_capabilities>(CAPABILITIES));
+      return;
+    }
+    ask_peer_capabilities(dst, src);
     auto src_id = register_adnl_id(src);
     auto dst_id = register_adnl_id(dst);
     auto it = peers_.find(std::make_pair(dst_id, src_id));
@@ -255,7 +266,48 @@ class PeerManager : public td::actor::Actor {
   bool client_mode_ = false;
   td::actor::ActorId<ton::overlay::Overlays> overlays_;
   td::actor::ActorId<ton::adnl::Adnl> adnl_;
-  td::actor::ActorId<ton_rldp::Rldp> rldp_;
+  td::actor::ActorId<ton::adnl::AdnlSenderInterface> rldp2_;
+  td::actor::ActorId<ton::adnl::AdnlSenderInterface> quic_;
+
+  static constexpr td::uint64 CAPABILITY_RLDP2 = 1;
+  static constexpr td::uint64 CAPABILITY_QUIC = 2;
+  static constexpr td::uint64 CAPABILITIES = CAPABILITY_RLDP2 | CAPABILITY_QUIC;
+  struct PeerCapabilities {
+    td::uint64 capabilities = 0;
+    bool received = false;
+    td::Timestamp retry_at = td::Timestamp::now();
+  };
+  td::LRUCache<std::pair<ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort>, PeerCapabilities> peer_capabilities_{
+      10000};
+
+  void update_peer_capabilities(ton::adnl::AdnlNodeIdShort local_id, ton::adnl::AdnlNodeIdShort peer,
+                                td::uint64 capabilities) {
+    auto &state = peer_capabilities_.get({local_id, peer});
+    state.capabilities = capabilities;
+    state.received = true;
+  }
+
+  void ask_peer_capabilities(ton::adnl::AdnlNodeIdShort local_id, ton::adnl::AdnlNodeIdShort peer) {
+    auto &state = peer_capabilities_.get({local_id, peer});
+    if (state.received || !state.retry_at.is_in_past()) {
+      return;
+    }
+    state.retry_at = td::Timestamp::in(30.0);
+    send_closure(
+        overlays_, &ton::overlay::Overlays::send_query, peer, local_id, overlay_id_.compute_short_id(),
+        "Storage capabilities",
+        [SelfId = actor_id(this), local_id, peer](td::Result<td::BufferSlice> result) {
+          if (result.is_error()) {
+            return;
+          }
+          auto capabilities = ton::fetch_tl_object<ton::ton_api::storage_capabilities>(result.move_as_ok(), true);
+          if (capabilities.is_ok()) {
+            send_closure(SelfId, &PeerManager::update_peer_capabilities, local_id, peer,
+                         static_cast<td::uint64>(capabilities.ok()->capabilities_));
+          }
+        },
+        td::Timestamp::in(3.0), ton::create_serialize_tl_object<ton::ton_api::storage_getCapabilities>(CAPABILITIES));
+  }
 
   std::map<std::pair<ton::PeerId, ton::PeerId>, td::actor::ActorId<ton::PeerActor>> peers_;
   std::map<ton::PeerId, td::actor::ActorId<ton::NodeActor>> nodes_;

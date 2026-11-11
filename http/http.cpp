@@ -260,7 +260,8 @@ tl_object_ptr<ton_api::http_request> HttpRequest::store_tl(td::Bits256 req_id) {
 td::Status HttpPayload::parse(td::ChainBufferReader &input) {
   CHECK(!parse_completed());
   while (true) {
-    if (high_watermark_reached()) {
+    if (high_watermark_reached() && !(type_ == PayloadType::pt_content_length &&
+                                      state_ == ParseState::reading_chunk_data && cur_chunk_size_ == 0)) {
       return td::Status::OK();
     }
     switch (state_) {
@@ -473,7 +474,9 @@ HttpHeader HttpPayload::get_header() {
 
 void HttpPayload::run_callbacks() {
   for (auto &x : callbacks_) {
-    if (state_.load(std::memory_order_relaxed) == ParseState::completed) {
+    if (error_) {
+      x->failed();
+    } else if (state_.load(std::memory_order_relaxed) == ParseState::completed) {
       x->completed();
     } else {
       x->run(ready_bytes_);
@@ -628,6 +631,10 @@ tl_object_ptr<ton_api::http_payloadPart> HttpPayload::store_tl(size_t max_size) 
     max_size -= s;
   }
 
+  if (!parse_completed() || ready_bytes() != 0) {
+    return obj;
+  }
+
   written_trailer_ = true;
   obj->last_ = true;
   return obj;
@@ -712,6 +719,10 @@ tl_object_ptr<ton_api::http_PayloadInfo> HttpPayload::store_info(size_t max_size
 
 void HttpPayload::add_callback(std::unique_ptr<HttpPayload::Callback> callback) {
   const std::lock_guard<std::mutex> lock{mutex_};
+  if (error_) {
+    callback->failed();
+    return;
+  }
   callbacks_.push_back(std::move(callback));
 }
 
@@ -820,6 +831,18 @@ td::Status HttpResponse::add_header(HttpHeader header) {
 
   auto S = td::trim(td::Slice(lc_value));
 
+  if (lc_name == "connection" || lc_name == "proxy-connection") {
+    auto tokens = S;
+    while (!tokens.empty()) {
+      auto comma = tokens.find(',');
+      closes_connection_ |= td::trim(tokens.substr(0, comma)) == "close";
+      if (comma == td::Slice::npos) {
+        break;
+      }
+      tokens.remove_prefix(comma + 1);
+    }
+  }
+
   if (lc_name == "content-length") {
     TRY_RESULT(len, td::to_integer_safe<td::uint32>(S));
     if (found_transfer_encoding_ || found_content_length_) {
@@ -877,7 +900,7 @@ tl_object_ptr<ton_api::http_response> HttpResponse::store_tl() {
   } else {
     headers.push_back(HttpHeader{"Connection", "Close"}.store_tl());
   }
-  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers), false);
+  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers), !need_payload());
 }
 
 td::Status HttpHeader::basic_check() {
