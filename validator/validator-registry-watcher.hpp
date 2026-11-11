@@ -37,8 +37,7 @@ class ValidatorRegistryState {
     LogicalTime created_lt;
     Ref<vm::Cell> votes, validator_set;
   };
-  void for_each_voting_for_adnl_id(adnl::AdnlNodeIdShort adnl_id,
-                                   std::function<void(VotingKey, Voting)> f);
+  void for_each_voting_for_adnl_id(adnl::AdnlNodeIdShort adnl_id, std::function<void(VotingKey, Voting)> f);
   static void scan_votings_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
                                 std::function<void(VotingKey, std::optional<Voting>)> f);
 
