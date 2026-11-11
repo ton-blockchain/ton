@@ -1170,3 +1170,7 @@ consensus.pleaseCollate window_start_slot:int signature:bytes = tonNode.Success;
 
 engine.validator.setConsensusNoncriticalParamsOverrides overrides:consensus.noncriticalParamsOverrideList = engine.validator.Success;
 engine.validator.getConsensusNoncriticalParamsOverrides = consensus.NoncriticalParamsOverrideList;
+
+---types---
+registryState.node adnl_id:int256 roles:int = registryState.Node;
+registryState.state nodes:(vector registryState.node) = registryState.State;
