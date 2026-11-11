@@ -58,7 +58,7 @@ class AdnlPeerPair : public td::actor::Actor {
   virtual void alarm_query(AdnlQueryId query_id) = 0;
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) = 0;
   virtual void update_peer_id(AdnlNodeIdFull id) = 0;
-  virtual void update_addr_list(AdnlAddressList addr_list) = 0;
+  virtual void update_addr_list(AdnlAddressList addr_list, bool ignore_reinit_date = false) = 0;
   virtual void get_conn_ip_str(td::Promise<td::string> promise) = 0;
   virtual void get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats_peerPair>> promise) = 0;
   // Drain this peer-pair's locally-accumulated inbound app-traffic delta into the peer table's

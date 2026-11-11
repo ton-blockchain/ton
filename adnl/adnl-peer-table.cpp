@@ -186,16 +186,36 @@ void AdnlPeerTableImpl::add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, Ad
   update_id(peer_info, std::move(id));
   if (!addr_list.empty()) {
     td::actor::send_closure(get_peer_pair(id_short, peer_info, local_id, it2->second), &AdnlPeerPair::update_addr_list,
-                            std::move(addr_list));
+                            std::move(addr_list), false);
   }
 }
 
 void AdnlPeerTableImpl::add_static_nodes_from_config(AdnlNodesList nodes) {
   for (auto &node : nodes.nodes()) {
     auto id_short = node.compute_short_id();
-    VLOG(adnl, INFO) << "[staticnodes] adding static node " << id_short;
-    static_nodes_.emplace(id_short, std::move(node));
+    VLOG(adnl, INFO) << "[staticnodes] adding static node from config " << id_short;
+    config_static_nodes_.emplace(id_short, std::move(node));
   }
+}
+
+void AdnlPeerTableImpl::add_static_peer(AdnlNode node) {
+  auto id = node.compute_short_id();
+  VLOG(adnl, DEBUG) << "[staticnodes] adding static node " << id;
+  if (auto it = peers_.find(id); it != peers_.end()) {
+    update_id(it->second, node.pub_id());
+    for (auto &e : it->second.peers) {
+      td::actor::send_closure(e.second.actor, &AdnlPeerPair::update_addr_list, node.addr_list(), true);
+    }
+  }
+  if (auto it = static_nodes_.find(id); it != static_nodes_.end()) {
+    it->second = std::move(node);
+  } else {
+    static_nodes_.emplace(id, std::move(node));
+  }
+}
+
+void AdnlPeerTableImpl::del_static_peer(AdnlNodeIdShort id) {
+  static_nodes_.erase(id);
 }
 
 void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message,
@@ -462,7 +482,7 @@ td::actor::Task<> AdnlPeerTableImpl::collect(metrics::Context ctx) {
   metrics_.transport.peers.set(peers_.size());
   metrics_.transport.peer_pairs.set(peer_pairs);
   metrics_.transport.channels.set(channels_.size());
-  metrics_.transport.static_nodes.set(static_nodes_.size());
+  metrics_.transport.static_nodes.set(config_static_nodes_.size() + static_nodes_.size());
   ctx.with_name("adnl").collect(metrics_);
   co_return {};
 }

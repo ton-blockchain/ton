@@ -106,6 +106,9 @@ class Adnl : public AdnlSenderInterface {
   // adds address list for nodes from config
   virtual void add_static_nodes_from_config(AdnlNodesList nodes) = 0;
 
+  virtual void add_static_peer(AdnlNode node) = 0;
+  virtual void del_static_peer(AdnlNodeIdShort id) = 0;
+
   // adds local id. After that you can send/receive messages from/to this id
   void add_id(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint8 cat) {
     add_id_ex(std::move(id), std::move(addr_list), cat, 0);

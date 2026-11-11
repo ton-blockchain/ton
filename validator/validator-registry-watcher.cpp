@@ -493,6 +493,7 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
   void update_local_adnl_id(adnl::AdnlNodeIdShort id, LocalAdnlId& info);
 
   void local_id_added(adnl::AdnlNodeIdFull id_full, adnl::AdnlAddressList address_list) {
+    address_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     local_adnl_ids_.emplace(id_full.compute_short_id(),
                             LocalAdnlId{.id_full = id_full, .address_list = std::move(address_list)});
   }
@@ -502,6 +503,7 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
     if (it == local_adnl_ids_.end()) {
       return;
     }
+    address_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     it->second.address_list = std::move(address_list);
     it->second.update_at = td::Timestamp::now();
   }
@@ -665,6 +667,7 @@ td::Result<adnl::AdnlNode> parse_adnl_node(adnl::AdnlNodeIdShort id, Ref<vm::Cel
   td::BufferSlice buf{cs.size() / 8};
   cs.fetch_bytes(buf.as_slice());
   TRY_RESULT(tl, fetch_tl_object<ton_api::adnl_node>(buf, true));
+  tl->addr_list_->reinit_date_ = 0;
   TRY_RESULT(node, adnl::AdnlNode::create(std::move(tl)));
   if (node.compute_short_id() != id) {
     return td::Status::Error("wrong node adnl id");
@@ -686,6 +689,7 @@ void ValidatorRegistryWatcherImpl::read_adnl_id_diff(ValidatorRegistryState& new
         if (!new_node) {
           if (stored_adnl_ids_.erase(adnl_id)) {
             VLOG(validator, DEBUG) << "adnl node " << adnl_id << " removed from registry";
+            td::actor::send_closure(adnl_, &adnl::Adnl::del_static_peer, adnl_id);
           }
           return;
         }
@@ -696,16 +700,20 @@ void ValidatorRegistryWatcherImpl::read_adnl_id_diff(ValidatorRegistryState& new
         if (new_cell.is_null()) {
           VLOG(validator, DEBUG) << "adnl node " << adnl_id << " has empty entry in registry";
           stored_adnl_ids_[adnl_id].node = std::nullopt;
+          td::actor::send_closure(adnl_, &adnl::Adnl::del_static_peer, adnl_id);
           return;
         }
         auto r_node = parse_adnl_node(adnl_id, new_cell);
         if (r_node.is_error()) {
           VLOG(validator, DEBUG) << "adnl node " << adnl_id << " in registry is invalid: " << r_node.move_as_error();
           stored_adnl_ids_[adnl_id].node = std::nullopt;
+          td::actor::send_closure(adnl_, &adnl::Adnl::del_static_peer, adnl_id);
           return;
         }
         VLOG(validator, DEBUG) << "updated adnl node " << adnl_id << " in registry";
-        stored_adnl_ids_[adnl_id].node.emplace(r_node.move_as_ok());
+        auto node = r_node.move_as_ok();
+        stored_adnl_ids_[adnl_id].node.emplace(node);
+        td::actor::send_closure(adnl_, &adnl::Adnl::add_static_peer, std::move(node));
       });
 }
 
