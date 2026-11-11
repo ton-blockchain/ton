@@ -86,7 +86,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
     dht_node_ = dht_node;
   }
 
-  void update_addr_list(AdnlAddressList addr_list) override;
+  void update_addr_list(AdnlAddressList addr_list, bool ignore_reinit_date = false) override;
   void update_peer_id(AdnlNodeIdFull id) override;
 
   void get_conn_ip_str(td::Promise<td::string> promise) override;
@@ -94,6 +94,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void collect_metrics(td::Promise<td::Unit> done) override;
 
   void got_data_from_db(td::Result<AdnlDbItem> R);
+  void get_static_node();
   void got_data_from_static_nodes(td::Result<AdnlNode> R);
   void got_data_from_dht(td::Result<AdnlNode> R);
 

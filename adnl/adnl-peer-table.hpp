@@ -78,6 +78,8 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
 
   void add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, AdnlAddressList addr_list) override;
   void add_static_nodes_from_config(AdnlNodesList nodes) override;
+  void add_static_peer(AdnlNode node) override;
+  void del_static_peer(AdnlNodeIdShort id) override;
 
   void receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) override;
   void receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket data, td::uint64 serialized_size) override;
@@ -127,11 +129,13 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
                              td::Promise<AdnlDbItem> promise) override;
 
   td::Result<AdnlNode> get_static_node(AdnlNodeIdShort id) override {
-    auto it = static_nodes_.find(id);
-    if (it == static_nodes_.end()) {
-      return td::Status::Error(ErrorCode::notready, "static node not found");
+    if (auto it = static_nodes_.find(id); it != static_nodes_.end()) {
+      return it->second;
     }
-    return it->second;
+    if (auto it = config_static_nodes_.find(id); it != config_static_nodes_.end()) {
+      return it->second;
+    }
+    return td::Status::Error(ErrorCode::notready, "static node not found");
   }
   td::actor::Task<> collect(metrics::Context ctx) override;
   void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) override;
@@ -200,6 +204,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
 
   td::actor::ActorId<AdnlNetworkManager> network_manager_;
   td::actor::ActorId<dht::Dht> dht_node_;
+  std::map<AdnlNodeIdShort, AdnlNode> config_static_nodes_;
   std::map<AdnlNodeIdShort, AdnlNode> static_nodes_;
 
   std::map<AdnlNodeIdShort, PeerInfo> peers_;
