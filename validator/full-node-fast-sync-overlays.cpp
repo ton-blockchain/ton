@@ -407,7 +407,9 @@ void FullNodeFastSyncOverlay::init() {
   options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   options.local_overlay_member_flags_ =
       receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
+  // Change to 0 to fully transition to setting clients via validator registry
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
+
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
   options.twostep_broadcast_sender_ = quic_;
   options.send_twostep_broadcast_ = true;
@@ -417,6 +419,9 @@ void FullNodeFastSyncOverlay::init() {
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
+  td::actor::send_closure(overlays_, &overlay::Overlays::update_semiprivate_authorized_nodes, local_id_, overlay_id_,
+                          std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
+                          std::vector<adnl::AdnlNodeIdShort>());
 
   inited_ = true;
   if (shard_.is_masterchain()) {
@@ -477,6 +482,18 @@ void FullNodeFastSyncOverlay::set_params(bool receive_plumtree_broadcasts) {
   if (inited_ && recreate_overlay) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
+  }
+}
+
+void FullNodeFastSyncOverlay::update_authorized_nodes(std::vector<adnl::AdnlNodeIdShort> add,
+                                                      std::vector<adnl::AdnlNodeIdShort> remove) {
+  authorized_nodes_.insert(add.begin(), add.end());
+  for (auto &id : remove) {
+    authorized_nodes_.erase(id);
+  }
+  if (inited_) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::update_semiprivate_authorized_nodes, local_id_, overlay_id_,
+                            std::move(add), std::move(remove));
   }
 }
 

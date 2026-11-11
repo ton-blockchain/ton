@@ -75,6 +75,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void set_config(FullNodeConfig config) {
     config_ = std::move(config);
   }
+  void update_authorized_nodes(std::vector<adnl::AdnlNodeIdShort> add, std::vector<adnl::AdnlNodeIdShort> remove);
 
   td::actor::Task<QuerySender> get_query_sender();
 
@@ -114,6 +115,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   FullNodeConfig config_;
   double broadcast_speed_multiplier_;
   FileHash zero_state_file_hash_;
+  std::set<adnl::AdnlNodeIdShort> authorized_nodes_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;

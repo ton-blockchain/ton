@@ -406,6 +406,9 @@ class OverlayImpl : public Overlay {
     alarm_timestamp().relax(at);
   }
 
+  void update_semiprivate_authorized_nodes(std::vector<adnl::AdnlNodeIdShort> add,
+                                           std::vector<adnl::AdnlNodeIdShort> remove) override;
+
  private:
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {
@@ -600,6 +603,7 @@ class OverlayImpl : public Overlay {
   td::RateLimiterWindow receive_peers_rate_limiter_;
   td::RateLimiterWindow process_pending_peers_rate_limiter_{60.0, 60};
   std::set<adnl::AdnlNodeIdShort> processing_pending_peers_;
+  std::set<adnl::AdnlNodeIdShort> authorized_semiprivate_nodes_;
 
   void cleanup_authorized_key_limiters();
 
