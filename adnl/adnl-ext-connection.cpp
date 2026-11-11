@@ -140,6 +140,7 @@ td::Status AdnlExtConnection::init_crypto(td::Slice S) {
   if (S.size() < 96) {
     return td::Status::Error(ErrorCode::protoviolation, "too small enc data");
   }
+  CHECK(S.size() >= 96);
   td::SecureString s1(32), s2(32);
   td::SecureString v1(16), v2(16);
   s1.as_mutable_slice().copy_from(S.copy().truncate(32));

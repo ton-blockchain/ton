@@ -140,52 +140,37 @@ class RealCpuTimer {
 
 class ScopedRealCpuTimer {
  public:
-  ScopedRealCpuTimer() {
-  }
-  explicit ScopedRealCpuTimer(RealCpuTimer::Time &time) {
-    set_time(&time);
+  ScopedRealCpuTimer();
+  explicit ScopedRealCpuTimer(RealCpuTimer::Time &time, double coef = 1.0) : time_(&time), coef_(coef) {
   }
   ScopedRealCpuTimer(const ScopedRealCpuTimer &) = delete;
   ScopedRealCpuTimer(ScopedRealCpuTimer &&) = delete;
   ~ScopedRealCpuTimer() {
-    set_time(nullptr);
+    pause();
+  }
+  void pause() {
+    if (paused_) {
+      return;
+    }
+    paused_ = true;
+    *time_ += timer_.elapsed_both() * coef_;
+  }
+  void resume() {
+    if (!paused_) {
+      return;
+    }
+    paused_ = false;
+    timer_ = {};
   }
 
   ScopedRealCpuTimer &operator=(const ScopedRealCpuTimer &) = delete;
   ScopedRealCpuTimer &operator=(ScopedRealCpuTimer &&other) = delete;
 
  private:
-  RealCpuTimer::Time *time_ = nullptr;
+  RealCpuTimer::Time *time_;
+  double coef_;
   RealCpuTimer timer_;
-
-  void set_time(RealCpuTimer::Time *time) {
-    if (time_) {
-      *time_ += timer_.elapsed_both();
-    }
-    time_ = time;
-    if (time_) {
-      timer_ = {};
-    }
-  }
-
- public:
-  class Guard {
-   public:
-    explicit Guard(ScopedRealCpuTimer &timer, RealCpuTimer::Time *time) : timer_(&timer), prev_time_(timer.time_) {
-      timer.set_time(time);
-    }
-    Guard(const Guard &) = delete;
-    Guard(Guard &&) = delete;
-    ~Guard() {
-      timer_->set_time(prev_time_);
-    }
-    Guard &operator=(const Guard &) = delete;
-    Guard &operator=(Guard &&) = delete;
-
-   private:
-    ScopedRealCpuTimer *timer_;
-    RealCpuTimer::Time *prev_time_;
-  };
+  bool paused_ = false;
 };
 
 class PerfLog;

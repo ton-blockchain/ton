@@ -174,7 +174,7 @@ int main(int argc, char *argv[]) {
 
     adnl = ton::adnl::Adnl::create("", keyring.get());
 
-    network_manager = ton::adnl::AdnlNetworkManager::create();
+    network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(addr.get_port()));
 
     ton::adnl::AdnlCategoryMask cat_mask;
     cat_mask[0] = true;

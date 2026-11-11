@@ -29,6 +29,7 @@ def test_reading_engine_validator_config():
     config = """
         {
            "@type" : "engine.validator.config",
+           "out_port" : 3278,
            "addrs" : [
               {
                  "@type" : "engine.addr",

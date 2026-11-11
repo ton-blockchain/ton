@@ -47,7 +47,6 @@ class AsyncStateSerializer : public td::actor::Actor {
   td::Ref<ValidatorManagerOptions> opts_;
   bool auto_disabled_ = false;
   td::CancellationTokenSource cancellation_token_source_;
-  BlockIdExt last_known_key_block_;
   UnixTime last_known_key_block_ts_ = 0;
 
   td::actor::ActorId<ValidatorManager> manager_;
@@ -114,9 +113,8 @@ class AsyncStateSerializer : public td::actor::Actor {
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
 
-  void update_last_known_key_block(BlockIdExt block_id, UnixTime ts) {
-    last_known_key_block_ = block_id;
-    last_known_key_block_ts_ = ts;
+  void update_last_known_key_block_ts(UnixTime ts) {
+    last_known_key_block_ts_ = std::max(last_known_key_block_ts_, ts);
   }
 
   void saved_to_db() {

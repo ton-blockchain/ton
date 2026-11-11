@@ -33,8 +33,7 @@ for file in ../artifacts/*; do
       /lib/$ARCH-linux-gnu/libgsl.so.27 \
       /lib/$ARCH-linux-gnu/libblas.so.3 \
       /lib/$ARCH-linux-gnu/libgslcblas.so.0 \
-      /lib/$ARCH-linux-gnu/libjemalloc.so.2 \
-      $appName.AppDir/usr/lib/ || exit 1
+      $appName.AppDir/usr/lib/
 
     chmod +x ./$appName.AppDir/usr/bin/$appName
     # create AppImage

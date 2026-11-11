@@ -582,9 +582,10 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::apply_block_async_4(BlockHandle 
   CHECK(handle->handle_moved_to_archive());
   CHECK(handle->moved_to_archive());
   if (handle->need_flush()) {
-    co_await handle->flush(manager_, handle);
+    auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
+    handle->flush(manager_, handle, std::move(promise));
+    co_await std::move(task);
   }
-  handle->set_applied_stored();
   co_return td::Unit{};
 }
 

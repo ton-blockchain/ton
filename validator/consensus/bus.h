@@ -234,7 +234,6 @@ class Bus : public td::actor::Bus {
   bool is_collator = false;
   std::set<adnl::AdnlNodeIdShort> all_collators;
   td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
-  td::Timestamp expected_start_time;
 
   NewConsensusConfig config;
 
