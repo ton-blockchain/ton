@@ -42,6 +42,10 @@ class ValidatorRegistryState {
   static void scan_votings_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
                                 std::function<void(VotingKey, std::optional<Voting>)> f);
 
+  virtual bool need_votings_gc() {
+    return false;
+  }
+
   static std::unique_ptr<ValidatorRegistryState> fetch(Ref<MasterchainState> mc_state);
   static std::unique_ptr<ValidatorRegistryState> create_empty();
 

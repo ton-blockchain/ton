@@ -159,6 +159,7 @@ class ValidatorRegistryStateImpl : public ValidatorRegistryState {
     }
     nodes_ = vm::Dictionary{rec.nodes, 256, false};
     votings_ = vm::Dictionary{rec.votings, 256 + 32 + 32, false};
+    votings_gc_ = vm::Dictionary{rec.votings_gc, 32 + 256 + 32 + 32, false};
   }
 
   std::set<adnl::AdnlNodeIdShort> get_all_collators(Ref<MasterchainState> mc_state) override {
@@ -185,9 +186,24 @@ class ValidatorRegistryStateImpl : public ValidatorRegistryState {
     return all_collators;
   }
 
+  bool need_votings_gc() override {
+    try {
+      td::BitArray<32 + 256 + 32 + 32> key;
+      if (votings_gc_.get_minmax_key(key).is_null()) {
+        return false;
+      }
+      UnixTime time = (UnixTime)key.bits().get_uint(32);
+      return time < (UnixTime)td::Clocks::system();
+    } catch (vm::VmError& e) {
+      VLOG(validator, WARNING) << "Dictionary error in validator registry state: " << e.get_msg();
+      return false;
+    }
+  }
+
  private:
   vm::Dictionary nodes_{256};
   vm::Dictionary votings_{256 + 32 + 32};
+  vm::Dictionary votings_gc_{32 + 256 + 32 + 32};
 
   vm::Dictionary get_nodes_dict() override {
     return nodes_;
@@ -382,6 +398,7 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
   };
   std::map<PublicKeyHash, LocalValidator> local_validators_;
   td::Timestamp try_cleanup_at_ = td::Timestamp::now();
+  td::Timestamp try_votings_gc_at_ = td::Timestamp::now();
   bool is_current_validator_ = false;
   bool inited_ = false;
 
@@ -529,6 +546,20 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
     } else {
       to_vote.update_at = td::Timestamp::never();
     }
+  }
+
+  auto vset = mc_state_->get_total_validator_set(0);
+  if (is_current_validator_ && vset.not_null() && registry_state_->need_votings_gc() &&
+      td::Random::fast(1, (int)vset->size()) == 1 && try_votings_gc_at_.is_in_past()) {
+    VLOG(validator, INFO) << "Update registry: gc votings";
+    send_external_message(registry_state_->get_config().contract_address,
+                          vm::CellBuilder{}
+                              .store_long(block::gen::ValRegistryMessageGcVotings::cons_tag[0], 32)
+                              .store_long(td::Random::fast_uint64(), 64)
+                              .as_cellslice())
+        .start()
+        .detach("send votings gc");
+    try_votings_gc_at_ = td::Timestamp::in(60.0);
   }
 
   update_legacy(std::move(opts));
