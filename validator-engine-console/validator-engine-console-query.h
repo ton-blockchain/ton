@@ -1885,7 +1885,8 @@ class SetRegistryVotingConfigQuery : public Query {
     return "set-registry-voting-config";
   }
   static std::string get_help() {
-    return "set-registry-voting-config <filename>\tset list of nodes and rules for voting in validator registry from file <filename>";
+    return "set-registry-voting-config <filename>\tset list of nodes and rules for voting in validator registry from "
+           "file <filename>";
   }
   std::string name() const override {
     return get_name();
