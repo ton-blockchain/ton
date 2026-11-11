@@ -651,6 +651,7 @@ td::Result<std::shared_ptr<TotalValidatorSet>> Config::unpack_validator_set(Ref<
       return false;
     }
     ptr->list.emplace_back(sig_pubkey.pubkey, descr.weight, ptr->total_weight, descr.adnl_addr);
+    ptr->key_to_idx[ton::PublicKey{ton::pubkeys::Ed25519{sig_pubkey.pubkey}}.compute_short_id()] = ptr->list.size() - 1;
     ptr->total_weight += descr.weight;
     return true;
   };

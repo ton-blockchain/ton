@@ -25,6 +25,7 @@
 
 #include "common/bitstring.h"
 #include "common/refcnt.hpp"
+#include "keys/keys.hpp"
 #include "ton/ton-shard.h"
 #include "ton/ton-types.h"
 #include "vm/db/StaticBagOfCellsDb.h"
@@ -63,6 +64,7 @@ struct TotalValidatorSet {
   int main;
   td::uint64 total_weight;
   std::vector<ValidatorDescr> list;
+  std::map<ton::PublicKeyHash, size_t> key_to_idx;
   TotalValidatorSet() = default;
   TotalValidatorSet(unsigned _since, unsigned _until, int _total, int _main = 0)
       : utime_since(_since), utime_until(_until), total(_total), main(_main > 0 ? _main : _total), total_weight(0) {

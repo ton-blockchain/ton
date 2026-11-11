@@ -601,12 +601,13 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
       continue;
     }
     bool voted = false;
-    for (unsigned idx = 0; idx < to_vote.validator_set->list.size(); ++idx) {
-      if (to_vote.votes.size() <= idx || to_vote.votes.bit_at(idx)) {
+    for (auto &[key_hash, _] : local_validators_) {
+      auto it = to_vote.validator_set->key_to_idx.find(key_hash);
+      if (it == to_vote.validator_set->key_to_idx.end()) {
         continue;
       }
-      PublicKeyHash key_hash = PublicKey{pubkeys::Ed25519{to_vote.validator_set->list[idx].pubkey}}.compute_short_id();
-      if (!local_validators_.contains(key_hash)) {
+      auto idx = (td::uint32)it->second;
+      if (to_vote.votes.size() <= idx || to_vote.votes.bit_at(idx)) {
         continue;
       }
       VLOG(validator, INFO) << "Voting for " << key;
