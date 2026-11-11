@@ -22,6 +22,7 @@
 #include "td/utils/DecTree.h"
 
 #include "full-node.h"
+#include "validator-registry-watcher.hpp"
 #include "validator-telemetry.hpp"
 
 namespace ton::validator::fullnode {
@@ -195,6 +196,9 @@ class FullNodeFastSyncOverlays {
   std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
   std::multimap<PublicKeyHash, adnl::AdnlNodeIdShort> validator_key_to_adnl_ids_;
   std::map<PublicKeyHash, UnixTime> validator_authority_until_;
+
+  std::unique_ptr<ValidatorRegistryState> registry_state_ = ValidatorRegistryState::create_empty();
+  std::set<adnl::AdnlNodeIdShort> authorized_nodes_;
 };
 
 }  // namespace ton::validator::fullnode

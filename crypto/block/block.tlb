@@ -1006,15 +1006,15 @@ chan_op_cmd#912838d1 msg:ChanSignedMsg = ChanOp;
 chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
 
 //
-// VALIDATOR REGISTRY
+// VALIDATOR REGISTRY (old types)
 //
-val_registry_config#3601163e contract_address:bits256 max_collators_per_validator:uint32 new_code_hash:(Maybe uint256) = ValRegistryConfig;
+val_registry_config_old#3601163e contract_address:bits256 max_collators_per_validator:uint32 new_code_hash:(Maybe uint256) = ValRegistryConfig;
 
 _ x:(## 1) = BitsPow2 0;
 _ {n:#} l:(BitsPow2 n) r:(BitsPow2 n) = BitsPow2 (n + 1);
 val_registry_shard_set$_ n:(#<= 8) mask:(BitsPow2 n) = ValRegistryShardSet;
 
-val_registry_storage#9bc722a8 registry:(HashmapE 256 ValRegistryValidator) last_cleanup_key_block_seqno:uint32 = ValRegistryStorage;
+val_registry_storage_old#9bc722a8 registry:(HashmapE 256 ValRegistryValidator) last_cleanup_key_block_seqno:uint32 = ValRegistryStorageOld;
 val_registry_validator#57766eec allow_update_at:uint32 entry:(Maybe ^ValRegistryEntry) = ValRegistryValidator;
 val_registry_entry#eae0b274 collators:(HashmapE 256 ValRegistryCollator) monitoring_shards:ValRegistryShardSet = ValRegistryEntry;
 val_registry_collator#10364494 monitoring_shards:ValRegistryShardSet = ValRegistryCollator;
@@ -1025,3 +1025,15 @@ val_registry_request_update#fbd82b02 last_key_block_seqno:uint32 val_set:uint8 v
 
 val_registry_message_cleanup#32b85a9b = ValRegistryMessageCleanup;
 val_registry_message_update_code#34bdaa6c new_code:^Cell = ValRegistryMessageUpdateCode;
+
+//
+// VALIDATOR REGISTRY
+//
+val_registry_storage#9bc722a9
+    nodes:(HashmapE 256 ValRegistryNode)
+    votings:(HashmapE 320 ValRegistryVoting)  // Key: adnl_id, roles_add, roles_remove
+    votings_gc:(HashmapE 352 Unit)  // Key: ends_at, adnl_id, roles_add, roles_remove
+    = ValRegistryStorage;
+val_registry_node#ac83c7be roles:uint32 is_validator:uint8 = ValRegistryNode;
+val_registry_voting#fb84df63 ends_at:uint32 voted_weight:uint64 required_weight:uint64 votes:^Cell
+    validator_set:^ValidatorSet = ValRegistryVoting;

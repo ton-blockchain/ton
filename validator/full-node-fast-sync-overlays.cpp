@@ -708,6 +708,25 @@ double FullNodeFastSyncOverlays::update_overlays(
     const td::actor::ActorId<quic::QuicSender> &quic, const td::actor::ActorId<overlay::Overlays> &overlays,
     const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
     const td::actor::ActorId<FullNode> &full_node) {
+  auto new_registry_state = ValidatorRegistryState::fetch(state);
+  std::vector<adnl::AdnlNodeIdShort> authorized_nodes_add, authorized_nodes_remove;
+  ValidatorRegistryState::scan_nodes_diff(*registry_state_, *new_registry_state,
+                                          [&](adnl::AdnlNodeIdShort id, td::uint32 old_roles, td::uint32 new_roles) {
+                                            bool old_auth = old_roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY;
+                                            bool new_auth = new_roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY;
+                                            if (old_auth == new_auth) {
+                                              return;
+                                            }
+                                            if (old_auth) {
+                                              authorized_nodes_remove.push_back(id);
+                                              authorized_nodes_.erase(id);
+                                            } else {
+                                              authorized_nodes_add.push_back(id);
+                                              authorized_nodes_.insert(id);
+                                            }
+                                          });
+  registry_state_ = std::move(new_registry_state);
+
   monitoring_shards.insert(ShardIdFull{masterchainId});
   std::set<ShardIdFull> all_shards;
   all_shards.insert(ShardIdFull{masterchainId});
@@ -862,11 +881,16 @@ double FullNodeFastSyncOverlays::update_overlays(
     }
 
     // Remove if it is not authorized
-    if (!overlays_info.is_validator_ && overlays_info.current_certificate_.empty()) {
+    if (!overlays_info.is_validator_ && overlays_info.current_certificate_.empty() &&
+        !authorized_nodes_.contains(local_id)) {
       id_to_overlays_.erase(local_id);
       continue;
     }
     authority_until = std::max(authority_until, current_certificate_authority_until);
+    if (authorized_nodes_.contains(local_id)) {
+      // TODO: How to properly process removing node from registry?
+      authority_until = std::max<double>(authority_until, state->get_unix_time() + 3600);
+    }
 
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
@@ -878,11 +902,18 @@ double FullNodeFastSyncOverlays::update_overlays(
             PSTRING() << "FastSyncOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_plumtree_broadcasts, config_,
             broadcast_speed_multiplier, keyring, adnl, quic, overlays, validator_manager, full_node);
+        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::update_authorized_nodes,
+                                std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
+                                std::vector<adnl::AdnlNodeIdShort>());
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_plumtree_broadcasts);
         if (changed_certificate) {
           td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
                                   overlays_info.current_certificate_);
+        }
+        if (!authorized_nodes_add.empty() || !authorized_nodes_remove.empty()) {
+          td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::update_authorized_nodes, authorized_nodes_add,
+                                  authorized_nodes_remove);
         }
       }
     }
