@@ -76,6 +76,17 @@ class Adnl : public AdnlSenderInterface {
     virtual ~Callback() = default;
   };
 
+  class LocalIdCallback {
+   public:
+    virtual void local_id_added(AdnlNodeIdFull id_full, AdnlAddressList address_list) {
+    }
+    virtual void local_id_updated(AdnlNodeIdShort id, AdnlAddressList address_list) {
+    }
+    virtual void local_id_deleted(AdnlNodeIdShort id) {
+    }
+    virtual ~LocalIdCallback() = default;
+  };
+
   static constexpr td::uint32 get_mtu() {
     return 1024;
   }
@@ -107,6 +118,9 @@ class Adnl : public AdnlSenderInterface {
   // subscribe to (some) messages(+queries) to this local id
   virtual void subscribe(AdnlNodeIdShort dst, std::string prefix, std::unique_ptr<Callback> callback) = 0;
   virtual void unsubscribe(AdnlNodeIdShort dst, std::string prefix) = 0;
+
+  // subscribe to local id status updates
+  virtual void add_local_id_callback(std::unique_ptr<LocalIdCallback> callback) = 0;
 
   // register (main) dht node
   // it will be used to send queries to DHT from adnl

@@ -106,6 +106,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void del_id(AdnlNodeIdShort id, td::Promise<td::Unit> promise) override;
   void subscribe(AdnlNodeIdShort dst, std::string prefix, std::unique_ptr<Callback> callback) override;
   void unsubscribe(AdnlNodeIdShort dst, std::string prefix) override;
+  void add_local_id_callback(std::unique_ptr<LocalIdCallback> callback) override;
   void register_dht_node(td::actor::ActorId<dht::Dht> dht_node) override;
   void register_network_manager(td::actor::ActorId<AdnlNetworkManager> network_manager) override;
   void get_addr_list(AdnlNodeIdShort id, td::Promise<AdnlAddressList> promise) override;
@@ -182,6 +183,8 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
     td::actor::ActorOwn<AdnlLocalId> local_id;
     td::uint8 cat;
     td::uint32 mode;
+    AdnlNodeIdFull id_full;
+    AdnlAddressList address_list;
 
     std::set<std::pair<td::Timestamp, AdnlNodeIdShort>> peers_gc_order = {};
     std::map<AdnlNodeIdShort, size_t> protected_peers = {};
@@ -202,6 +205,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   std::map<AdnlNodeIdShort, PeerInfo> peers_;
   std::map<AdnlNodeIdShort, LocalIdInfo> local_ids_;
   std::map<AdnlChannelIdShort, std::pair<td::actor::ActorId<AdnlChannel>, td::uint8>> channels_;
+  std::vector<std::unique_ptr<LocalIdCallback>> local_id_callbacks_;
 
   td::actor::ActorOwn<AdnlDb> db_;
 

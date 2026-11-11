@@ -269,12 +269,18 @@ void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, 
         td::actor::send_closure(network_manager_, &AdnlNetworkManager::set_local_id_category, a, cat);
       }
     }
+    it->second.address_list = addr_list;
+    for (auto &cb : local_id_callbacks_) {
+      cb->local_id_updated(a, addr_list);
+    }
     td::actor::send_closure(it->second.local_id, &AdnlLocalId::update_address_list, std::move(addr_list));
   } else {
-    local_ids_.emplace(
-        a, LocalIdInfo{td::actor::create_actor<AdnlLocalId>("localid", std::move(id), std::move(addr_list), mode,
-                                                            actor_id(this), keyring_, dht_node_),
-                       cat, mode});
+    for (auto &cb : local_id_callbacks_) {
+      cb->local_id_added(id, addr_list);
+    }
+    local_ids_.emplace(a, LocalIdInfo{td::actor::create_actor<AdnlLocalId>("localid", id, addr_list, mode,
+                                                                           actor_id(this), keyring_, dht_node_),
+                                      cat, mode, id, addr_list});
     if (!network_manager_.empty()) {
       td::actor::send_closure(network_manager_, &AdnlNetworkManager::set_local_id_category, a, cat);
     }
@@ -283,7 +289,11 @@ void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, 
 
 void AdnlPeerTableImpl::del_id(AdnlNodeIdShort id, td::Promise<td::Unit> promise) {
   VLOG(adnl, INFO) << "adnl: deleting local id " << id;
-  local_ids_.erase(id);
+  if (local_ids_.erase(id)) {
+    for (auto &cb : local_id_callbacks_) {
+      cb->local_id_deleted(id);
+    }
+  }
   promise.set_value(td::Unit());
 }
 
@@ -300,6 +310,13 @@ void AdnlPeerTableImpl::unsubscribe(AdnlNodeIdShort dst, std::string prefix) {
   if (it != local_ids_.end()) {
     td::actor::send_closure(it->second.local_id, &AdnlLocalId::unsubscribe, prefix);
   }
+}
+
+void AdnlPeerTableImpl::add_local_id_callback(std::unique_ptr<LocalIdCallback> callback) {
+  for (auto &[_, info] : local_ids_) {
+    callback->local_id_added(info.id_full, info.address_list);
+  }
+  local_id_callbacks_.push_back(std::move(callback));
 }
 
 void AdnlPeerTableImpl::register_dht_node(td::actor::ActorId<dht::Dht> dht_node) {
