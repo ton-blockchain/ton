@@ -71,7 +71,10 @@ int main(int argc, char* argv[]) {
   vm::Dictionary dict{256};
   for (auto& node : state->nodes_) {
     LOG(INFO) << "Node " << node->adnl_id_ << " roles=" << node->roles_;
-    block::gen::ValRegistryNode::Record rec{.roles = (td::uint32)node->roles_, .is_validator = 0};
+    block::gen::ValRegistryNode::Record rec{.roles = (td::uint32)node->roles_,
+                                            .is_validator = 0,
+                                            .allow_update_adnl_node_at = 0,
+                                            .adnl_node = vm::CellBuilder{}.store_zeroes(1).as_cellslice_ref()};
     vm::CellBuilder cb;
     CHECK(block::gen::pack(cb, rec));
     bool ok = dict.set_builder(node->adnl_id_, cb, vm::Dictionary::SetMode::Add);

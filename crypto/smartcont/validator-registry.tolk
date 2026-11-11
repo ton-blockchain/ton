@@ -27,6 +27,10 @@ const ERR_ALREADY_VOTED = 913;
 const ERR_WRONG_SIGNATURE = 914;
 const ERR_MAX_NODES_EXCEEDED = 915;
 const ERR_VAL_SET_UPDATE_NOT_REQUIRED = 916;
+const ERR_UNKNOWN_ADNL_ID = 917;
+const ERR_TOO_EARLY_REQUEST = 918;
+const ERR_BAD_ADNL_NODE = 919;
+const ERR_TOO_BIG_VALID_UNTIL = 920;
 
 contract ValidatorRegistry {
     storage: Storage
@@ -54,6 +58,8 @@ struct (0xca4882d5) AllValidatorSets {
 struct (0xac83c7be) NodeInfo {
     roles: uint32 = 0,
     isValidator: uint32 = 0,
+    allowUpdateAdnlNodeAt: uint32 = 0,
+    adnlNode: cell? = null, // contains serialized adnl.node tl
 }
 
 struct VotingKey {
@@ -84,6 +90,7 @@ struct (0x3601163f) RegistryConfig {
     roles: map<uint5, RoleConfig>,
     votingTimeout: uint32,
     votingPrice: coins,
+    nodeUpdatePeriod: uint32,
 }
 
 struct (0xe19f2d29) RoleConfig {
@@ -124,7 +131,7 @@ struct (0x5cf70d63) MessageUpdateValidatorSet {
 
 struct (0x17bbf84f) MessageSignedRequest {
     signature: bits512,
-    request: Cell<RequestVote>,
+    request: Cell<RequestVote | RequestUpdateAdnlNode>,
 }
 
 struct (0xfcfffd3b) RequestVote {
@@ -134,6 +141,12 @@ struct (0xfcfffd3b) RequestVote {
     validatorIdx: uint16,
     createdLt: uint64,
     validUntil: uint32,
+}
+
+struct (0xdbcf8cf8) RequestUpdateAdnlNode {
+    adnlIdFull: uint256,
+    validUntil: uint32,
+    newAdnlNode: cell?
 }
 
 type ExternalMessage = MessageUpdateCode | MessageGcVotings | MessageUpdateValidatorSet | MessageSignedRequest;
@@ -460,6 +473,27 @@ fun requestVote(signature: bits512, requestHash: uint256, request: RequestVote) 
     contract.setData(storage.toCell());
 }
 
+fun requestUpdateAdnlNode(signature: bits512, requestHash: uint256, request: RequestUpdateAdnlNode) {
+    val config = getRegistryConfig();
+    assert (blockchain.now() < request.validUntil) throw ERR_REQUEST_EXPIRED;
+    assert (request.validUntil < blockchain.now() + config.nodeUpdatePeriod) throw ERR_TOO_BIG_VALID_UNTIL;
+    var storage = Storage.fromCell(contract.getData());
+    val adnlId = publicKeyToShortId(request.adnlIdFull);
+    var node = storage.nodes.mustGet(adnlId, ERR_UNKNOWN_ADNL_ID);
+    assert (blockchain.now() >= node.allowUpdateAdnlNodeAt) throw ERR_TOO_EARLY_REQUEST;
+    if (request.newAdnlNode != null) {
+        val (bits, refs) = request.newAdnlNode.beginParse().remainingBitsAndRefsCount();
+        assert (bits % 8 == 0 && refs == 0) throw ERR_BAD_ADNL_NODE;
+    }
+    assert (isSignatureValid(requestHash, signature as slice, request.adnlIdFull)) throw ERR_WRONG_SIGNATURE;
+    acceptExternalMessage();
+
+    node.adnlNode = request.newAdnlNode;
+    node.allowUpdateAdnlNodeAt = blockchain.now() + config.nodeUpdatePeriod;
+    storage.nodes.set(adnlId, node);
+    contract.setData(storage.toCell());
+}
+
 fun onExternalMessage(inMsg: slice) {
     val msg = ExternalMessage.fromSlice(inMsg);
     match (msg) {
@@ -474,7 +508,14 @@ fun onExternalMessage(inMsg: slice) {
         }
         MessageSignedRequest => {
             val request = msg.request.load();
-            requestVote(msg.signature, msg.request.hash(), request);
+            match (request) {
+                RequestVote => {
+                    requestVote(msg.signature, msg.request.hash(), request);
+                }
+                RequestUpdateAdnlNode => {
+                    requestUpdateAdnlNode(msg.signature, msg.request.hash(), request);
+                }
+            }
         }
     }
 }

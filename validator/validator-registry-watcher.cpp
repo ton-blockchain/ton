@@ -537,12 +537,13 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
         continue;
       }
       VLOG(validator, INFO) << "Voting for " << key;
-      block::gen::ValRegistryRequest::Record request{.adnl_id = key.adnl_id.bits256_value(),
-                                                     .roles_add = key.roles_add,
-                                                     .roles_remove = key.roles_remove,
-                                                     .validator_idx = (int)idx,
-                                                     .created_lt = to_vote.created_lt,
-                                                     .valid_until = (UnixTime)td::Clocks::system() + 60};
+      block::gen::ValRegistryRequest::Record_val_registry_request_vote request{
+          .adnl_id = key.adnl_id.bits256_value(),
+          .roles_add = key.roles_add,
+          .roles_remove = key.roles_remove,
+          .validator_idx = (int)idx,
+          .created_lt = to_vote.created_lt,
+          .valid_until = (UnixTime)td::Clocks::system() + 60};
       Ref<vm::Cell> request_cell;
       CHECK(block::gen::pack_cell(request_cell, request));
       sign_and_send_request(registry_state_->get_config().contract_address, key_hash, request_cell, true)
