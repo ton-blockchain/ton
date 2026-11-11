@@ -44,6 +44,9 @@ class ValidatorRegistryState {
   virtual bool need_votings_gc() {
     return false;
   }
+  virtual bool need_update_validator_set(BlockSeqno last_key_block_seqno) {
+    return false;
+  }
 
   static std::unique_ptr<ValidatorRegistryState> fetch(Ref<MasterchainState> mc_state);
   static std::unique_ptr<ValidatorRegistryState> create_empty();

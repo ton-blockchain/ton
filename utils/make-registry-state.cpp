@@ -91,14 +91,18 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  block::gen::ValRegistryStorageExtra::Record extra{.nodes_count_by_role = count_by_role_dict.get_root()};
+  block::gen::ValRegistryStorageExtra::Record extra{
+      .nodes_count_by_role = count_by_role_dict.get_root(),
+      .current_validator_sets = vm::CellBuilder{}.store_long(0xca4882d5U, 32).store_zeroes(3).finalize(),
+  };
   td::Ref<vm::Cell> extra_cell;
   CHECK(block::gen::pack_cell(extra_cell, extra));
 
   block::gen::ValRegistryStorage::Record rec{.nodes = dict.get_root(),
                                              .votings = vm::Dictionary{320}.get_root(),
                                              .votings_gc = vm::Dictionary{352}.get_root(),
-                                             .extra = extra_cell};
+                                             .extra = extra_cell,
+                                             .last_validator_set_update_seqno = (td::uint32)-1};
   td::Ref<vm::Cell> cell;
   CHECK(block::gen::pack_cell(cell, rec));
   auto serialized = vm::std_boc_serialize(cell).ensure().move_as_ok();
