@@ -61,6 +61,8 @@
 #endif
 #include <iostream>
 
+#include "td/actor/coro_utils.h"
+
 #include "git.h"
 
 using namespace std::literals::string_literals;
@@ -289,6 +291,75 @@ bool TestNode::dump_cached_cell(td::Slice hash_pfx, td::Slice type_name) {
     return false;
   }
   return true;
+}
+
+td::actor::Task<> TestNode::dump_validator_registry() {
+  auto R = co_await dump_validator_registry_inner().wrap();
+  if (R.is_error()) {
+    LOG(ERROR) << "dump validator registry error: " << R.error();
+  }
+  after_got_result(R.is_ok());
+  co_return {};
+}
+
+td::actor::Task<> TestNode::dump_validator_registry_inner() {
+  LOG(INFO) << "Starting dumpvalidatorregistry";
+  auto [task, promise] = td::actor::StartedTask<std::unique_ptr<block::Config>>::make_bridge();
+  get_config_params(mc_last_id_, std::move(promise), 0x1000, "", {46});
+  auto config = co_await std::move(task);
+  auto registry_config = CO_TRY(config->get_validator_registry_config());
+  LOG(INFO) << "Validator registry address = -1:" << registry_config.contract_address.to_hex();
+
+  auto addr = ton::create_tl_object<ton::lite_api::liteServer_accountId>(-1, registry_config.contract_address);
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_getAccountState>(
+      ton::create_tl_lite_block_id(mc_last_id_), std::move(addr));
+  b = ton::create_serialize_tl_object<ton::lite_api::liteServer_query>(std::move(b));
+  auto data = co_await td::actor::ask(client_, &liteclient::ExtClient::send_query, "query", std::move(b),
+                                      td::Timestamp::in(10.0));
+  auto f = CO_TRY(ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(data, true));
+  auto root = CO_TRY(vm::std_boc_deserialize(f->state_));
+  block::gen::Account::Record_account acc;
+  block::gen::AccountStorage::Record store;
+  block::gen::AccountState::Record_account_active state;
+  block::gen::StateInit::Record state_init;
+  if (!(tlb::unpack_cell(root, acc) && tlb::csr_unpack(acc.storage, store) && tlb::csr_unpack(store.state, state) &&
+        tlb::csr_unpack(state.x, state_init) && state_init.data->size_refs())) {
+    co_return td::Status::Error("cannot unpack account");
+  }
+
+  block::gen::ValRegistryStorage::Record storage;
+  if (!tlb::unpack_cell(state_init.data->prefetch_ref(), storage)) {
+    co_return td::Status::Error("cannot unpack registry storage");
+  }
+  td::StringBuilder sb;
+  sb << "Validator registry state:\n";
+  sb << "Nodes:\n";
+  vm::Dictionary{storage.nodes, 256}.check_for_each([&](Ref<vm::CellSlice> cs, td::ConstBitPtr key, int key_len) {
+    CHECK(key_len == 256);
+    block::gen::ValRegistryNode::Record rec;
+    if (!tlb::csr_unpack(cs, rec)) {
+      LOG(WARNING) << "failed to parse node " << key.to_hex(256);
+      return true;
+    }
+    sb << "  " << key.to_hex(256) << " is_validator=" << rec.is_validator << " roles=" << rec.roles;
+    if (rec.roles != 0) {
+      sb << " (";
+      static const char* role_names[2] = {"collator", "protected-overlay"};
+      for (int i = 0; i < 2; ++i) {
+        if (rec.roles & (1u << i)) {
+          if (rec.roles & ((1u << i) - 1)) {
+            sb << ", ";
+          }
+          sb << role_names[i];
+        }
+      }
+      sb << ")";
+    }
+    sb << "\n";
+    return true;
+  });
+  td::TerminalIO::out() << sb.as_cslice();
+  co_return {};
 }
 
 bool TestNode::get_server_time() {
@@ -1055,6 +1126,7 @@ bool TestNode::show_help(std::string command) {
          "dumpcellas <tlb-type> <hex-hash-pfx>\nFinds a cached cell by a prefix of its hash and prints it as a value "
          "of <tlb-type>\n"
          "privkey <filename>\tLoads a private key from file\n"
+         "dumpvalidatorregistry\tPrints data of validator registry contract\n"
          "help [<command>]\tThis help\n"
          "quit\tExit\n";
   return true;
@@ -1221,6 +1293,13 @@ bool TestNode::do_parse_line() {
     td::Slice tname;
     return (word == "dumpcell" || get_word_to(tname)) && get_word_to(chash) && seekeoln() &&
            dump_cached_cell(chash, tname);
+  } else if (word == "dumpvalidatorregistry") {
+    if (!eoln()) {
+      return false;
+    }
+    running_queries_++;
+    dump_validator_registry().start().detach("dump validator registry");
+    return true;
   } else if (word == "quit" && eoln()) {
     LOG(INFO) << "Exiting";
     stop();
