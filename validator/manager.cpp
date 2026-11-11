@@ -1937,7 +1937,7 @@ void ValidatorManagerImpl::start_up() {
       "extmessagecleanup", ext_message_pool_.get(), actor_id(this));
   td::mkdir(db_root_ + "/tmp/").ensure();
   td::mkdir(db_root_ + "/catchains/").ensure();
-  validator_registry_watcher_ = ValidatorRegistryWatcher::create(actor_id(this), keyring_);
+  validator_registry_watcher_ = ValidatorRegistryWatcher::create(actor_id(this), keyring_, adnl_);
 
   auto Q =
       td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::actor::ActorOwn<adnl::AdnlExtServer>> R) {

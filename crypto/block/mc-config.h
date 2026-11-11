@@ -423,6 +423,7 @@ struct SizeLimitsConfig {
 struct ValidatorRegistryConfig {
   ton::StdSmcAddress contract_address = ton::StdSmcAddress::zero();
   td::uint32 legacy_max_collators_per_validator = 0;
+  td::uint32 node_update_period = 600;
 };
 
 struct CatchainValidatorsConfig {

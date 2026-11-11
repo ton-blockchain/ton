@@ -61,7 +61,9 @@
 #endif
 #include <iostream>
 
+#include "adnl/adnl-node.h"
 #include "td/actor/coro_utils.h"
+#include "td/utils/overloaded.h"
 
 #include "git.h"
 
@@ -302,6 +304,20 @@ td::actor::Task<> TestNode::dump_validator_registry() {
   co_return {};
 }
 
+td::Result<ton::tl_object_ptr<ton::ton_api::adnl_node>> parse_adnl_node(ton::adnl::AdnlNodeIdShort id,
+                                                                        Ref<vm::Cell> cell) {
+  vm::CellSlice cs{vm::NoVm{}, cell};
+  TRY_BOOL(cs.size_refs() == 0 && cs.size() % 8 == 0);
+  td::BufferSlice buf{cs.size() / 8};
+  cs.fetch_bytes(buf.as_slice());
+  TRY_RESULT(tl, ton::fetch_tl_object<ton::ton_api::adnl_node>(buf, true));
+  TRY_RESULT(id_full, ton::adnl::AdnlNodeIdFull::create(tl->id_));
+  if (id_full.compute_short_id() != id) {
+    return td::Status::Error("wrong node adnl id");
+  }
+  return std::move(tl);
+}
+
 td::actor::Task<> TestNode::dump_validator_registry_inner() {
   LOG(INFO) << "Starting dumpvalidatorregistry";
   auto [task, promise] = td::actor::StartedTask<std::unique_ptr<block::Config>>::make_bridge();
@@ -357,6 +373,28 @@ td::actor::Task<> TestNode::dump_validator_registry_inner() {
       sb << ")";
     }
     sb << "\n";
+    if (rec.adnl_node->size_refs()) {
+      auto r_node = parse_adnl_node(ton::adnl::AdnlNodeIdShort{adnl_id}, rec.adnl_node->prefetch_ref());
+      if (r_node.is_error()) {
+        sb << "    Bad address list: " << r_node.error().message() << "\n";
+      } else {
+        sb << "    Address list:";
+        for (auto& addr : r_node.ok()->addr_list_->addrs_) {
+          ton::ton_api::downcast_call(*addr,
+                                      td::overloaded(
+                                          [&](const ton::ton_api::adnl_address_udp& obj) {
+                                            sb << " adnl:" << td::IPAddress::ipv4_to_str(obj.ip_) << ":" << obj.port_;
+                                          },
+                                          [&](const ton::ton_api::adnl_address_quic& obj) {
+                                            sb << " quic:" << td::IPAddress::ipv4_to_str(obj.ip_) << ":" << obj.port_;
+                                          },
+                                          [&](const auto&) { sb << " unknown"; }));
+        }
+        sb << "\n";
+      }
+    } else {
+      sb << "    No address list\n";
+    }
     return true;
   });
   sb << "Votings:\n";

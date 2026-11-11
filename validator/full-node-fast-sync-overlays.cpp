@@ -710,21 +710,23 @@ double FullNodeFastSyncOverlays::update_overlays(
     const td::actor::ActorId<FullNode> &full_node) {
   auto new_registry_state = ValidatorRegistryState::fetch(state);
   std::vector<adnl::AdnlNodeIdShort> authorized_nodes_add, authorized_nodes_remove;
-  ValidatorRegistryState::scan_nodes_diff(*registry_state_, *new_registry_state,
-                                          [&](adnl::AdnlNodeIdShort id, td::uint32 old_roles, td::uint32 new_roles) {
-                                            bool old_auth = old_roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY;
-                                            bool new_auth = new_roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY;
-                                            if (old_auth == new_auth) {
-                                              return;
-                                            }
-                                            if (old_auth) {
-                                              authorized_nodes_remove.push_back(id);
-                                              authorized_nodes_.erase(id);
-                                            } else {
-                                              authorized_nodes_add.push_back(id);
-                                              authorized_nodes_.insert(id);
-                                            }
-                                          });
+  ValidatorRegistryState::scan_nodes_diff(
+      *registry_state_, *new_registry_state,
+      [&](adnl::AdnlNodeIdShort id, std::optional<ValidatorRegistryState::Node> old_node,
+          std::optional<ValidatorRegistryState::Node> new_node) {
+        bool old_auth = old_node && (old_node->roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY);
+        bool new_auth = new_node && (new_node->roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY);
+        if (old_auth == new_auth) {
+          return;
+        }
+        if (old_auth) {
+          authorized_nodes_remove.push_back(id);
+          authorized_nodes_.erase(id);
+        } else {
+          authorized_nodes_add.push_back(id);
+          authorized_nodes_.insert(id);
+        }
+      });
   registry_state_ = std::move(new_registry_state);
 
   monitoring_shards.insert(ShardIdFull{masterchainId});

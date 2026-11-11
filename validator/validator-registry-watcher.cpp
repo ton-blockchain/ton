@@ -180,8 +180,8 @@ class ValidatorRegistryStateImpl : public ValidatorRegistryState {
     }
 
     std::set<adnl::AdnlNodeIdShort> all_collators;
-    for_each_node([&](adnl::AdnlNodeIdShort id, td::uint32 roles) {
-      if ((roles & ROLE_COLLATOR) && !all_validator_keys.contains(id.pubkey_hash())) {
+    for_each_node([&](adnl::AdnlNodeIdShort id, Node node) {
+      if ((node.roles & ROLE_COLLATOR) && !all_validator_keys.contains(id.pubkey_hash())) {
         all_collators.insert(id);
       }
     });
@@ -256,17 +256,28 @@ std::unique_ptr<ValidatorRegistryState> ValidatorRegistryState::create_empty() {
   return std::make_unique<ValidatorRegistryStateImplNone>();
 }
 
-void ValidatorRegistryState::for_each_node(std::function<void(adnl::AdnlNodeIdShort, td::uint32)> f) {
+static td::Result<ValidatorRegistryState::Node> parse_node(vm::CellSlice& cs) {
+  block::gen::ValRegistryNode::Record rec;
+  if (!block::gen::unpack(cs, rec)) {
+    return td::Status::Error("failed to unpack ValGeristryNode");
+  }
+  return ValidatorRegistryState::Node{.roles = rec.roles,
+                                      .allow_update_adnl_node_at = rec.allow_update_adnl_node_at,
+                                      .adnl_node_cell = rec.adnl_node->prefetch_ref()};
+}
+
+void ValidatorRegistryState::for_each_node(std::function<void(adnl::AdnlNodeIdShort, Node)> f) {
   try {
     get_nodes_dict().check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int key_len) {
       CHECK(key_len == 256);
       adnl::AdnlNodeIdShort id{td::Bits256{key}};
       block::gen::ValRegistryNode::Record rec;
-      if (!block::gen::csr_unpack(value, rec)) {
-        VLOG(validator, WARNING) << "Invalid validator registry node " << id;
+      auto r_node = parse_node(value.write());
+      if (r_node.is_error()) {
+        VLOG(validator, WARNING) << "Invalid validator registry node " << id << ": " << r_node.move_as_error();
         return true;
       }
-      f(id, rec.roles);
+      f(id, r_node.move_as_ok());
       return true;
     });
   } catch (vm::VmError& e) {
@@ -274,34 +285,33 @@ void ValidatorRegistryState::for_each_node(std::function<void(adnl::AdnlNodeIdSh
   }
 }
 
-void ValidatorRegistryState::scan_nodes_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
-                                             std::function<void(adnl::AdnlNodeIdShort, td::uint32, td::uint32)> f) {
+void ValidatorRegistryState::scan_nodes_diff(
+    ValidatorRegistryState& prev, ValidatorRegistryState& cur,
+    std::function<void(adnl::AdnlNodeIdShort, std::optional<Node>, std::optional<Node>)> f) {
   try {
     auto cur_dict = cur.get_nodes_dict();
     prev.get_nodes_dict().scan_diff(
         cur_dict, [&](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> cs_old, Ref<vm::CellSlice> cs_new) {
           CHECK(key_len == 256);
           adnl::AdnlNodeIdShort id{td::Bits256{key}};
-          td::uint32 roles_old = 0, roles_new = 0;
+          std::optional<Node> node_old, node_new;
           if (cs_old.not_null()) {
-            block::gen::ValRegistryNode::Record rec;
-            if (block::gen::csr_unpack(cs_old, rec)) {
-              roles_old = rec.roles;
+            auto r_node = parse_node(cs_old.write());
+            if (r_node.is_error()) {
+              VLOG(validator, WARNING) << "Invalid validator registry node " << id << ": " << r_node.move_as_error();
             } else {
-              VLOG(validator, WARNING) << "Invalid validator registry node " << id;
+              node_old = r_node.move_as_ok();
             }
           }
           if (cs_new.not_null()) {
-            block::gen::ValRegistryNode::Record rec;
-            if (block::gen::csr_unpack(cs_new, rec)) {
-              roles_new = rec.roles;
+            auto r_node = parse_node(cs_new.write());
+            if (r_node.is_error()) {
+              VLOG(validator, WARNING) << "Invalid validator registry node " << id << ": " << r_node.move_as_error();
             } else {
-              VLOG(validator, WARNING) << "Invalid validator registry node " << id;
+              node_new = r_node.move_as_ok();
             }
           }
-          if (roles_old != roles_new) {
-            f(id, roles_old, roles_new);
-          }
+          f(id, std::move(node_old), std::move(node_new));
           return true;
         });
   } catch (vm::VmError& e) {
@@ -378,8 +388,31 @@ namespace {
 class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
  public:
   explicit ValidatorRegistryWatcherImpl(td::actor::ActorId<ValidatorManager> manager,
-                                        td::actor::ActorId<keyring::Keyring> keyring)
-      : manager_(manager), keyring_(keyring) {
+                                        td::actor::ActorId<keyring::Keyring> keyring,
+                                        td::actor::ActorId<adnl::Adnl> adnl)
+      : manager_(manager), keyring_(keyring), adnl_(adnl) {
+  }
+
+  void start_up() override {
+    class Cb : public adnl::Adnl::LocalIdCallback {
+     public:
+      explicit Cb(td::actor::ActorId<ValidatorRegistryWatcherImpl> actor) : actor_(actor) {
+      }
+      void local_id_added(adnl::AdnlNodeIdFull id_full, adnl::AdnlAddressList address_list) override {
+        td::actor::send_closure(actor_, &ValidatorRegistryWatcherImpl::local_id_added, id_full,
+                                std::move(address_list));
+      }
+      void local_id_updated(adnl::AdnlNodeIdShort id, adnl::AdnlAddressList address_list) override {
+        td::actor::send_closure(actor_, &ValidatorRegistryWatcherImpl::local_id_updated, id, std::move(address_list));
+      }
+      void local_id_deleted(adnl::AdnlNodeIdShort id) override {
+        td::actor::send_closure(actor_, &ValidatorRegistryWatcherImpl::local_id_deleted, id);
+      }
+
+     private:
+      td::actor::ActorId<ValidatorRegistryWatcherImpl> actor_;
+    };
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_local_id_callback, std::make_unique<Cb>(actor_id(this)));
   }
 
   void add_validator_key(PublicKeyHash key_hash) override {
@@ -400,6 +433,7 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
  private:
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<keyring::Keyring> keyring_;
+  td::actor::ActorId<adnl::Adnl> adnl_;
 
   struct LocalValidator {
     td::Timestamp update_at = td::Timestamp::now();
@@ -412,7 +446,7 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
   bool inited_ = false;
 
   Ref<MasterchainState> mc_state_;
-  std::unique_ptr<ValidatorRegistryState> registry_state_;
+  std::unique_ptr<ValidatorRegistryState> registry_state_ = ValidatorRegistryState::create_empty();
   Ref<CollatorsList> collators_list_;
   Ref<vm::Cell> new_entry_cell_;
 
@@ -443,6 +477,39 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
     }
   }
 
+  struct LocalAdnlId {
+    td::Timestamp update_at = td::Timestamp::now();
+    adnl::AdnlNodeIdFull id_full;
+    adnl::AdnlAddressList address_list;
+  };
+  std::map<adnl::AdnlNodeIdShort, LocalAdnlId> local_adnl_ids_;
+  struct StoredAdnlId {
+    std::optional<adnl::AdnlNode> node = std::nullopt;
+    UnixTime allow_update_at = 0;
+  };
+  std::map<adnl::AdnlNodeIdShort, StoredAdnlId> stored_adnl_ids_;
+
+  void read_adnl_id_diff(ValidatorRegistryState& new_state);
+  void update_local_adnl_id(adnl::AdnlNodeIdShort id, LocalAdnlId& info);
+
+  void local_id_added(adnl::AdnlNodeIdFull id_full, adnl::AdnlAddressList address_list) {
+    local_adnl_ids_.emplace(id_full.compute_short_id(),
+                            LocalAdnlId{.id_full = id_full, .address_list = std::move(address_list)});
+  }
+
+  void local_id_updated(adnl::AdnlNodeIdShort id, adnl::AdnlAddressList address_list) {
+    auto it = local_adnl_ids_.find(id);
+    if (it == local_adnl_ids_.end()) {
+      return;
+    }
+    it->second.address_list = std::move(address_list);
+    it->second.update_at = td::Timestamp::now();
+  }
+
+  void local_id_deleted(adnl::AdnlNodeIdShort id) {
+    local_adnl_ids_.erase(id);
+  }
+
   void update_legacy(Ref<ValidatorManagerOptions> opts);
   void update_local_validator_legacy(PublicKeyHash key_hash, LocalValidator& validator);
   Ref<vm::Cell> make_entry_cell();
@@ -455,7 +522,7 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
 void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<ValidatorManagerOptions> opts) {
   mc_state_ = mc_state;
   auto new_registry_state = ValidatorRegistryState::fetch(mc_state_);
-  if (inited_ && voting_config_.not_null()) {
+  if (voting_config_.not_null()) {
     ValidatorRegistryState::scan_votings_diff(
         *registry_state_, *new_registry_state,
         [&](ValidatorRegistryState::VotingKey key, std::optional<ValidatorRegistryState::Voting> voting) {
@@ -485,11 +552,15 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
           to_vote.update_at = td::Timestamp::now();
         });
   }
+  read_adnl_id_diff(*new_registry_state);
   registry_state_ = std::move(new_registry_state);
   if (mc_state_->is_key_state() || !inited_) {
     update_is_current_validator();
   }
   inited_ = true;
+  for (auto& [id, info] : local_adnl_ids_) {
+    update_local_adnl_id(id, info);
+  }
 
   if (voting_config_ != opts->get_registry_voting_config()) {
     voting_config_ = opts->get_registry_voting_config();
@@ -552,7 +623,7 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
       voted = true;
     }
     if (voted) {
-      to_vote.update_at = td::Timestamp::in(60.0);
+      to_vote.update_at = td::Timestamp::in(20.0);
     } else {
       to_vote.update_at = td::Timestamp::never();
     }
@@ -586,6 +657,122 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
   }
 
   update_legacy(std::move(opts));
+}
+
+td::Result<adnl::AdnlNode> parse_adnl_node(adnl::AdnlNodeIdShort id, Ref<vm::Cell> cell) {
+  vm::CellSlice cs{vm::NoVm{}, cell};
+  TRY_BOOL(cs.size_refs() == 0 && cs.size() % 8 == 0);
+  td::BufferSlice buf{cs.size() / 8};
+  cs.fetch_bytes(buf.as_slice());
+  TRY_RESULT(tl, fetch_tl_object<ton_api::adnl_node>(buf, true));
+  TRY_RESULT(node, adnl::AdnlNode::create(std::move(tl)));
+  if (node.compute_short_id() != id) {
+    return td::Status::Error("wrong node adnl id");
+  }
+  return std::move(node);
+}
+
+void ValidatorRegistryWatcherImpl::read_adnl_id_diff(ValidatorRegistryState& new_state) {
+  ValidatorRegistryState::scan_nodes_diff(
+      *registry_state_, new_state,
+      [&](adnl::AdnlNodeIdShort adnl_id, std::optional<ValidatorRegistryState::Node> old_node,
+          std::optional<ValidatorRegistryState::Node> new_node) {
+        if (auto it = local_adnl_ids_.find(adnl_id); it != local_adnl_ids_.end()) {
+          it->second.update_at = td::Timestamp::now();
+        }
+        Ref<vm::Cell> old_cell = old_node ? old_node->adnl_node_cell : Ref<vm::Cell>{};
+        Ref<vm::Cell> new_cell = new_node ? new_node->adnl_node_cell : Ref<vm::Cell>{};
+        UnixTime allow_update_at = new_node ? new_node->allow_update_adnl_node_at : 0;
+        if (!new_node) {
+          if (stored_adnl_ids_.erase(adnl_id)) {
+            VLOG(validator, DEBUG) << "adnl node " << adnl_id << " removed from registry";
+          }
+          return;
+        }
+        stored_adnl_ids_[adnl_id].allow_update_at = allow_update_at;
+        if (old_node && cell_equal(old_cell, new_cell)) {
+          return;
+        }
+        if (new_cell.is_null()) {
+          VLOG(validator, DEBUG) << "adnl node " << adnl_id << " has empty entry in registry";
+          stored_adnl_ids_[adnl_id].node = std::nullopt;
+          return;
+        }
+        auto r_node = parse_adnl_node(adnl_id, new_cell);
+        if (r_node.is_error()) {
+          VLOG(validator, DEBUG) << "adnl node " << adnl_id << " in registry is invalid: " << r_node.move_as_error();
+          stored_adnl_ids_[adnl_id].node = std::nullopt;
+          return;
+        }
+        VLOG(validator, DEBUG) << "updated adnl node " << adnl_id << " in registry";
+        stored_adnl_ids_[adnl_id].node.emplace(r_node.move_as_ok());
+      });
+}
+
+void ValidatorRegistryWatcherImpl::update_local_adnl_id(adnl::AdnlNodeIdShort id, LocalAdnlId& info) {
+  if (!info.update_at || !info.update_at.is_in_past()) {
+    return;
+  }
+  info.update_at = td::Timestamp::never();
+  if (!stored_adnl_ids_.contains(id)) {
+    return;
+  }
+  auto& stored_node = stored_adnl_ids_[id];
+  bool need_update = false;
+  if (stored_node.node.has_value()) {
+    auto& stored_address_list = stored_node.node->addr_list();
+    if (stored_address_list.size() != info.address_list.size()) {
+      need_update = true;
+    } else if (stored_address_list.quic_addrs() != info.address_list.quic_addrs()) {
+      need_update = true;
+    } else if (stored_address_list.has_reverse() != info.address_list.has_reverse()) {
+      need_update = true;
+    } else {
+      for (td::uint32 i = 0; i < stored_address_list.size(); i++) {
+        auto addr1 = stored_address_list.adnl_addrs()[i]->to_ip_address();
+        auto addr2 = info.address_list.adnl_addrs()[i]->to_ip_address();
+        if (addr1.is_error() || addr2.is_error()) {
+          // Unexpected situation - nodes only use valid ipv4 addresses
+          need_update = (addr1.is_error() != addr2.is_error());
+          continue;
+        }
+        if (addr1.ok() != addr2.ok()) {
+          need_update = true;
+        }
+      }
+    }
+  } else {
+    need_update = true;
+  }
+  if (!need_update) {
+    info.update_at = td::Timestamp::in(600.0);
+    return;
+  }
+  if (stored_node.allow_update_at > (UnixTime)td::Clocks::system()) {
+    auto t = stored_node.allow_update_at - (UnixTime)td::Clocks::system() + 1;
+    VLOG(validator, INFO) << "Update adnl id " << id << " : need to update, wait for allow_update_at (" << t << " s)";
+    info.update_at = td::Timestamp::in(t);
+    return;
+  }
+  auto tl = serialize_tl_object(adnl::AdnlNode{info.id_full, info.address_list}.tl(), true);
+  if (tl.size() > 127) {
+    VLOG(validator, INFO) << "Update adnl id " << id << " : cannot store adnl node - serialized size too big ("
+                          << tl.size() << ")";
+    return;
+  }
+  VLOG(validator, INFO) << "Update adnl id " << id << " : updating";
+  Ref<vm::Cell> node_cell = vm::CellBuilder{}.store_bytes(tl).finalize_novm();
+  block::gen::ValRegistryRequest::Record_val_registry_request_update_adnl_node request{
+      .adnl_id_full = info.id_full.pubkey().ed25519_value().raw(),
+      .valid_until = (UnixTime)td::Clocks::system() +
+                     std::min<td::uint32>(60, registry_state_->get_config().node_update_period / 2),
+      .new_adnl_node = vm::CellBuilder{}.store_ref(node_cell).store_ones(1).as_cellslice_ref()};
+  Ref<vm::Cell> request_cell;
+  CHECK(block::gen::pack_cell(request_cell, request));
+  sign_and_send_request(registry_state_->get_config().contract_address, id.pubkey_hash(), std::move(request_cell), true)
+      .start()
+      .detach("send registry adnl id request");
+  info.update_at.relax(td::Timestamp::in(20.0));
 }
 
 void ValidatorRegistryWatcherImpl::update_legacy(Ref<ValidatorManagerOptions> opts) {
@@ -757,9 +944,10 @@ std::set<adnl::AdnlNodeIdShort> ValidatorRegistryWatcher::get_all_collators(Ref<
 }
 
 td::actor::ActorOwn<ValidatorRegistryWatcher> ValidatorRegistryWatcher::create(
-    td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<keyring::Keyring> keyring) {
+    td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<keyring::Keyring> keyring,
+    td::actor::ActorId<adnl::Adnl> adnl) {
   return td::actor::create_actor<ValidatorRegistryWatcherImpl>("ValidatorRegistry", std::move(manager),
-                                                               std::move(keyring));
+                                                               std::move(keyring), std::move(adnl));
 }
 
 }  // namespace ton::validator

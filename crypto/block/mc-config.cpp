@@ -2106,6 +2106,7 @@ td::Result<ValidatorRegistryConfig> Config::get_validator_registry_config() cons
   if (gen::ValRegistryConfig::Record_val_registry_config rec; gen::unpack_cell(param, rec)) {
     return ValidatorRegistryConfig{
         .contract_address = rec.contract_address,
+        .node_update_period = rec.node_update_period,
     };
   }
   return td::Status::Error("configuration parameter 46 is invalid");
