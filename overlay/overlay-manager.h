@@ -121,6 +121,10 @@ class OverlayManager : public Overlays {
   td::actor::Task<> collect(metrics::Context ctx) override;
   void absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) override;
 
+  void update_semiprivate_authorized_nodes(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
+                                           std::vector<adnl::AdnlNodeIdShort> add,
+                                           std::vector<adnl::AdnlNodeIdShort> remove) override;
+
   struct PrintId {};
 
   PrintId print_id() const {

@@ -487,6 +487,10 @@ class Overlays : public td::actor::Actor {
   // Merge one overlay's drained inbound broadcast content into the manager's aggregate (the bucket is
   // non-atomic, so it must be accumulated on the manager thread). `done` is fulfilled after the merge.
   virtual void absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) = 0;
+
+  virtual void update_semiprivate_authorized_nodes(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
+                                                   std::vector<adnl::AdnlNodeIdShort> add,
+                                                   std::vector<adnl::AdnlNodeIdShort> remove) = 0;
 };
 
 }  // namespace overlay
