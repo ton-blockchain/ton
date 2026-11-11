@@ -158,6 +158,7 @@ class ValidatorRegistryStateImpl : public ValidatorRegistryState {
       return;
     }
     nodes_ = vm::Dictionary{rec.nodes, 256, false};
+    votings_ = vm::Dictionary{rec.votings, 256 + 32 + 32, false};
   }
 
   std::set<adnl::AdnlNodeIdShort> get_all_collators(Ref<MasterchainState> mc_state) override {
@@ -184,29 +185,16 @@ class ValidatorRegistryStateImpl : public ValidatorRegistryState {
     return all_collators;
   }
 
-  void for_each_node(std::function<void(adnl::AdnlNodeIdShort, td::uint32)> f) override {
-    try {
-      nodes_.check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int key_len) {
-        CHECK(key_len == 256);
-        adnl::AdnlNodeIdShort id{td::Bits256{key}};
-        block::gen::ValRegistryNode::Record rec;
-        if (!block::gen::csr_unpack(value, rec)) {
-          VLOG(validator, WARNING) << "Invalid validator registry node " << id;
-          return true;
-        }
-        f(id, rec.roles);
-        return true;
-      });
-    } catch (vm::VmError& e) {
-      VLOG(validator, WARNING) << "Dictionary error in validator registry state: " << e.get_msg();
-    }
-  }
-
  private:
   vm::Dictionary nodes_{256};
+  vm::Dictionary votings_{256 + 32 + 32};
 
   vm::Dictionary get_nodes_dict() override {
     return nodes_;
+  }
+
+  vm::Dictionary get_votings_dict() override {
+    return votings_;
   }
 };
 
@@ -244,6 +232,24 @@ std::unique_ptr<ValidatorRegistryState> ValidatorRegistryState::create_empty() {
   return std::make_unique<ValidatorRegistryStateImplNone>();
 }
 
+void ValidatorRegistryState::for_each_node(std::function<void(adnl::AdnlNodeIdShort, td::uint32)> f) {
+  try {
+    get_nodes_dict().check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int key_len) {
+      CHECK(key_len == 256);
+      adnl::AdnlNodeIdShort id{td::Bits256{key}};
+      block::gen::ValRegistryNode::Record rec;
+      if (!block::gen::csr_unpack(value, rec)) {
+        VLOG(validator, WARNING) << "Invalid validator registry node " << id;
+        return true;
+      }
+      f(id, rec.roles);
+      return true;
+    });
+  } catch (vm::VmError& e) {
+    VLOG(validator, WARNING) << "Dictionary error in validator registry state: " << e.get_msg();
+  }
+}
+
 void ValidatorRegistryState::scan_nodes_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
                                              std::function<void(adnl::AdnlNodeIdShort, td::uint32, td::uint32)> f) {
   try {
@@ -279,6 +285,70 @@ void ValidatorRegistryState::scan_nodes_diff(ValidatorRegistryState& prev, Valid
   }
 }
 
+void ValidatorRegistryState::for_each_voting_for_adnl_id(adnl::AdnlNodeIdShort adnl_id,
+                                                         std::function<void(VotingKey, Voting)> f) {
+  try {
+    auto dict = get_votings_dict();
+    if (!dict.cut_prefix_subdict(adnl_id.bits256_value().bits(), 256)) {
+      VLOG(validator, WARNING) << "Dictionary error in validator registry state: cut_prefix_subdict failed";
+      return;
+    }
+    dict.check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int key_len) {
+      CHECK(key_len == 256 + 32 + 32);
+      auto roles_add = (td::uint32)(key + 256).get_uint(32);
+      auto roles_remove = (td::uint32)(key + 256 + 32).get_uint(32);
+      block::gen::ValRegistryVoting::Record rec;
+      if (!block::gen::csr_unpack(value, rec)) {
+        VLOG(validator, WARNING) << "Invalid validator registry voting " << adnl_id << " " << roles_add << " "
+                                 << roles_remove;
+        return true;
+      }
+      f(VotingKey{adnl_id, roles_add, roles_remove}, Voting{.ends_at = rec.ends_at,
+                                                            .created_lt = rec.created_lt,
+                                                            .votes = rec.votes,
+                                                            .validator_set = rec.validator_set});
+      return true;
+    });
+  } catch (vm::VmError& e) {
+    VLOG(validator, WARNING) << "Dictionary error in validator registry state: " << e.get_msg();
+  }
+}
+
+void ValidatorRegistryState::scan_votings_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
+                                               std::function<void(VotingKey, std::optional<Voting>)> f) {
+  try {
+    auto cur_dict = cur.get_votings_dict();
+    prev.get_votings_dict().scan_diff(
+        cur_dict, [&](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice>, Ref<vm::CellSlice> cs_new) {
+          CHECK(key_len == 256 + 32 + 32);
+          adnl::AdnlNodeIdShort id{td::Bits256{key}};
+          auto roles_add = (td::uint32)(key + 256).get_uint(32);
+          auto roles_remove = (td::uint32)(key + 256 + 32).get_uint(32);
+          std::optional<Voting> voting;
+          if (cs_new.not_null()) {
+            block::gen::ValRegistryVoting::Record rec;
+            if (block::gen::csr_unpack(cs_new, rec)) {
+              voting = Voting{.ends_at = rec.ends_at,
+                              .created_lt = rec.created_lt,
+                              .votes = rec.votes,
+                              .validator_set = rec.validator_set};
+            } else {
+              VLOG(validator, WARNING) << "Invalid validator registry voting " << id << " " << roles_add << " "
+                                       << roles_remove;
+            }
+          }
+          f(VotingKey{id, roles_add, roles_remove}, std::move(voting));
+          return true;
+        });
+  } catch (vm::VmError& e) {
+    VLOG(validator, WARNING) << "Dictionary error in validator registry state: " << e.get_msg();
+  }
+}
+
+td::StringBuilder& operator<<(td::StringBuilder& sb, const ValidatorRegistryState::VotingKey& key) {
+  return sb << "id=" << key.adnl_id << " add=" << key.roles_add << " remove=" << key.roles_remove;
+}
+
 namespace {
 
 class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
@@ -291,6 +361,9 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
   void add_validator_key(PublicKeyHash key_hash) override {
     local_validators_.emplace(key_hash, LocalValidator{});
     update_is_current_validator();
+    for (auto& [_, to_vote] : to_vote_) {
+      to_vote.update_at = td::Timestamp::now();
+    }
   }
 
   void del_validator_key(PublicKeyHash key_hash) override {
@@ -317,6 +390,16 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
   Ref<CollatorsList> collators_list_;
   Ref<vm::Cell> new_entry_cell_;
 
+  struct ToVote {
+    UnixTime ends_at;
+    LogicalTime created_lt;
+    std::shared_ptr<block::TotalValidatorSet> validator_set;
+    vm::CellSlice votes;
+    td::Timestamp update_at = td::Timestamp::now();
+  };
+  std::map<ValidatorRegistryState::VotingKey, ToVote> to_vote_;
+  Ref<RegistryVotingConfig> voting_config_;
+
   void update_is_current_validator() {
     is_current_validator_ = false;
     if (mc_state_.is_null()) {
@@ -334,21 +417,126 @@ class ValidatorRegistryWatcherImpl : public ValidatorRegistryWatcher {
     }
   }
 
-  void update_local_validator(PublicKeyHash key_hash, LocalValidator& validator);
+  void update_legacy(Ref<ValidatorManagerOptions> opts);
+  void update_local_validator_legacy(PublicKeyHash key_hash, LocalValidator& validator);
   Ref<vm::Cell> make_entry_cell();
 
-  td::actor::Task<> sign_and_send_request(StdSmcAddress addr, PublicKeyHash key_hash, Ref<vm::Cell> request_cell);
+  td::actor::Task<> sign_and_send_request(StdSmcAddress addr, PublicKeyHash key_hash, Ref<vm::Cell> request_cell,
+                                          bool new_format = false);
   td::actor::Task<> send_external_message(StdSmcAddress addr, vm::CellSlice body);
 };
 
 void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<ValidatorManagerOptions> opts) {
   mc_state_ = mc_state;
-  registry_state_ = ValidatorRegistryState::fetch(mc_state_);
+  auto new_registry_state = ValidatorRegistryState::fetch(mc_state_);
+  if (inited_ && voting_config_.not_null()) {
+    ValidatorRegistryState::scan_votings_diff(
+        *registry_state_, *new_registry_state,
+        [&](ValidatorRegistryState::VotingKey key, std::optional<ValidatorRegistryState::Voting> voting) {
+          if (!voting_config_->vote_for(key.adnl_id, key.roles_add, key.roles_remove)) {
+            return;
+          }
+          if (!voting) {
+            to_vote_.erase(key);
+            return;
+          }
+          auto [it, added] = to_vote_.emplace(key, ToVote{});
+          auto& to_vote = it->second;
+          if (added || to_vote.created_lt != voting->created_lt) {
+            auto r_validator_set = block::Config::unpack_validator_set(voting->validator_set, true);
+            if (r_validator_set.is_error()) {
+              VLOG(validator, WARNING) << "Failed to unpack validator set for voting " << key << ": "
+                                       << r_validator_set.move_as_error();
+              to_vote_.erase(it);
+              return;
+            }
+            to_vote.created_lt = voting->created_lt;
+            to_vote.ends_at = voting->ends_at;
+            to_vote.validator_set = r_validator_set.move_as_ok();
+            VLOG(validator, INFO) << "Found new voting " << key;
+          }
+          to_vote.votes = vm::load_cell_slice(voting->votes);
+          to_vote.update_at = td::Timestamp::now();
+        });
+  }
+  registry_state_ = std::move(new_registry_state);
   if (mc_state_->is_key_state() || !inited_) {
     update_is_current_validator();
   }
   inited_ = true;
-  if (local_validators_.empty()) {
+
+  if (voting_config_ != opts->get_registry_voting_config()) {
+    voting_config_ = opts->get_registry_voting_config();
+    to_vote_.clear();
+    for (auto& [adnl_id, roles] : voting_config_->nodes) {
+      registry_state_->for_each_voting_for_adnl_id(
+          adnl_id, [&](ValidatorRegistryState::VotingKey key, ValidatorRegistryState::Voting voting) {
+            if (!voting_config_->vote_for(key.adnl_id, key.roles_add, key.roles_remove)) {
+              return;
+            }
+            auto r_validator_set = block::Config::unpack_validator_set(voting.validator_set, true);
+            if (r_validator_set.is_error()) {
+              VLOG(validator, WARNING) << "Failed to unpack validator set for voting " << key << ": "
+                                       << r_validator_set.move_as_error();
+              return;
+            }
+            auto& to_vote = to_vote_[key];
+            to_vote.created_lt = voting.created_lt;
+            to_vote.ends_at = voting.ends_at;
+            to_vote.validator_set = r_validator_set.move_as_ok();
+            to_vote.votes = vm::load_cell_slice(voting.votes);
+            VLOG(validator, INFO) << "Found new voting " << key;
+          });
+    }
+  }
+
+  for (auto it = to_vote_.begin(); it != to_vote_.end();) {
+    auto& [key, to_vote] = *it;
+    if (to_vote.ends_at <= (UnixTime)td::Clocks::system()) {
+      VLOG(validator, INFO) << "Voting " << key << " expired";
+      it = to_vote_.erase(it);
+      continue;
+    }
+    if (!to_vote.update_at || !to_vote.update_at.is_in_past()) {
+      ++it;
+      continue;
+    }
+    bool voted = false;
+    for (unsigned idx = 0; idx < to_vote.validator_set->list.size(); ++idx) {
+      if (to_vote.votes.size() <= idx || to_vote.votes.bit_at(idx)) {
+        continue;
+      }
+      PublicKeyHash key_hash = PublicKey{pubkeys::Ed25519{to_vote.validator_set->list[idx].pubkey}}.compute_short_id();
+      if (!local_validators_.contains(key_hash)) {
+        continue;
+      }
+      VLOG(validator, INFO) << "Voting for " << key;
+      block::gen::ValRegistryRequest::Record request{.adnl_id = key.adnl_id.bits256_value(),
+                                                     .roles_add = key.roles_add,
+                                                     .roles_remove = key.roles_remove,
+                                                     .validator_idx = (int)idx,
+                                                     .created_lt = to_vote.created_lt,
+                                                     .valid_until = (UnixTime)td::Clocks::system() + 60};
+      Ref<vm::Cell> request_cell;
+      CHECK(block::gen::pack_cell(request_cell, request));
+      sign_and_send_request(registry_state_->get_config().contract_address, key_hash, request_cell, true)
+          .start()
+          .detach("send vote");
+      voted = true;
+    }
+    if (voted) {
+      to_vote.update_at = td::Timestamp::in(60.0);
+    } else {
+      to_vote.update_at = td::Timestamp::never();
+    }
+  }
+
+  update_legacy(std::move(opts));
+}
+
+void ValidatorRegistryWatcherImpl::update_legacy(Ref<ValidatorManagerOptions> opts) {
+  auto registry_state_legacy = dynamic_cast<ValidatorRegistryStateImplLegacy*>(registry_state_.get());
+  if (!registry_state_legacy || local_validators_.empty()) {
     return;
   }
   if (opts->get_collators_list() != collators_list_ || mc_state_->is_key_state()) {
@@ -362,26 +550,24 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
     return;
   }
   for (auto& [id, validator] : local_validators_) {
-    update_local_validator(id, validator);
+    update_local_validator_legacy(id, validator);
   }
 
-  if (auto registry_state_legacy = dynamic_cast<ValidatorRegistryStateImplLegacy*>(registry_state_.get())) {
-    auto vset = mc_state_->get_total_validator_set(0);
-    if (is_current_validator_ && vset.not_null() &&
-        registry_state_legacy->get_last_cleanup_key_block_seqno() < mc_state_->last_key_block_id().seqno() &&
-        td::Random::fast(1, (int)vset->size()) == 1 && try_cleanup_at_.is_in_past()) {
-      VLOG(validator, INFO) << "Update registry: cleanup";
-      send_external_message(
-          registry_state_->get_config().contract_address,
-          vm::CellBuilder{}.store_long(block::gen::ValRegistryMessageCleanup::cons_tag[0], 32).as_cellslice())
-          .start()
-          .detach("send registry cleanup");
-      try_cleanup_at_ = td::Timestamp::in(60.0);
-    }
+  auto vset = mc_state_->get_total_validator_set(0);
+  if (is_current_validator_ && vset.not_null() &&
+      registry_state_legacy->get_last_cleanup_key_block_seqno() < mc_state_->last_key_block_id().seqno() &&
+      td::Random::fast(1, (int)vset->size()) == 1 && try_cleanup_at_.is_in_past()) {
+    VLOG(validator, INFO) << "Update registry: cleanup";
+    send_external_message(
+        registry_state_->get_config().contract_address,
+        vm::CellBuilder{}.store_long(block::gen::ValRegistryMessageCleanup::cons_tag[0], 32).as_cellslice())
+        .start()
+        .detach("send registry cleanup");
+    try_cleanup_at_ = td::Timestamp::in(60.0);
   }
 }
 
-void ValidatorRegistryWatcherImpl::update_local_validator(PublicKeyHash key_hash, LocalValidator& validator) {
+void ValidatorRegistryWatcherImpl::update_local_validator_legacy(PublicKeyHash key_hash, LocalValidator& validator) {
   auto registry_state_legacy = dynamic_cast<ValidatorRegistryStateImplLegacy*>(registry_state_.get());
   if (!registry_state_legacy) {
     return;
@@ -472,16 +658,21 @@ Ref<vm::Cell> ValidatorRegistryWatcherImpl::make_entry_cell() {
 }
 
 td::actor::Task<> ValidatorRegistryWatcherImpl::sign_and_send_request(StdSmcAddress addr, PublicKeyHash key_hash,
-                                                                      Ref<vm::Cell> request_cell) {
+                                                                      Ref<vm::Cell> request_cell, bool new_format) {
   td::BufferSlice to_sign{request_cell->get_hash().as_slice()};
   td::BufferSlice signature =
       co_await td::actor::ask(keyring_, &keyring::Keyring::sign_message, key_hash, std::move(to_sign));
-  auto body = vm::CellBuilder{}
-                  .store_long(block::gen::ValRegistryMessageRequest::cons_tag[0], 32)
-                  .store_bytes(signature)
-                  .append_cellslice(vm::load_cell_slice(request_cell))
-                  .as_cellslice();
-  co_await send_external_message(addr, std::move(body));
+  vm::CellBuilder cb;
+  if (new_format) {
+    cb.store_long(block::gen::ValRegistryMessageSignedRequest::cons_tag[0], 32);
+    cb.store_bytes(signature);
+    cb.store_ref(request_cell);
+  } else {
+    cb.store_long(block::gen::ValRegistryMessageRequest::cons_tag[0], 32);
+    cb.store_bytes(signature);
+    cb.append_cellslice(vm::load_cell_slice(request_cell));
+  }
+  co_await send_external_message(addr, cb.as_cellslice());
   co_return {};
 }
 

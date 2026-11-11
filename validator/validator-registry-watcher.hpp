@@ -23,11 +23,24 @@ class ValidatorRegistryState {
     return config_;
   }
 
-  virtual void for_each_node(std::function<void(adnl::AdnlNodeIdShort, td::uint32)> f) {
-  }
-
+  void for_each_node(std::function<void(adnl::AdnlNodeIdShort, td::uint32)> f);
   static void scan_nodes_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
                               std::function<void(adnl::AdnlNodeIdShort, td::uint32, td::uint32)> f);
+
+  struct VotingKey {
+    adnl::AdnlNodeIdShort adnl_id;
+    td::uint32 roles_add, roles_remove;
+    std::strong_ordering operator<=>(const VotingKey&) const = default;
+  };
+  struct Voting {
+    UnixTime ends_at;
+    LogicalTime created_lt;
+    Ref<vm::Cell> votes, validator_set;
+  };
+  void for_each_voting_for_adnl_id(adnl::AdnlNodeIdShort adnl_id,
+                                   std::function<void(VotingKey, Voting)> f);
+  static void scan_votings_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
+                                std::function<void(VotingKey, std::optional<Voting>)> f);
 
   static std::unique_ptr<ValidatorRegistryState> fetch(Ref<MasterchainState> mc_state);
   static std::unique_ptr<ValidatorRegistryState> create_empty();
@@ -40,6 +53,9 @@ class ValidatorRegistryState {
 
   virtual vm::Dictionary get_nodes_dict() {
     return vm::Dictionary{256};
+  }
+  virtual vm::Dictionary get_votings_dict() {
+    return vm::Dictionary{256 + 32 + 32};
   }
 };
 

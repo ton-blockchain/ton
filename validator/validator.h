@@ -160,6 +160,7 @@ struct RegistryVotingConfig : public td::CntObject {
   };
   std::map<adnl::AdnlNodeIdShort, Node> nodes;
 
+  bool vote_for(adnl::AdnlNodeIdShort adnl_id, td::uint32 roles_add, td::uint32 roles_remove) const;
   static td::Result<td::Ref<RegistryVotingConfig>> unpack(const ton_api::engine_validator_registryVotingConfig& obj);
 };
 

@@ -110,6 +110,15 @@ td::Result<td::Ref<ExtMessagePoolOptions>> ExtMessagePoolOptions::unpack(
   return td::Ref<ExtMessagePoolOptions>{true, std::move(options)};
 }
 
+bool RegistryVotingConfig::vote_for(adnl::AdnlNodeIdShort adnl_id, td::uint32 roles_add,
+                                    td::uint32 roles_remove) const {
+  if (auto it = nodes.find(adnl_id); it != nodes.end()) {
+    const Node& node = it->second;
+    return !(roles_add & ~node.roles_add) && !(roles_remove & ~node.roles_remove);
+  }
+  return false;
+}
+
 td::Result<td::Ref<RegistryVotingConfig>> RegistryVotingConfig::unpack(
     const ton_api::engine_validator_registryVotingConfig& obj) {
   RegistryVotingConfig result;
