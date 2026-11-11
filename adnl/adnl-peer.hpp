@@ -140,9 +140,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   }
 
   void add_received_packet(td::uint64 seqno) {
-    if (received_packet(seqno)) {
-      return;
-    }
+    CHECK(!received_packet(seqno));
     if (seqno <= in_seqno_) {
       recv_seqno_mask_ |= (1ull << (in_seqno_ - seqno));
     } else {

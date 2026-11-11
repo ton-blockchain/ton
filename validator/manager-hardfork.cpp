@@ -43,9 +43,9 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
 
   std::vector<BlockIdExt> prev{block_id};
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<GeneratedCandidate> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockCandidate> R) {
     if (R.is_ok()) {
-      auto v = std::move(R.ok_ref().candidate);
+      auto v = R.move_as_ok();
       LOG(ERROR) << "created block " << v.id;
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::created_candidate, std::move(v));
     } else {

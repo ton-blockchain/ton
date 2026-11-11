@@ -147,11 +147,6 @@
   }()
 #endif
 
-#define TRY_BOOL(x)                                  \
-  if (!(x)) {                                        \
-    return ::td::Status::Error("check failed: " #x); \
-  }
-
 namespace td {
 
 #if TD_PORT_POSIX
