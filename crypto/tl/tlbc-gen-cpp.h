@@ -205,6 +205,7 @@ class CppTypeCode {
   void generate_body(std::ostream& os, int options = 0);
   void generate_cons_len_array(std::ostream& os, std::string nl, int options = 0);
   void generate_cons_tag_array(std::ostream& os, std::string nl, int options = 0);
+  void generate_cons_name_array(std::ostream& os, std::string nl, int options = 0);
   void generate_cons_tag_info(std::ostream& os, std::string nl, int options = 0);
   void generate_skip_method(std::ostream& os, int options = 0);
   void generate_skip_cons_method(std::ostream& os, std::string nl, int cidx, int options);
@@ -216,7 +217,7 @@ class CppTypeCode {
   void generate_fetch_enum_method(std::ostream& os, int options);
   void generate_store_enum_method(std::ostream& os, int options);
   void generate_print_type_body(std::ostream& os, std::string nl);
-  void generate_print_method(std::ostream& os, int options = 0);
+  void generate_print_method(std::ostream& os, int options = 0, const char* printer_type = "PrettyPrinter");
   void generate_print_cons_method(std::ostream& os, std::string nl, int cidx, int options);
   void generate_get_tag_body(std::ostream& os, std::string nl);
   void generate_get_tag_subcase(std::ostream& os, std::string nl, const BinTrie* trie, int depth) const;
