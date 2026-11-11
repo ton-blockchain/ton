@@ -331,20 +331,21 @@ td::actor::Task<> TestNode::dump_validator_registry_inner() {
   if (!tlb::unpack_cell(state_init.data->prefetch_ref(), storage)) {
     co_return td::Status::Error("cannot unpack registry storage");
   }
+  static const char* role_names[2] = {"collator", "protected-overlay"};
   td::StringBuilder sb;
   sb << "Validator registry state:\n";
   sb << "Nodes:\n";
   vm::Dictionary{storage.nodes, 256}.check_for_each([&](Ref<vm::CellSlice> cs, td::ConstBitPtr key, int key_len) {
     CHECK(key_len == 256);
+    td::Bits256 adnl_id{key};
     block::gen::ValRegistryNode::Record rec;
     if (!tlb::csr_unpack(cs, rec)) {
-      LOG(WARNING) << "failed to parse node " << key.to_hex(256);
+      LOG(WARNING) << "failed to parse node " << adnl_id;
       return true;
     }
-    sb << "  " << key.to_hex(256) << " is_validator=" << rec.is_validator << " roles=" << rec.roles;
+    sb << "  " << adnl_id << " is_validator=" << rec.is_validator << " roles=" << rec.roles;
     if (rec.roles != 0) {
       sb << " (";
-      static const char* role_names[2] = {"collator", "protected-overlay"};
       for (int i = 0; i < 2; ++i) {
         if (rec.roles & (1u << i)) {
           if (rec.roles & ((1u << i) - 1)) {
@@ -358,6 +359,53 @@ td::actor::Task<> TestNode::dump_validator_registry_inner() {
     sb << "\n";
     return true;
   });
+  sb << "Votings:\n";
+  vm::Dictionary{storage.votings, 256 + 32 + 32}.check_for_each(
+      [&](Ref<vm::CellSlice> cs, td::ConstBitPtr key, int key_len) {
+        CHECK(key_len == 256 + 32 + 32);
+        td::Bits256 adnl_id{key};
+        auto roles_add = (td::uint32)(key + 256).get_uint(32);
+        auto roles_remove = (td::uint32)(key + 256 + 32).get_uint(32);
+        block::gen::ValRegistryVoting::Record rec;
+        block::gen::ValidatorSet::Record_validators_ext val_set;
+        if (!tlb::csr_unpack(cs, rec) || !tlb::unpack_cell(rec.validator_set, val_set)) {
+          LOG(WARNING) << "failed to parse voting " << adnl_id << " " << roles_add << " " << roles_remove;
+          return true;
+        }
+        sb << "  " << adnl_id << " roles_add=" << roles_add;
+        if (roles_add != 0) {
+          sb << " (";
+          for (int i = 0; i < 2; ++i) {
+            if (roles_add & (1u << i)) {
+              if (roles_add & ((1u << i) - 1)) {
+                sb << ", ";
+              }
+              sb << role_names[i];
+            }
+          }
+          sb << ")";
+        }
+        sb << " roles_remove=" << roles_remove;
+        if (roles_remove != 0) {
+          sb << " (";
+          for (int i = 0; i < 2; ++i) {
+            if (roles_remove & (1u << i)) {
+              if (roles_remove & ((1u << i) - 1)) {
+                sb << ", ";
+              }
+              sb << role_names[i];
+            }
+          }
+          sb << ")";
+        }
+        sb << "\n";
+        sb << "    voted_weight="
+           << td::StringBuilder::FixedDouble{(double)rec.voted_weight / (double)val_set.total_weight * 100.0, 3}
+           << "% required_weight="
+           << td::StringBuilder::FixedDouble{(double)rec.required_weight / (double)val_set.total_weight * 100.0, 3}
+           << "%\n";
+        return true;
+      });
   td::TerminalIO::out() << sb.as_cslice();
   co_return {};
 }
