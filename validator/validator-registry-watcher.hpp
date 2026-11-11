@@ -23,9 +23,15 @@ class ValidatorRegistryState {
     return config_;
   }
 
-  void for_each_node(std::function<void(adnl::AdnlNodeIdShort, td::uint32)> f);
+  struct Node {
+    td::uint32 roles = 0;
+    td::uint32 allow_update_adnl_node_at = 0;
+    Ref<vm::Cell> adnl_node_cell = {};
+  };
+
+  void for_each_node(std::function<void(adnl::AdnlNodeIdShort, Node)> f);
   static void scan_nodes_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
-                              std::function<void(adnl::AdnlNodeIdShort, td::uint32, td::uint32)> f);
+                              std::function<void(adnl::AdnlNodeIdShort, std::optional<Node>, std::optional<Node>)> f);
 
   struct VotingKey {
     adnl::AdnlNodeIdShort adnl_id;
@@ -72,7 +78,8 @@ class ValidatorRegistryWatcher : public td::actor::Actor {
   virtual void update(Ref<MasterchainState> mc_state, Ref<ValidatorManagerOptions> opts) = 0;
 
   static td::actor::ActorOwn<ValidatorRegistryWatcher> create(td::actor::ActorId<ValidatorManager> manager,
-                                                              td::actor::ActorId<keyring::Keyring> keyring);
+                                                              td::actor::ActorId<keyring::Keyring> keyring,
+                                                              td::actor::ActorId<adnl::Adnl> adnl);
   static std::set<adnl::AdnlNodeIdShort> get_all_collators(Ref<MasterchainState> mc_state);
 };
 
