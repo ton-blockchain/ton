@@ -127,7 +127,7 @@ class ValidatorRegistryStateImplLegacy : public ValidatorRegistryState {
       Entry entry;
       td::uint32 cnt = 0;
       vm::Dictionary{rec.collators, 256}.check_for_each([&](Ref<vm::CellSlice>, td::ConstBitPtr key, int) -> bool {
-        if (cnt >= config_.max_collators_per_validator) {
+        if (cnt >= config_.legacy_max_collators_per_validator) {
           return false;
         }
         ++cnt;
@@ -447,10 +447,10 @@ Ref<vm::Cell> ValidatorRegistryWatcherImpl::make_entry_cell() {
   const auto& config = registry_state_->get_config();
   std::set<adnl::AdnlNodeIdShort> collators;
   collators.insert(collators_list_->register_collators.begin(), collators_list_->register_collators.end());
-  if (collators.size() > config.max_collators_per_validator) {
+  if (collators.size() > config.legacy_max_collators_per_validator) {
     VLOG(validator, WARNING) << "Make entry cell: too many collators, pruning (max. "
-                             << config.max_collators_per_validator << ", found " << collators.size() << ")";
-    while (collators.size() > config.max_collators_per_validator) {
+                             << config.legacy_max_collators_per_validator << ", found " << collators.size() << ")";
+    while (collators.size() > config.legacy_max_collators_per_validator) {
       collators.erase(collators.begin());
     }
   }

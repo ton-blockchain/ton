@@ -110,6 +110,17 @@ td::Result<td::Ref<ExtMessagePoolOptions>> ExtMessagePoolOptions::unpack(
   return td::Ref<ExtMessagePoolOptions>{true, std::move(options)};
 }
 
+td::Result<td::Ref<RegistryVotingConfig>> RegistryVotingConfig::unpack(
+    const ton_api::engine_validator_registryVotingConfig& obj) {
+  RegistryVotingConfig result;
+  for (auto& f : obj.nodes_) {
+    Node& node = result.nodes[adnl::AdnlNodeIdShort{f->adnl_id_}];
+    node.roles_add |= f->roles_add_;
+    node.roles_remove |= f->roles_remove_;
+  }
+  return td::Ref<RegistryVotingConfig>{true, std::move(result)};
+}
+
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                                  bool allow_blockchain_init, double sync_blocks_before,
                                                                  double block_ttl, double state_ttl, double archive_ttl,
