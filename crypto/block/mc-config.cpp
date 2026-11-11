@@ -651,6 +651,7 @@ td::Result<std::shared_ptr<TotalValidatorSet>> Config::unpack_validator_set(Ref<
       return false;
     }
     ptr->list.emplace_back(sig_pubkey.pubkey, descr.weight, ptr->total_weight, descr.adnl_addr);
+    ptr->key_to_idx[ton::PublicKey{ton::pubkeys::Ed25519{sig_pubkey.pubkey}}.compute_short_id()] = ptr->list.size() - 1;
     ptr->total_weight += descr.weight;
     return true;
   };
@@ -2097,14 +2098,19 @@ td::Result<ValidatorRegistryConfig> Config::get_validator_registry_config() cons
   if (param.is_null()) {
     return td::Status::Error("configuration parameter 46 is absent");
   }
-  gen::ValRegistryConfig::Record rec;
-  if (!gen::unpack_cell(param, rec)) {
-    return td::Status::Error("configuration parameter 46 is invalid");
+  if (gen::ValRegistryConfig::Record_val_registry_config_old rec; gen::unpack_cell(param, rec)) {
+    return ValidatorRegistryConfig{
+        .contract_address = rec.contract_address,
+        .legacy_max_collators_per_validator = rec.max_collators_per_validator,
+    };
   }
-  return ValidatorRegistryConfig{
-      .contract_address = rec.contract_address,
-      .max_collators_per_validator = rec.max_collators_per_validator,
-  };
+  if (gen::ValRegistryConfig::Record_val_registry_config rec; gen::unpack_cell(param, rec)) {
+    return ValidatorRegistryConfig{
+        .contract_address = rec.contract_address,
+        .node_update_period = rec.node_update_period,
+    };
+  }
+  return td::Status::Error("configuration parameter 46 is invalid");
 }
 
 std::unique_ptr<vm::Dictionary> Config::get_suspended_addresses(ton::UnixTime now) const {

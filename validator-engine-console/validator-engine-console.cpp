@@ -178,6 +178,8 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<SetShardBlockVerifierConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ClearShardBlockVerifierConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ShowShardBlockVerifierConfigQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetRegistryVotingConfigQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ShowRegistryVotingConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SetConsensusNoncriticalParamsOverridesQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetConsensusNoncriticalParamsOverridesQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SetExtMessagePoolOptionsJsonQuery>>());

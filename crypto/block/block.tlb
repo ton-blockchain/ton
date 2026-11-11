@@ -1006,22 +1006,55 @@ chan_op_cmd#912838d1 msg:ChanSignedMsg = ChanOp;
 chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
 
 //
-// VALIDATOR REGISTRY
+// VALIDATOR REGISTRY (old types)
 //
-val_registry_config#3601163e contract_address:bits256 max_collators_per_validator:uint32 new_code_hash:(Maybe uint256) = ValRegistryConfig;
+val_registry_config_old#3601163e contract_address:bits256 max_collators_per_validator:uint32 new_code_hash:(Maybe bits256) = ValRegistryConfig;
 
 _ x:(## 1) = BitsPow2 0;
 _ {n:#} l:(BitsPow2 n) r:(BitsPow2 n) = BitsPow2 (n + 1);
 val_registry_shard_set$_ n:(#<= 8) mask:(BitsPow2 n) = ValRegistryShardSet;
 
-val_registry_storage#9bc722a8 registry:(HashmapE 256 ValRegistryValidator) last_cleanup_key_block_seqno:uint32 = ValRegistryStorage;
+val_registry_storage_old#9bc722a8 registry:(HashmapE 256 ValRegistryValidator) last_cleanup_key_block_seqno:uint32 = ValRegistryStorageOld;
 val_registry_validator#57766eec allow_update_at:uint32 entry:(Maybe ^ValRegistryEntry) = ValRegistryValidator;
 val_registry_entry#eae0b274 collators:(HashmapE 256 ValRegistryCollator) monitoring_shards:ValRegistryShardSet = ValRegistryEntry;
 val_registry_collator#10364494 monitoring_shards:ValRegistryShardSet = ValRegistryCollator;
 
-val_registry_message_request#cdb9d286 signature:(512 * Bit) request:ValRegistryRequest = ValRegistryMessageRequest;
+val_registry_message_request#cdb9d286 signature:(512 * Bit) request:ValRegistryRequestOld = ValRegistryMessageRequest;
 val_registry_request_update#fbd82b02 last_key_block_seqno:uint32 val_set:uint8 val_idx:uint16 valid_until:uint32
-    new_entry:(Maybe ^ValRegistryEntry) = ValRegistryRequest;
+    new_entry:(Maybe ^ValRegistryEntry) = ValRegistryRequestOld;
 
 val_registry_message_cleanup#32b85a9b = ValRegistryMessageCleanup;
+
+//
+// VALIDATOR REGISTRY
+//
+val_registry_config#3601163f contract_address:bits256 new_code_hash:(Maybe bits256)
+    roles:(HashmapE 5 ValRegistryRoleConfig) voting_timeout:uint32 voting_price:Grams
+    node_update_period:(## 32) { node_update_period >= 2 } = ValRegistryConfig;
+
+val_registry_role_config#e19f2d29
+    threshold_add:(## 16) { threshold_add >= 1 } { threshold_add <= 10000 }
+    threshold_remove:(## 16) { threshold_remove >= 1 } { threshold_remove <= 10000 }
+    max_nodes:uint32 = ValRegistryRoleConfig;
+
+val_registry_storage#9bc722a9
+    nodes:(HashmapE 256 ValRegistryNode)
+    votings:(HashmapE 320 ValRegistryVoting)  // Key: adnl_id, roles_add, roles_remove
+    votings_gc:(HashmapE 352 Unit)  // Key: ends_at, adnl_id, roles_add, roles_remove
+    extra:^ValRegistryStorageExtra
+    last_validator_set_update_seqno:uint32
+    = ValRegistryStorage;
+val_registry_storage_extra#c0c74297 nodes_count_by_role:(HashmapE 5 uint32)
+    current_validator_sets:^Cell = ValRegistryStorageExtra;
+val_registry_node#ac83c7be roles:uint32 is_validator:uint32 allow_update_adnl_node_at:uint32 adnl_node:(Maybe ^Cell) = ValRegistryNode;
+val_registry_voting#fb84df63 ends_at:uint32 created_lt:uint64 voted_weight:uint64 required_weight:uint64 is_reverse:Bool
+    votes:^Cell validator_set:^ValidatorSet = ValRegistryVoting;
+
+val_registry_message_new_voting#3b02088d adnl_id:bits256 roles_add:uint32 roles_remove:uint32 = ValRegistryMessageNewVoting;
 val_registry_message_update_code#34bdaa6c new_code:^Cell = ValRegistryMessageUpdateCode;
+val_registry_message_gc_votings#6065837c nonce:uint64 = ValRegistryMessageGcVotings;
+val_registry_message_update_validator_set#5cf70d63 nonce:uint64 = ValRegistryMessageUpdateValidatorSet;
+val_registry_message_signed_request#17bbf84f signature:bits512 request:^ValRegistryRequest = ValRegistryMessageSignedRequest;
+val_registry_request_vote#fcfffd3b adnl_id:bits256 roles_add:uint32 roles_remove:uint32 validator_idx:uint16
+    created_lt:uint64 valid_until:uint32 = ValRegistryRequest;
+val_registry_request_update_adnl_node#dbcf8cf8 adnl_id_full:bits256 valid_until:uint32 new_adnl_node:(Maybe ^Cell) = ValRegistryRequest;

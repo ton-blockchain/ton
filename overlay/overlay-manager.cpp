@@ -721,6 +721,21 @@ void OverlayManager::absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promi
   done.set_value(td::Unit());
 }
 
+void OverlayManager::update_semiprivate_authorized_nodes(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
+                                                         std::vector<adnl::AdnlNodeIdShort> add,
+                                                         std::vector<adnl::AdnlNodeIdShort> remove) {
+  auto it = overlays_.find(local_id);
+  if (it == overlays_.end()) {
+    return;
+  }
+  auto it2 = it->second.find(overlay);
+  if (it2 == it->second.end()) {
+    return;
+  }
+  td::actor::send_closure(it2->second.overlay, &Overlay::update_semiprivate_authorized_nodes, std::move(add),
+                          std::move(remove));
+}
+
 Certificate::Certificate(PublicKey issued_by, td::int32 expire_at, td::uint32 max_size, td::uint32 flags,
                          td::BufferSlice signature)
     : issued_by_(issued_by)

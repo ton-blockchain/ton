@@ -383,7 +383,7 @@ target_link_libraries(src_parser PUBLIC ton_crypto_core)
 add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_block PUBLIC ton_crypto_core tdactor tl_api)
+target_link_libraries(ton_block PUBLIC ton_crypto_core tdactor tl_api keys)
 if (MINGW)
   # Resolve circular static linking between ton_block and ton_crypto on MinGW.
   target_link_libraries(ton_block PUBLIC ton_crypto)

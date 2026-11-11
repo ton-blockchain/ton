@@ -110,6 +110,26 @@ td::Result<td::Ref<ExtMessagePoolOptions>> ExtMessagePoolOptions::unpack(
   return td::Ref<ExtMessagePoolOptions>{true, std::move(options)};
 }
 
+bool RegistryVotingConfig::vote_for(adnl::AdnlNodeIdShort adnl_id, td::uint32 roles_add,
+                                    td::uint32 roles_remove) const {
+  if (auto it = nodes.find(adnl_id); it != nodes.end()) {
+    const Node& node = it->second;
+    return !(roles_add & ~node.roles_add) && !(roles_remove & ~node.roles_remove);
+  }
+  return false;
+}
+
+td::Result<td::Ref<RegistryVotingConfig>> RegistryVotingConfig::unpack(
+    const ton_api::engine_validator_registryVotingConfig& obj) {
+  RegistryVotingConfig result;
+  for (auto& f : obj.nodes_) {
+    Node& node = result.nodes[adnl::AdnlNodeIdShort{f->adnl_id_}];
+    node.roles_add |= f->roles_add_;
+    node.roles_remove |= f->roles_remove_;
+  }
+  return td::Ref<RegistryVotingConfig>{true, std::move(result)};
+}
+
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                                  bool allow_blockchain_init, double sync_blocks_before,
                                                                  double block_ttl, double state_ttl, double archive_ttl,

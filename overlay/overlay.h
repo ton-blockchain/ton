@@ -91,6 +91,9 @@ class Overlay : public td::actor::Actor {
 
   // Drain locally accumulated broadcast-content counts into the manager, fulfilling `done` afterwards.
   virtual void collect_metrics(td::Promise<td::Unit> done) = 0;
+
+  virtual void update_semiprivate_authorized_nodes(std::vector<adnl::AdnlNodeIdShort> add,
+                                                   std::vector<adnl::AdnlNodeIdShort> remove) = 0;
 };
 
 }  // namespace overlay

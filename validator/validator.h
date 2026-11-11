@@ -153,6 +153,17 @@ struct ExtMessagePoolOptions : public td::CntObject {
   static td::Result<td::Ref<ExtMessagePoolOptions>> unpack(const ton_api::engine_validator_extMessagePoolConfig& f);
 };
 
+struct RegistryVotingConfig : public td::CntObject {
+  struct Node {
+    td::uint32 roles_add = 0;
+    td::uint32 roles_remove = 0;
+  };
+  std::map<adnl::AdnlNodeIdShort, Node> nodes;
+
+  bool vote_for(adnl::AdnlNodeIdShort adnl_id, td::uint32 roles_add, td::uint32 roles_remove) const;
+  static td::Result<td::Ref<RegistryVotingConfig>> unpack(const ton_api::engine_validator_registryVotingConfig& obj);
+};
+
 struct ValidatorManagerOptions : public td::CntObject {
  public:
   virtual BlockIdExt zero_block_id() const = 0;
@@ -201,6 +212,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual NewConsensusConfig::NoncriticalParams get_noncritical_params(
       ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig::NoncriticalParams& config) const = 0;
   virtual td::Ref<ExtMessagePoolOptions> get_ext_message_pool_options() const = 0;
+  virtual td::Ref<RegistryVotingConfig> get_registry_voting_config() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -240,6 +252,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_db_event_fifo_path(std::string value) = 0;
   virtual void set_noncritical_params_overrides(std::vector<NoncriticalParamsOverride> value) = 0;
   virtual void set_ext_message_pool_options(td::Ref<ExtMessagePoolOptions> value) = 0;
+  virtual void set_registry_voting_config(td::Ref<RegistryVotingConfig> value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                  bool allow_blockchain_init = false, double sync_blocks_before = 3600,

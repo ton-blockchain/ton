@@ -343,6 +343,8 @@ class TestNode : public td::actor::Actor {
   bool cache_cell(Ref<vm::Cell> cell);
   bool list_cached_cells() const;
   bool dump_cached_cell(td::Slice hash_pfx, td::Slice type_name = {});
+  td::actor::Task<> dump_validator_registry();
+  td::actor::Task<> dump_validator_registry_inner();
   // parser
   bool do_parse_line();
   bool show_help(std::string command);

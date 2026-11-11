@@ -22,6 +22,7 @@
 #include "td/utils/DecTree.h"
 
 #include "full-node.h"
+#include "validator-registry-watcher.hpp"
 #include "validator-telemetry.hpp"
 
 namespace ton::validator::fullnode {
@@ -75,6 +76,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void set_config(FullNodeConfig config) {
     config_ = std::move(config);
   }
+  void update_authorized_nodes(std::vector<adnl::AdnlNodeIdShort> add, std::vector<adnl::AdnlNodeIdShort> remove);
 
   td::actor::Task<QuerySender> get_query_sender();
 
@@ -114,6 +116,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   FullNodeConfig config_;
   double broadcast_speed_multiplier_;
   FileHash zero_state_file_hash_;
+  std::set<adnl::AdnlNodeIdShort> authorized_nodes_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -193,6 +196,9 @@ class FullNodeFastSyncOverlays {
   std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
   std::multimap<PublicKeyHash, adnl::AdnlNodeIdShort> validator_key_to_adnl_ids_;
   std::map<PublicKeyHash, UnixTime> validator_authority_until_;
+
+  std::unique_ptr<ValidatorRegistryState> registry_state_ = ValidatorRegistryState::create_empty();
+  std::set<adnl::AdnlNodeIdShort> authorized_nodes_;
 };
 
 }  // namespace ton::validator::fullnode

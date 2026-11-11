@@ -12,48 +12,75 @@ namespace ton::validator {
 
 using td::Ref;
 
-class ValidatorRegistryWatcher : public td::actor::Actor {
+class ValidatorRegistryState {
  public:
-  explicit ValidatorRegistryWatcher(PublicKeyHash key_hash, td::actor::ActorId<ValidatorManager> manager,
-                                    td::actor::ActorId<keyring::Keyring> keyring)
-      : key_hash_(key_hash), manager_(manager), keyring_(keyring) {
+  explicit ValidatorRegistryState(block::ValidatorRegistryConfig config) : config_(std::move(config)) {
+  }
+  virtual ~ValidatorRegistryState() = default;
+  virtual std::set<adnl::AdnlNodeIdShort> get_all_collators(Ref<MasterchainState> mc_state) = 0;
+
+  const block::ValidatorRegistryConfig& get_config() const {
+    return config_;
   }
 
-  void update(Ref<MasterchainState> mc_state, Ref<ValidatorManagerOptions> opts);
+  struct Node {
+    td::uint32 roles = 0;
+    td::uint32 allow_update_adnl_node_at = 0;
+    Ref<vm::Cell> adnl_node_cell = {};
+  };
 
+  void for_each_node(std::function<void(adnl::AdnlNodeIdShort, Node)> f);
+  static void scan_nodes_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
+                              std::function<void(adnl::AdnlNodeIdShort, std::optional<Node>, std::optional<Node>)> f);
+
+  struct VotingKey {
+    adnl::AdnlNodeIdShort adnl_id;
+    td::uint32 roles_add, roles_remove;
+    std::strong_ordering operator<=>(const VotingKey&) const = default;
+  };
+  struct Voting {
+    UnixTime ends_at;
+    LogicalTime created_lt;
+    Ref<vm::Cell> votes, validator_set;
+  };
+  void for_each_voting_for_adnl_id(adnl::AdnlNodeIdShort adnl_id, std::function<void(VotingKey, Voting)> f);
+  static void scan_votings_diff(ValidatorRegistryState& prev, ValidatorRegistryState& cur,
+                                std::function<void(VotingKey, std::optional<Voting>)> f);
+
+  virtual bool need_votings_gc() {
+    return false;
+  }
+  virtual bool need_update_validator_set(BlockSeqno last_key_block_seqno) {
+    return false;
+  }
+
+  static std::unique_ptr<ValidatorRegistryState> fetch(Ref<MasterchainState> mc_state);
+  static std::unique_ptr<ValidatorRegistryState> create_empty();
+
+  static constexpr td::uint32 ROLE_COLLATOR = 1;
+  static constexpr td::uint32 ROLE_PROTECTED_OVERLAY = 2;
+
+ protected:
+  block::ValidatorRegistryConfig config_;
+
+  virtual vm::Dictionary get_nodes_dict() {
+    return vm::Dictionary{256};
+  }
+  virtual vm::Dictionary get_votings_dict() {
+    return vm::Dictionary{256 + 32 + 32};
+  }
+};
+
+class ValidatorRegistryWatcher : public td::actor::Actor {
+ public:
+  virtual void add_validator_key(PublicKeyHash key_hash) = 0;
+  virtual void del_validator_key(PublicKeyHash key_hash) = 0;
+  virtual void update(Ref<MasterchainState> mc_state, Ref<ValidatorManagerOptions> opts) = 0;
+
+  static td::actor::ActorOwn<ValidatorRegistryWatcher> create(td::actor::ActorId<ValidatorManager> manager,
+                                                              td::actor::ActorId<keyring::Keyring> keyring,
+                                                              td::actor::ActorId<adnl::Adnl> adnl);
   static std::set<adnl::AdnlNodeIdShort> get_all_collators(Ref<MasterchainState> mc_state);
-
- private:
-  PublicKeyHash key_hash_;
-  td::actor::ActorId<ValidatorManager> manager_;
-  td::actor::ActorId<keyring::Keyring> keyring_;
-
-  td::Timestamp update_at_ = td::Timestamp::now();
-
-  Ref<CollatorsList> collators_list_;
-  Ref<vm::Cell> new_entry_cell_;
-
-  struct ValidatorInfo {
-    UnixTime allow_update_at = 0;
-    Ref<vm::Cell> entry = {};
-  };
-
-  struct Entry {
-    std::vector<adnl::AdnlNodeIdShort> collators;
-  };
-
-  Ref<vm::Cell> make_entry_cell(Ref<MasterchainState> mc_state);
-
-  td::actor::Task<> sign_and_send_request(StdSmcAddress addr, Ref<vm::Cell> request_cell);
-  td::actor::Task<> send_external_message(StdSmcAddress addr, vm::CellSlice body);
-
-  static td::Result<Ref<vm::Cell>> get_contract_data(Ref<MasterchainState> mc_state,
-                                                     block::ValidatorRegistryConfig& registry_config);
-  static td::Result<ValidatorInfo> get_validator_info(Ref<vm::Cell> contract_data, td::Bits256 public_key);
-  static td::Result<Entry> parse_entry(Ref<vm::Cell> cell, const block::ValidatorRegistryConfig& registry_config);
-  static td::Result<Entry> get_validator_entry(Ref<vm::Cell> contract_data, td::Bits256 public_key,
-                                               const block::ValidatorRegistryConfig& registry_config);
-  static td::Result<BlockSeqno> get_last_cleanup_key_block_seqno(Ref<vm::Cell> contract_data);
 };
 
 }  // namespace ton::validator
