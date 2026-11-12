@@ -29,6 +29,7 @@
 #include "block/block-db.h"
 #include "block/block-parse.h"
 #include "block/transaction.h"
+#include "crypto/Ed25519.h"
 #include "td/actor/actor.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/OptionParser.h"
@@ -58,6 +59,7 @@ struct Config {
   std::string corpus_out;
   std::string candidate_in;
   td::optional<td::Bits256> rand_seed;
+  td::SignatureCacheSizes signature_cache_slots{};
   Mode mode{Mode::Collate};
   int warmup{1};
   int iterations{15};
@@ -150,6 +152,9 @@ td::Result<Config> parse_config(int argc, char** argv) {
   config.fixture.zerostate_path = TON_SOURCE_DIR "/benchmark/collation/fixtures/zerostate.boc";
   config.fixture.base_state_path = TON_SOURCE_DIR "/benchmark/collation/fixtures/basestate0.boc";
   config.fixture.contracts_dir = TON_SOURCE_DIR "/benchmark/contracts";
+  config.signature_cache_slots[td::SignatureDomain::Generic] = 32 * 1024;
+  config.signature_cache_slots[td::SignatureDomain::Vm] = 64 * 1024;
+  config.signature_cache_slots[td::SignatureDomain::Consensus] = 4 * 1024;
 
   td::OptionParser parser;
   parser.set_description(
@@ -1593,6 +1598,11 @@ int main(int argc, char** argv) {
     return 2;
   }
   auto config = config_result.move_as_ok();
+  if (auto status = td::init_signature_caches(config.signature_cache_slots); status.is_error()) {
+    std::cerr << "COLLATION-VALIDATION-BENCH phase=config status=failed message="
+              << bench::collation::error_token(status.message()) << '\n';
+    return 2;
+  }
 
   td::Timer fixture_timer;
   bench::collation::Fixture fixture;
