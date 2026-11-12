@@ -50,12 +50,10 @@ Done
 
 This is a more compact representation of the same result.
 
-Finally, if one uses RLDP-HTTP Proxy in the client mode to access TON Sites from a browser as explained in `TONSites-HOWTO.txt`, the TONLib resolver is automatically invoked to resolve all domains entered by the end user, so that a HTTP query to `http://test.ton/testnet/last` is automatically forwarded to ADNL address `untzo7eat2h77xzfugxrfgfy3zbl5txomvetzke6fwr45lehvdkxauy` via RLDP.
-
 4. Registering new domains
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Suppose that you have a new TON Site with a newly-generated ADNL address, such as `vcqmha5j3ceve35ammfrhqty46rkhi455otydstv66pk2tmf7rl25f3`. Of course, the end user might type `http://vcqmha5j3ceve35ammfrhqty46rkhi455otydstv66pk2tmf7rl25f3.adnl/` to visit your TON Site from a browser using a RLDP-HTTP Proxy in client mode, but this is not very convenient. Instead, you could register a new domain, say, `mysite.temp.ton` with a `dns_adnl_address` record in category 1 containing the ADNL address vcq...25f3 of your TON Site. Then the user would access your TON Site by simply typing `mysite.temp.ton` in a browser.
+Suppose that you have a new TON Site with a newly-generated ADNL address, such as `vcqmha5j3ceve35ammfrhqty46rkhi455otydstv66pk2tmf7rl25f3`. You could register a new domain, say, `mysite.temp.ton`, with a `dns_adnl_address` record in category 1 containing the ADNL address vcq...25f3.
 
 In general, you would need to contact the owner of the higher-level domain and ask him to add a record for your subdomain in his DNS resolver smart contract. However, the TestNet of the TON Blockchain has a special resolver smart contract for `temp.ton` that allows anyone to automatically register any subdomains of `temp.ton` not registered yet, provided a small fee (in test Grams) is paid to that smart contract. In our case, we first need to find out the address of this smart contract, for example by using the Lite Client:
 

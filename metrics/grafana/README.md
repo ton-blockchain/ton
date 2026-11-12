@@ -5,7 +5,7 @@ The canonical dashboards live in `dashboards/`:
 - `ton-overview.json` — fleet health and incident entry point
 - `ton-blockchain.json` — sync, block production, split pressure, and external messages
 - `ton-actors.json` — actor scheduler, workload, tails, and performance counters
-- `ton-network.json` — ADNL, RLDP2, and QUIC health and traffic
+- `ton-network.json` — ADNL and QUIC health and traffic
 
 There is deliberately only one copy of each dashboard. Every Prometheus query uses the
 standard `instance` target label, and every dashboard starts with a `datasource` variable that
@@ -70,21 +70,20 @@ are now the single `ton-network` dashboard. A manually imported legacy dashboard
 
 ## ton-network.json — "TON Network"
 
-Works against any Prometheus scraping nodes that run the metrics branch (the `ton_quic_*`,
-`ton_adnl_*`, and `ton_rldp2_*` families). The `scope` variable keys off a `ton_scope` target label
+Works against any Prometheus scraping nodes that run the metrics branch (the `ton_quic_*` and
+`ton_adnl_*` families). The `scope` variable keys off a `ton_scope` target label
 (mainnet/testnet/devnet). Without that label the selector has only **All**, and the panels still
 match the unlabeled series because **All** expands to `.*`. The same expansion preserves unlabeled
 targets during a mixed labeled/unlabeled rollout.
 
 The default view is incident-oriented: outbound query/message health and path/packet health stay
 expanded. Connection inventory, traffic efficiency, type composition, and noisy per-type failure
-drill-downs are collapsed until needed. RLDP2 bulk-transfer latency and outcomes have their own
-collapsed row instead of sharing a scale with low-latency ADNL/QUIC. Multi-series charts use at most
-two columns so their legends remain readable on a 1280 px viewport.
+drill-downs are collapsed until needed. Multi-series charts use at most two columns so their
+legends remain readable on a 1280 px viewport.
 
 `Node aggregation` drives every per-node transport panel here — failure and loss ratios, drops by
 tier and reason, the two failure drill-downs, handshake attempts and completion, app payload,
-datagrams per syscall, wire/app overhead, RLDP2 transfer failures. Each is computed per (node,
+datagrams per syscall, and wire/app overhead. Each is computed per (node,
 scope) and then collapsed, so worst (the default) is the old fixed reading and median or p95 tells
 you whether a number is one node's problem or everyone's. Two of them read the other way — handshake
 completion and datagrams per syscall, where high is good — so there "worst" is the fleet minimum;
@@ -94,7 +93,7 @@ and max at once, which is the whole distribution the switch would otherwise pick
 The **QUIC peer class** selector is global to peer-attributable QUIC app traffic and drops, query
 roundtrips, message confirmation, and ready paths. The one exception is the wire/app overhead ratio: its
 app denominator remains all-peers so it matches the unsplit wire numerator. **All** compares trusted
-and untrusted series side by side where useful. QUIC socket/pre-auth totals and all ADNL, RLDP2, and
+and untrusted series side by side where useful. QUIC socket/pre-auth totals and all ADNL and
 overlay metrics stay all-peers because they do not carry a sound trust label; panel descriptions
 call this out where split and unsplit series share a chart. During a mixed-version rollout, QUIC
 series from pre-trust builds appear under **All** only; selecting **trusted** or **untrusted** excludes

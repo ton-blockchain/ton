@@ -48,15 +48,6 @@ TON_METRIC_DEFINE_LABEL(ConnectionCloseReason, "reason", CONNECTION_CLOSE_REASON
 TON_METRIC_DEFINE_LABEL(HandshakeFailureReason, "reason", HANDSHAKE_FAILURE_REASON_LIST)
 #undef HANDSHAKE_FAILURE_REASON_LIST
 
-#define TRANSFER_OUTCOME_LIST(F) \
-  F(completed)                   \
-  F(timeout)                     \
-  F(failed)                      \
-  F(too_big)                     \
-  F(invalid)
-TON_METRIC_DEFINE_LABEL(TransferOutcome, "outcome", TRANSFER_OUTCOME_LIST)
-#undef TRANSFER_OUTCOME_LIST
-
 struct BytesAndPackets {
   Counter bytes;
   Counter packets;
@@ -153,18 +144,6 @@ struct TransportStatsBase {
     ctx.collect(stateless_dropped, "stateless_dropped");
     ctx.collect(useful, "useful");
     ctx.collect(stream_bytes, "stream_bytes");
-  }
-};
-
-struct TransferStats {
-  Labeled<Counter, TransferOutcome> inactive;
-  Gauge<td::uint64> active;
-  Gauge<td::uint64> queries_active;
-
-  void collect(Context ctx) const {
-    ctx.collect(inactive, "inactive");
-    ctx.collect(active, "active");
-    ctx.collect(queries_active, "queries_active");
   }
 };
 

@@ -36,7 +36,6 @@
 
 #include "common/AtomicRef.h"
 #include "openssl/digest.hpp"
-#include "storage/db.h"
 #include "td/actor/actor.h"
 #include "td/db/MemoryKeyValue.h"
 #include "td/db/RocksDb.h"

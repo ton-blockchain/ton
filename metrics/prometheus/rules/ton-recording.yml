@@ -178,14 +178,12 @@ groups:
             sum by (job, instance) (rate(ton_adnl_wire_dropped_total{direction="in",reason="limited"}[5m])),
             "transport", "adnl", "", "")
 
-      # METRICS.md's cross-transport union: three separate rate()s, each tagged before the or,
-      # because after rate() the adnl and rldp2 labelsets would collide.
+      # METRICS.md's cross-transport union: each rate is tagged before the union.
       - record: ton:app_bytes:rate5m
         expr: |
           sum by (job, transport, kind, direction, tl) (
-              label_replace(rate(ton_quic_app_bytes_total[5m]),  "transport", "quic",  "", "")
-           or label_replace(rate(ton_adnl_app_bytes_total[5m]),  "transport", "adnl",  "", "")
-           or label_replace(rate(ton_rldp2_app_bytes_total[5m]), "transport", "rldp2", "", ""))
+              label_replace(rate(ton_quic_app_bytes_total[5m]), "transport", "quic", "", "")
+           or label_replace(rate(ton_adnl_app_bytes_total[5m]), "transport", "adnl", "", ""))
 
       # le survives, so fleet p95 (sum the bucket rates again) and per-node p95 both derive
       # from this one rule. A p95 of per-node p95s would not be a p95.
@@ -203,10 +201,6 @@ groups:
             sum by (job, instance) (rate(ton_quic_message_delivery_failed_total[5m]))
             / (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count[5m])) > 0),
             "transport", "quic", "", "")
-          or label_replace(
-            sum by (job, instance) (rate(ton_rldp2_message_delivery_failed_total[5m]))
-            / (sum by (job, instance) (rate(ton_rldp2_message_delivery_seconds_count[5m])) > 0),
-            "transport", "rldp2", "", "")
 
   - name: ton.rec.mempool
     interval: 15s

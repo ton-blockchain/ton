@@ -79,17 +79,15 @@ cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++"
 
 ninja -C "$BUILD_DIR" \
-  storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
+  fift func tolk tonlib tonlibjson tonlib-cli \
   validator-engine lite-client validator-engine-console blockchain-explorer \
-  generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \
+  generate-random-id json2tlo dht-server http-proxy \
   create-state emulator proxy-liteserver dht-ping-servers dht-resolve
 
 if [ "$with_artifacts" = true ]; then
   rm -rf artifacts
   mkdir artifacts
-  cp $BUILD_DIR/storage/storage-daemon/storage-daemon \
-     $BUILD_DIR/storage/storage-daemon/storage-daemon-cli \
-     $BUILD_DIR/crypto/fift \
+  cp $BUILD_DIR/crypto/fift \
      $BUILD_DIR/crypto/tlbc \
      $BUILD_DIR/crypto/func \
      $BUILD_DIR/tolk/tolk \
@@ -100,7 +98,6 @@ if [ "$with_artifacts" = true ]; then
      $BUILD_DIR/utils/proxy-liteserver \
      $BUILD_DIR/tonlib/libtonlibjson.dll \
      $BUILD_DIR/http/http-proxy \
-     $BUILD_DIR/rldp-http-proxy/rldp-http-proxy \
      $BUILD_DIR/dht-server/dht-server \
      $BUILD_DIR/lite-client/lite-client \
      $BUILD_DIR/validator-engine/validator-engine \

@@ -26,6 +26,7 @@
     Copyright 2019-2020 Telegram Systems LLP
 */
 #include <algorithm>
+#include <iostream>
 #include <list>
 
 #include "http/http-client.h"
