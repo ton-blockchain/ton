@@ -225,7 +225,7 @@ _ perform_action(cfg_dict, public_key, action, cs) inline_ref {
 }
 
 ;; cfg_proposal_status#ce expires:uint32 proposal:^ConfigProposal is_critical:Bool
-;;  voters:(HashmapE 16 True) remaining_weight:int64 validator_set_id:uint256
+;;  voters:(HashmapE 16 uint32) remaining_weight:int64 validator_set_id:uint256
 ;;  rounds_remaining:uint8 wins:uint8 losses:uint8 = ConfigProposalStatus;
 (int, cell, int, cell, int, int, slice) unpack_proposal_status(slice cs) inline_ref {
   throw_unless(44, cs~load_int(8) == 0xce - 0x100);
