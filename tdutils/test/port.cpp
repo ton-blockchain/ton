@@ -36,7 +36,60 @@
 #include "td/utils/port/thread_local.h"
 #include "td/utils/tests.h"
 
+#if TD_POLL_KQUEUE
+#include <sys/socket.h>
+
+#include "td/utils/port/Poll.h"
+#include "td/utils/port/SocketFd.h"
+#endif
+
 using namespace td;
+
+#if TD_POLL_KQUEUE
+TEST(Port, KQueueUnsubscribeDuringNotification) {
+  for (bool before_close : {false, true}) {
+    int sockets[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, sockets));
+    auto fd = SocketFd::from_native_fd(NativeFd(sockets[0])).move_as_ok();
+    auto peer = SocketFd::from_native_fd(NativeFd(sockets[1])).move_as_ok();
+    ASSERT_EQ(1u, peer.write("x").move_as_ok());
+
+    Poll poll;
+    poll.init();
+    class ClosingObserver final : public ObserverBase {
+     public:
+      ClosingObserver(Poll &poll, SocketFd &fd, bool before_close)
+          : poll_(poll), fd_(fd), before_close_(before_close) {
+      }
+      void notify() override {
+        notifications++;
+        auto ref = fd_.get_poll_info().get_pollable_fd_ref();
+        if (before_close_) {
+          poll_.unsubscribe_before_close(ref);
+        } else {
+          poll_.unsubscribe(ref);
+        }
+        fd_.close();
+      }
+      int notifications = 0;
+
+     private:
+      Poll &poll_;
+      SocketFd &fd_;
+      bool before_close_;
+    } observer(poll, fd, before_close);
+
+    // Both filters are ready in the same batch. The first notification may
+    // synchronously destroy the socket, invalidating the second event.
+    poll.subscribe(fd.get_poll_info().extract_pollable_fd(&observer), PollFlags::ReadWrite());
+    poll.run(100);
+    ASSERT_EQ(1, observer.notifications);
+    ASSERT_TRUE(fd.empty());
+    poll.run(0);
+    ASSERT_EQ(1, observer.notifications);
+  }
+}
+#endif
 
 #if TD_PORT_POSIX
 namespace {
