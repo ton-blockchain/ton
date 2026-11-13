@@ -206,10 +206,11 @@ struct AuthorizedKeyLimiter {
 class OverlayImpl : public Overlay {
  public:
   OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-              td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
-              adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, OverlayType overlay_type,
-              std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
-              OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
+              td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<OverlayManager> manager,
+              td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+              OverlayType overlay_type, std::vector<adnl::AdnlNodeIdShort> nodes,
+              std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert,
+              std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
               td::string scope = "{ \"type\": \"undefined\" }", OverlayOptions opts = {});
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
@@ -491,6 +492,7 @@ class OverlayImpl : public Overlay {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<adnl::AdnlSenderEx> quic_;
   td::actor::ActorId<OverlayManager> manager_;
   td::actor::ActorId<dht::Dht> dht_node_;
   adnl::AdnlNodeIdShort local_id_;

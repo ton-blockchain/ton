@@ -2319,7 +2319,7 @@ void ValidatorEngine::start_overlays() {
         .max_packets = 1024,
         .max_data_size = 2 << 20,
     };
-    overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(),
+    overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), quic_.get(),
                                                       dht_nodes_[default_dht_node_].get(), buffer_limits);
     td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::overlay::Overlays>,
                             overlay_manager_.get(), &ton::overlay::Overlays::collect);
@@ -2337,8 +2337,8 @@ void ValidatorEngine::start_validator() {
                                                           !state_serializer_disabled_flag_);
   load_collator_options();
 
-  validator_manager_ = ton::validator::ValidatorManagerFactory::create(
-      validator_options_, db_root_, keyring_.get(), adnl_.get(), quic_.get(), overlay_manager_.get());
+  validator_manager_ = ton::validator::ValidatorManagerFactory::create(validator_options_, db_root_, keyring_.get(),
+                                                                       adnl_.get(), overlay_manager_.get());
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::validator::ValidatorManagerInterface>,
                           validator_manager_.get(), &ton::validator::ValidatorManagerInterface::collect);
 
@@ -2399,7 +2399,6 @@ void ValidatorEngine::start_full_node() {
     full_node_options.config_ = config_.full_node_config;
     full_node_ = ton::validator::fullnode::FullNode::create(
         full_node_id_, validator_options_->zero_block_id().file_hash, full_node_options, keyring_.get(), adnl_.get(),
-        quic_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
     for (auto &v : config_.validators) {

@@ -251,10 +251,6 @@ class BroadcastsPlumtree::Impl {
     options_.stats_epoch_duration_ = std::max(options_.stats_epoch_duration_, 1.0);
   }
 
-  void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
-    sender_ = sender;
-  }
-
   void send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
   void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
             td::BufferSlice data);
@@ -292,7 +288,6 @@ class BroadcastsPlumtree::Impl {
   void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
 
  private:
-  td::actor::ActorId<adnl::AdnlSenderInterface> sender_;
   PlumtreeFecOptions options_;
   bool is_original_sender_ = false;
   td::uint32 local_eager_limit_ = 0;
@@ -788,12 +783,12 @@ void BroadcastsPlumtree::Impl::erase_missing_part(const MissingPartKey &key) {
 
 bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
                                             tl_object_ptr<ton_api::overlay_Broadcast> control) {
-  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
+  if (dst.is_zero() || dst == overlay->local_id()) {
     return false;
   }
   auto wire = serialize_tl_object(control, true);
-  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
-                          overlay->overlay_id(), std::move(wire), sender_);
+  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message, dst, overlay->local_id(),
+                          overlay->overlay_id(), std::move(wire));
   return true;
 }
 
@@ -834,10 +829,10 @@ void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const 
           td::actor::send_closure(overlay_id, &OverlayImpl::receive_plumtree_repair_response, dst, broadcast_id,
                                   part_index, tree_index, std::move(R));
         });
-    td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_query_via, dst, overlay->local_id(),
+    td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_query, dst, overlay->local_id(),
                             overlay->overlay_id(), "plumtree repair", std::move(promise),
                             td::Timestamp::in(PLUMTREE_PENDING_FEEDBACK_TTL), std::move(query),
-                            static_cast<td::uint64>(target.data_size) + PLUMTREE_PAYLOAD_MTU_OVERHEAD, sender_);
+                            static_cast<td::uint64>(target.data_size) + PLUMTREE_PAYLOAD_MTU_OVERHEAD);
   }
 }
 
@@ -845,7 +840,7 @@ td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_fec_payload_for_pe
                                                                                    PlumtreeFecBroadcastState &broadcast,
                                                                                    PlumtreePartState &part,
                                                                                    const adnl::AdnlNodeIdShort &dst) {
-  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
+  if (dst.is_zero() || dst == overlay->local_id()) {
     return td::Status::Error(ErrorCode::notready, "invalid Plumtree FEC payload destination");
   }
   if (!overlay->peer_receives_plumtree_broadcasts(dst)) {
@@ -876,7 +871,7 @@ td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_fec_payload_for_pe
 td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_simple_payload_for_peer(
     OverlayImpl *overlay, PlumtreeSimpleBroadcastState &payload, PlumtreePartState &part,
     const adnl::AdnlNodeIdShort &dst) {
-  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
+  if (dst.is_zero() || dst == overlay->local_id()) {
     return td::Status::Error(ErrorCode::notready, "invalid Plumtree simple payload destination");
   }
   if (!overlay->peer_receives_plumtree_broadcasts(dst)) {
@@ -923,8 +918,8 @@ bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, const td::B
   if (wire.is_error()) {
     return false;
   }
-  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
-                          overlay->overlay_id(), wire.move_as_ok(), sender_);
+  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message, dst, overlay->local_id(),
+                          overlay->overlay_id(), wire.move_as_ok());
   return true;
 }
 
@@ -1850,7 +1845,7 @@ void BroadcastsPlumtree::Impl::stats_sync_epoch() {
 }
 
 void BroadcastsPlumtree::Impl::stats_tick(OverlayImpl *overlay) {
-  if (sender_.empty() || options_.tree_slots_ < 2) {
+  if (options_.tree_slots_ < 2) {
     return;
   }
   stats_sync_epoch();
@@ -1895,7 +1890,7 @@ void BroadcastsPlumtree::Impl::stats_forward(OverlayImpl *overlay, const ton_api
 
 td::actor::Task<> BroadcastsPlumtree::Impl::process_stats_push(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                                                tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg) {
-  if (sender_.empty() || options_.tree_slots_ < 2) {
+  if (options_.tree_slots_ < 2) {
     co_return td::Status::Error(ErrorCode::notready, "Plumtree stats are not enabled");
   }
   if (from.is_zero()) {
@@ -1962,7 +1957,7 @@ void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
 td::Timestamp BroadcastsPlumtree::Impl::next_alarm_at() {
   auto *missing = oldest_missing_part();
   auto at = missing ? missing->repair_at : td::Timestamp::never();
-  if (!sender_.empty() && options_.tree_slots_ >= 2) {
+  if (options_.tree_slots_ >= 2) {
     if (!stats_epoch_.snapshot_done) {
       at.relax(stats_epoch_.snapshot_at);
     } else if (!stats_epoch_.send_done) {
@@ -2015,10 +2010,6 @@ BroadcastsPlumtree::BroadcastsPlumtree(PlumtreeFecOptions options, bool is_origi
 }
 
 BroadcastsPlumtree::~BroadcastsPlumtree() = default;
-
-void BroadcastsPlumtree::init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
-  impl_->init_sender(sender);
-}
 
 void BroadcastsPlumtree::send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
   impl_->send_fec(overlay, send_as, flags, std::move(data));

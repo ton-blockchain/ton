@@ -376,7 +376,18 @@ void QuicSender::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort 
 
 void QuicSender::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                                  td::Promise<td::string> promise) {
-  connect(std::move(promise), get_conn_ip_str_coro(l_id, p_id));
+  auto path = AdnlPath{l_id, p_id};
+  std::shared_ptr<Connection> connection;
+  if (auto it = outbound_.find(path); it != outbound_.end() && it->second->is_ready) {
+    connection = it->second;
+  } else if (auto it = inbound_.find(path); it != inbound_.end() && it->second->is_ready) {
+    connection = it->second;
+  }
+  if (!connection) {
+    promise.set_value("undefined");
+    return;
+  }
+  td::actor::send_closure(connection->server, &QuicServer::get_conn_ip_str, connection->cid, std::move(promise));
 }
 
 void QuicSender::set_quic_options(QuicServer::Options options) {
@@ -555,11 +566,6 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro_inner(std::shared_p
   conn = nullptr;  // don't keep connection, it may disconnect during our wait
   co_await td::actor::ask(server, &QuicServer::send_stream, cid, stream_id, std::move(wire_data), true);
   co_return co_await std::move(future);
-}
-
-td::actor::Task<std::string> QuicSender::get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id) {
-  auto conn = co_await wait_connection_ready(get_or_create_connection({l_id, p_id}));
-  co_return "<quic connection>";
 }
 
 td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) {

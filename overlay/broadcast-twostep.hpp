@@ -57,12 +57,7 @@ class BroadcastsTwostep {
                                       tl_object_ptr<ton_api::overlay_broadcastTwostepFec> broadcast);
   void gc(OverlayImpl *overlay);
 
-  void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
-    sender_ = std::move(sender);
-  }
-
  private:
-  td::actor::ActorId<adnl::AdnlSenderInterface> sender_;
   std::map<Overlay::BroadcastHash, std::unique_ptr<BroadcastTwostep>> broadcasts_;
   td::ListNode lru_;
 

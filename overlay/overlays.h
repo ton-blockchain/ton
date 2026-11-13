@@ -311,7 +311,6 @@ struct OverlayOptions {
   bool private_ping_peers_ = false;
   td::uint32 max_pending_peers_ = 100;
 
-  td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
   bool send_twostep_broadcast_ = false;
   bool allow_old_broadcasts_ = true;                                 // non-twostep broadcasts
   std::set<adnl::AdnlNodeIdShort> twostep_intermediate_nodes_ = {};  // if empty - all permanent nodes
@@ -332,7 +331,6 @@ struct OverlayOptions {
 
   bool enable_plumtree_broadcast_ = false;
   bool is_original_sender_ = false;
-  td::actor::ActorId<adnl::AdnlSenderEx> plumtree_broadcast_sender_ = {};
   PlumtreeFecOptions plumtree_fec_options_;
 
   td::RateLimiterWindow::Params auth_broadcast_rate_limit_ = {};
@@ -402,7 +400,9 @@ class Overlays : public td::actor::Actor {
   }
 
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                              td::actor::ActorId<adnl::Adnl> adnl,
+                                              td::actor::ActorId<adnl::AdnlSenderEx> quic,
+                                              td::actor::ActorId<dht::Dht> dht,
                                               OverlayManagerBufferLimits buffer_limits = {});
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
@@ -428,11 +428,7 @@ class Overlays : public td::actor::Actor {
 
   virtual void send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                           std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                          td::BufferSlice query) = 0;
-  virtual void send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                              std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                              td::BufferSlice query, td::uint64 max_answer_size,
-                              td::actor::ActorId<adnl::AdnlSenderInterface> via) = 0;
+                          td::BufferSlice query, td::uint64 max_answer_size) = 0;
   void send_multiple_messages(std::vector<adnl::AdnlNodeIdShort> dst, adnl::AdnlNodeIdShort src,
                               OverlayIdShort overlay_id, td::BufferSlice object) {
     for (auto &n : dst) {
@@ -442,8 +438,6 @@ class Overlays : public td::actor::Actor {
 
   virtual void send_message(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                             td::BufferSlice object) = 0;
-  virtual void send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                                td::BufferSlice object, td::actor::ActorId<adnl::AdnlSenderInterface> via) = 0;
 
   virtual void send_broadcast(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice object) = 0;
   virtual void send_broadcast_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,

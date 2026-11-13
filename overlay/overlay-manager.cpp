@@ -225,9 +225,10 @@ void OverlayManager::create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, Ov
                                               td::string scope, OverlayOptions opts) {
   CHECK(!dht_node_.empty());
   auto id = overlay_id.compute_short_id();
-  register_overlay(local_id, id, OverlayMemberCertificate{},
-                   Overlay::create_public(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                                          std::move(callback), std::move(rules), scope, std::move(opts)));
+  register_overlay(
+      local_id, id, OverlayMemberCertificate{},
+      Overlay::create_public(keyring_, adnl_, quic_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
+                             std::move(callback), std::move(rules), scope, std::move(opts)));
 }
 
 void OverlayManager::create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
@@ -244,9 +245,9 @@ void OverlayManager::create_private_overlay_ex(adnl::AdnlNodeIdShort local_id, O
                                                std::string scope, OverlayOptions opts) {
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id, OverlayMemberCertificate{},
-                   Overlay::create_private(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                                           std::move(nodes), std::move(callback), std::move(rules), std::move(scope),
-                                           std::move(opts)));
+                   Overlay::create_private(keyring_, adnl_, quic_, actor_id(this), dht_node_, local_id,
+                                           std::move(overlay_id), std::move(nodes), std::move(callback),
+                                           std::move(rules), std::move(scope), std::move(opts)));
 }
 
 void OverlayManager::create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
@@ -258,7 +259,7 @@ void OverlayManager::create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, 
   auto id = overlay_id.compute_short_id();
   register_overlay(
       local_id, id, certificate,
-      Overlay::create_semiprivate(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
+      Overlay::create_semiprivate(keyring_, adnl_, quic_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
                                   std::move(nodes), std::move(root_public_keys), certificate, std::move(callback),
                                   std::move(rules), std::move(scope), std::move(opts)));
 }
@@ -364,10 +365,9 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
                           std::move(promise));
 }
 
-void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                                    std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                                    td::BufferSlice query, td::uint64 max_answer_size,
-                                    td::actor::ActorId<adnl::AdnlSenderInterface> via) {
+void OverlayManager::send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
+                                std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
+                                td::BufferSlice query, td::uint64 max_answer_size) {
   CHECK(query.size() <= adnl::Adnl::huge_packet_max_size());
 
   auto extra = create_tl_object<ton_api::overlay_messageExtra>();
@@ -398,12 +398,12 @@ void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdS
                          query.as_slice(), overlay_id.tl(), std::move(extra))
                    : create_serialize_tl_object_suffix<ton_api::overlay_query>(query.as_slice(), overlay_id.tl()));
 
-  td::actor::send_closure(via, &adnl::AdnlSenderInterface::send_query_ex, src, dst, std::move(name), std::move(promise),
-                          timeout, std::move(serialized_query), max_answer_size);
+  td::actor::send_closure(quic_, &adnl::AdnlSenderInterface::send_query_ex, src, dst, std::move(name),
+                          std::move(promise), timeout, std::move(serialized_query), max_answer_size);
 }
 
-void OverlayManager::send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                                      td::BufferSlice object, td::actor::ActorId<adnl::AdnlSenderInterface> via) {
+void OverlayManager::send_message(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
+                                  td::BufferSlice object) {
   auto extra = create_tl_object<ton_api::overlay_messageExtra>();
   extra->flags_ = 0;
 
@@ -430,7 +430,7 @@ void OverlayManager::send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeI
                          object.as_slice(), overlay_id.tl(), std::move(extra))
                    : create_serialize_tl_object_suffix<ton_api::overlay_message>(object.as_slice(), overlay_id.tl()));
 
-  td::actor::send_closure(via, &adnl::AdnlSenderInterface::send_message, src, dst, std::move(serialized_message));
+  td::actor::send_closure(quic_, &adnl::AdnlSenderInterface::send_message, src, dst, std::move(serialized_message));
 }
 
 void OverlayManager::send_broadcast(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, td::BufferSlice object) {
@@ -595,15 +595,17 @@ void OverlayManager::get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, Ov
 }
 
 td::actor::ActorOwn<Overlays> Overlays::create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                               td::actor::ActorId<adnl::Adnl> adnl,
+                                               td::actor::ActorId<adnl::AdnlSenderEx> quic,
+                                               td::actor::ActorId<dht::Dht> dht,
                                                OverlayManagerBufferLimits buffer_limits) {
-  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, dht, buffer_limits);
+  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, quic, dht, buffer_limits);
 }
 
 OverlayManager::OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
-                               OverlayManagerBufferLimits buffer_limits)
-    : buffer_limits_(buffer_limits), db_root_(db_root), keyring_(keyring), adnl_(adnl), dht_node_(dht) {
+                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> quic,
+                               td::actor::ActorId<dht::Dht> dht, OverlayManagerBufferLimits buffer_limits)
+    : buffer_limits_(buffer_limits), db_root_(db_root), keyring_(keyring), adnl_(adnl), quic_(quic), dht_node_(dht) {
 }
 
 void OverlayManager::start_up() {

@@ -25,7 +25,6 @@
 #include "adnl/adnl.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
-#include "quic/quic-sender.h"
 #include "td/actor/actor.h"
 #include "td/utils/logging.h"
 #include "ton/ton-types.h"
@@ -184,12 +183,13 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;
   static constexpr td::uint32 PROTO_VERSION_MINOR = 3;
 
-  static td::actor::ActorOwn<FullNode> create(
-      adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
-      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
-      td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-      td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root, td::Promise<td::Unit> started_promise);
+  static td::actor::ActorOwn<FullNode> create(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
+                                              FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
+                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                              td::actor::ActorId<overlay::Overlays> overlays,
+                                              td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                                              td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
+                                              td::Promise<td::Unit> started_promise);
 };
 
 }  // namespace fullnode

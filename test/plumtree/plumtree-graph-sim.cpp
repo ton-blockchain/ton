@@ -390,8 +390,8 @@ int main(int argc, char **argv) {
     network_manager = td::actor::create_actor<ton::adnl::TestLoopbackNetworkManager>("plumtree sim net");
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
     plumtree_sender = td::actor::create_actor<SimulatedSender>("plumtree sim sender", network);
-    overlay_manager =
-        ton::overlay::Overlays::create(db_root, keyring.get(), adnl.get(), td::actor::ActorId<ton::dht::Dht>{});
+    overlay_manager = ton::overlay::Overlays::create(db_root, keyring.get(), adnl.get(), plumtree_sender.get(),
+                                                     td::actor::ActorId<ton::dht::Dht>{});
     network->overlay_manager = td::actor::actor_dynamic_cast<ton::overlay::OverlayManager>(overlay_manager.get());
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
   });
@@ -419,7 +419,6 @@ int main(int argc, char **argv) {
 
   ton::overlay::OverlayOptions opts;
   opts.enable_plumtree_broadcast_ = true;
-  opts.plumtree_broadcast_sender_ = plumtree_sender.get();
   opts.max_neighbours_ = 5;
 
   scheduler.run_in_context([&] {

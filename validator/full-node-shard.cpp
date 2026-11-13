@@ -112,7 +112,6 @@ void FullNodeShardImpl::create_overlay() {
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
   opts.enable_plumtree_broadcast_ = true;
-  opts.plumtree_broadcast_sender_ = quic_;
   opts.plumtree_fec_options_.stats_store_limit_ = k_public_plumtree_stats_store_limit;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
                           std::make_unique<Callback>(actor_id(this)), rules_,
@@ -120,7 +119,6 @@ void FullNodeShardImpl::create_overlay() {
                                     << ", \"workchain_id\": " << get_workchain() << " }",
                           opts);
 
-  td::actor::send_closure(quic_, &quic::QuicSender::add_id, adnl_id_);
   if (cert_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
   }
@@ -423,22 +421,20 @@ td::actor::Task<QuerySender> FullNodeShardImpl::get_query_sender() {
   class QuerySenderImpl : public QuerySenderInterface {
    public:
     QuerySenderImpl(adnl::AdnlNodeIdShort peer_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
-                    td::actor::ActorId<overlay::Overlays> overlays,
-                    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
-                    td::actor::ActorId<FullNodeShardImpl> parent, std::pair<td::uint32, td::uint32> proto_version)
+                    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<FullNodeShardImpl> parent,
+                    std::pair<td::uint32, td::uint32> proto_version)
         : peer_id_(peer_id)
         , local_id_(local_id)
         , overlay_id_(overlay_id)
         , overlays_(std::move(overlays))
-        , adnl_sender_(std::move(adnl_sender))
         , parent_(std::move(parent))
         , proto_version_(proto_version) {
     }
 
     void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
                     td::Promise<td::BufferSlice> promise) const override {
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id_, local_id_, overlay_id_, "q",
-                              std::move(promise), timeout, std::move(query), max_answer_size, adnl_sender_);
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id_, local_id_, overlay_id_, "q",
+                              std::move(promise), timeout, std::move(query), max_answer_size);
     }
 
     void query_finished(td::Status S) const override {
@@ -459,7 +455,6 @@ td::actor::Task<QuerySender> FullNodeShardImpl::get_query_sender() {
     adnl::AdnlNodeIdShort local_id_;
     overlay::OverlayIdShort overlay_id_;
     td::actor::ActorId<overlay::Overlays> overlays_;
-    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
     td::actor::ActorId<FullNodeShardImpl> parent_;
     std::pair<td::uint32, td::uint32> proto_version_;
 
@@ -475,7 +470,7 @@ td::actor::Task<QuerySender> FullNodeShardImpl::get_query_sender() {
     }
     peer_id = peers[0];
   }
-  co_return std::make_shared<QuerySenderImpl>(peer_id, adnl_id_, overlay_id_, overlays_, quic_, actor_id(this),
+  co_return std::make_shared<QuerySenderImpl>(peer_id, adnl_id_, overlay_id_, overlays_, actor_id(this),
                                               peer.version());
 }
 
@@ -642,7 +637,7 @@ void FullNodeShardImpl::ping_neighbours() {
         });
     td::BufferSlice q = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query, it->first, adnl_id_, overlay_id_,
-                            "get_prepare_block", std::move(P), td::Timestamp::in(1.0), std::move(q));
+                            "get capabilities", std::move(P), td::Timestamp::in(1.0), std::move(q), 1024);
 
     last_pinged_neighbour_ = it->first;
     it++;
@@ -670,7 +665,6 @@ void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
 
 FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
                                      FileHash zero_state_file_hash, FullNodeOptions opts,
-                                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<quic::QuicSender> quic,
                                      td::actor::ActorId<overlay::Overlays> overlays,
                                      td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                      td::actor::ActorId<FullNode> full_node, bool active)
@@ -678,8 +672,6 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , local_id_(local_id)
     , adnl_id_(adnl_id)
     , zero_state_file_hash_(zero_state_file_hash)
-    , adnl_(adnl)
-    , quic_(quic)
     , overlays_(overlays)
     , validator_manager_(validator_manager)
     , full_node_(full_node)
@@ -689,12 +681,12 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
 
 td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-    FullNodeOptions opts, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<quic::QuicSender> quic,
-    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-    td::actor::ActorId<FullNode> full_node, bool active) {
+    FullNodeOptions opts, td::actor::ActorId<overlay::Overlays> overlays,
+    td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<FullNode> full_node,
+    bool active) {
   return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard, shard, local_id, adnl_id,
-                                                    zero_state_file_hash, opts, adnl, quic, overlays, validator_manager,
-                                                    full_node, active);
+                                                    zero_state_file_hash, opts, overlays, validator_manager, full_node,
+                                                    active);
 }
 
 }  // namespace fullnode

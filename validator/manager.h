@@ -18,7 +18,6 @@
 */
 #pragma once
 #include "adnl/adnl.h"
-#include "quic/quic-sender.h"
 #include "validator/validator.h"
 
 namespace ton {
@@ -31,7 +30,6 @@ class ValidatorManagerFactory {
                                                                std::string db_root,
                                                                td::actor::ActorId<keyring::Keyring> keyring,
                                                                td::actor::ActorId<adnl::Adnl> adnl,
-                                                               td::actor::ActorId<quic::QuicSender> quic,
                                                                td::actor::ActorId<overlay::Overlays> overlays);
 };
 
