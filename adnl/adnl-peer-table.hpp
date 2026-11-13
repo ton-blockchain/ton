@@ -142,6 +142,8 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   }
 
   void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override;
+  void deliver_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
+                  td::Promise<td::Unit> promise) override;
   void deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
                      td::Promise<td::BufferSlice> promise) override;
   void decrypt_message(AdnlNodeIdShort dst, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override;

@@ -408,9 +408,15 @@ AdnlPeerTableImpl::AdnlPeerTableImpl(std::string db_root, td::actor::ActorId<key
 }
 
 void AdnlPeerTableImpl::deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) {
+  deliver_ex(src, dst, std::move(data), [](td::Result<td::Unit>) {});
+}
+void AdnlPeerTableImpl::deliver_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
+                                   td::Promise<td::Unit> promise) {
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
-    td::actor::send_closure(it->second.local_id, &AdnlLocalId::deliver, src, std::move(data));
+    td::actor::send_closure(it->second.local_id, &AdnlLocalId::deliver_ex, src, std::move(data), std::move(promise));
+  } else {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "cannot deliver: unknown DST"));
   }
 }
 void AdnlPeerTableImpl::deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
