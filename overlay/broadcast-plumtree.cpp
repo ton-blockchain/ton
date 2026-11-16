@@ -286,6 +286,7 @@ class BroadcastsPlumtree::Impl {
   td::Timestamp next_alarm_at();
   void gc(OverlayImpl *overlay);
   void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
+  bool is_eager_peer(adnl::AdnlNodeIdShort peer) const;
 
  private:
   PlumtreeFecOptions options_;
@@ -611,6 +612,10 @@ void BroadcastsPlumtree::Impl::remove_peer(OverlayImpl *overlay, adnl::AdnlNodeI
   for (auto &slot : slots_) {
     remove_eager(overlay, slot, peer);
   }
+}
+
+bool BroadcastsPlumtree::Impl::is_eager_peer(adnl::AdnlNodeIdShort peer) const {
+  return eager_peer_refcnt_.contains(peer);
 }
 
 PlumtreeFecBroadcastState *BroadcastsPlumtree::Impl::get_state(const td::Bits256 &broadcast_id) {
@@ -2103,6 +2108,10 @@ void BroadcastsPlumtree::gc(OverlayImpl *overlay) {
 
 void BroadcastsPlumtree::remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer) {
   impl_->remove_peer(overlay, peer);
+}
+
+bool BroadcastsPlumtree::is_eager_peer(adnl::AdnlNodeIdShort peer) const {
+  return impl_->is_eager_peer(peer);
 }
 
 }  // namespace overlay

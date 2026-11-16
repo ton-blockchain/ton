@@ -103,6 +103,7 @@ class BroadcastsPlumtree {
   td::Timestamp next_alarm_at();
   void gc(OverlayImpl *overlay);
   void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
+  bool is_eager_peer(adnl::AdnlNodeIdShort peer) const;
 
  private:
   class Impl;

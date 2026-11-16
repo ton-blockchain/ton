@@ -110,8 +110,12 @@ void OverlayImpl::del_some_peers() {
   size_t iteration_seqno = 0;
   while (peer_list_.peers_.size() > max_peers() && iteration_seqno++ < max_iterations) {
     OverlayPeer *P;
-    if (peer_list_.bad_peers_.empty()) {
-      P = get_random_peer();
+    bool evicting_bad_peer = !peer_list_.bad_peers_.empty();
+    if (!evicting_bad_peer) {
+      P = peer_list_.peers_.get_random();
+      if (P && broadcasts_plumtree_.is_eager_peer(P->get_id())) {
+        P = nullptr;
+      }
     } else {
       auto it = peer_list_.bad_peers_.upper_bound(peer_list_.next_bad_peer_);
       if (it == peer_list_.bad_peers_.end()) {
