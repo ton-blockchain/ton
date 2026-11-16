@@ -104,6 +104,7 @@ class BroadcastsPlumtree {
   void gc(OverlayImpl *overlay);
   void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
   bool is_eager_peer(adnl::AdnlNodeIdShort peer) const;
+  std::vector<adnl::AdnlNodeIdShort> get_simple_eager_peers() const;
 
  private:
   class Impl;

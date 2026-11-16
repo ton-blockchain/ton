@@ -846,6 +846,18 @@ std::vector<adnl::AdnlNodeIdShort> OverlayImpl::get_neighbours(td::uint32 max_si
   return choose_neighbours(peer_list_.neighbours_, max_size);
 }
 
+std::vector<adnl::AdnlNodeIdShort> OverlayImpl::get_broadcast_neighbours(td::uint32 max_size) const {
+  auto result = get_neighbours(max_size);
+  for (const auto &peer_id : broadcasts_plumtree_.get_simple_eager_peers()) {
+    auto *peer = peer_list_.peers_.get(peer_id);
+    if (peer_id != local_id_ && peer && peer->is_alive() &&
+        std::find(result.begin(), result.end(), peer_id) == result.end()) {
+      result.push_back(peer_id);
+    }
+  }
+  return result;
+}
+
 std::vector<adnl::AdnlNodeIdShort> OverlayImpl::get_plumtree_neighbours(td::uint32 max_size) const {
   return choose_neighbours(peer_list_.plumtree_neighbours_, max_size);
 }

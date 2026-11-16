@@ -287,6 +287,7 @@ class BroadcastsPlumtree::Impl {
   void gc(OverlayImpl *overlay);
   void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
   bool is_eager_peer(adnl::AdnlNodeIdShort peer) const;
+  std::vector<adnl::AdnlNodeIdShort> get_simple_eager_peers() const;
 
  private:
   PlumtreeFecOptions options_;
@@ -616,6 +617,14 @@ void BroadcastsPlumtree::Impl::remove_peer(OverlayImpl *overlay, adnl::AdnlNodeI
 
 bool BroadcastsPlumtree::Impl::is_eager_peer(adnl::AdnlNodeIdShort peer) const {
   return eager_peer_refcnt_.contains(peer);
+}
+
+std::vector<adnl::AdnlNodeIdShort> BroadcastsPlumtree::Impl::get_simple_eager_peers() const {
+  if (slots_.empty()) {
+    return {};
+  }
+  const auto &eager = slots_[PLUMTREE_SIMPLE_TREE_INDEX].eager;
+  return {eager.begin(), eager.end()};
 }
 
 PlumtreeFecBroadcastState *BroadcastsPlumtree::Impl::get_state(const td::Bits256 &broadcast_id) {
@@ -2112,6 +2121,10 @@ void BroadcastsPlumtree::remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort
 
 bool BroadcastsPlumtree::is_eager_peer(adnl::AdnlNodeIdShort peer) const {
   return impl_->is_eager_peer(peer);
+}
+
+std::vector<adnl::AdnlNodeIdShort> BroadcastsPlumtree::get_simple_eager_peers() const {
+  return impl_->get_simple_eager_peers();
 }
 
 }  // namespace overlay
