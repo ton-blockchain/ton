@@ -890,8 +890,7 @@ double FullNodeFastSyncOverlays::update_overlays(
     }
     authority_until = std::max(authority_until, current_certificate_authority_until);
     if (authorized_nodes_.contains(local_id)) {
-      // TODO: How to properly process removing node from registry?
-      authority_until = std::max<double>(authority_until, state->get_unix_time() + 3600);
+      authority_until = std::max<double>(authority_until, state->get_unix_time() + 3600 * 12);
     }
 
     // Update shard overlays
