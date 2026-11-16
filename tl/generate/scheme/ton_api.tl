@@ -336,14 +336,6 @@ tonNode.data data:bytes = tonNode.Data;
 
 tonNode.externalMessage data:bytes = tonNode.ExternalMessage;
 
-tonNode.blockBroadcastCompressed.data signatures:(vector tonNode.blockSignature) proof_data:bytes = tonNode.blockBroadcaseCompressed.Data;
-
-tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              signatures:(vector tonNode.blockSignature)
-              proof:bytes data:bytes = tonNode.Broadcast;
-tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              flags:# compressed:bytes = tonNode.Broadcast;
-tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.SignatureSet flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
 tonNode.finalityBroadcastId id:tonNode.blockIdExt = tonNode.FinalityBroadcastId;
 tonNode.blockFinalityBroadcast id:tonNode.blockIdExt signature_set:tonNode.SignatureSet = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
