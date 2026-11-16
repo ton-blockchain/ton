@@ -113,7 +113,7 @@ void AdnlLocalId::deliver(AdnlNodeIdShort src, td::BufferSlice data) {
 
 void AdnlLocalId::deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
   auto s = std::move(data);
-  // Every transport (peer pairs, RLDP2, QUIC, the ext server) funnels its queries through here, so
+  // Every transport (peer pairs, QUIC, the ext server) funnels its queries through here, so
   // this is the one place that times dispatch-to-answer. A dropped promise still runs the lambda
   // ("Lost promise"), so an abandoned query is recorded as failed instead of vanishing.
   // The answer may complete on any thread, so the recording happens on the peer table's own thread.

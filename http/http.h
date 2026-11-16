@@ -23,7 +23,6 @@
 #include <map>
 #include <mutex>
 
-#include "auto/tl/ton_api.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/buffer.h"
 
@@ -47,7 +46,6 @@ struct HttpHeader {
   std::string name;
   std::string value;
   void store_http(td::ChainBufferWriter &output);
-  tl_object_ptr<ton_api::http_header> store_tl();
 
   size_t size() const {
     return 2 + name.size() + value.size();
@@ -144,7 +142,6 @@ class HttpPayload {
   HttpHeader get_header();
 
   bool store_http(td::ChainBufferWriter &output, size_t max_size, HttpPayload::PayloadType store_type);
-  tl_object_ptr<ton_api::http_payloadPart> store_tl(size_t max_size);
 
   bool written() const {
     return ready_bytes_ == 0 && parse_completed() && written_zero_chunk_ && written_trailer_;
@@ -243,7 +240,6 @@ class HttpRequest {
   }
 
   void store_http(td::ChainBufferWriter &output);
-  tl_object_ptr<ton_api::http_request> store_tl(td::Bits256 req_id);
 
   static td::Result<std::unique_ptr<HttpRequest>> parse(std::unique_ptr<HttpRequest> request, std::string &cur_line,
                                                         bool &exit_loop, td::ChainBufferReader &input);
@@ -313,7 +309,6 @@ class HttpResponse {
   }
 
   void store_http(td::ChainBufferWriter &output);
-  tl_object_ptr<ton_api::http_response> store_tl();
 
   static td::Result<std::unique_ptr<HttpResponse>> parse(std::unique_ptr<HttpResponse> request, std::string &cur_line,
                                                          bool force_no_payload, bool keep_alive, bool &exit_loop,

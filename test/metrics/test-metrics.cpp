@@ -28,8 +28,6 @@
 #ifdef TON_TEST_METRICS_QUIC
 #include "quic/metrics.h"
 #endif
-#include "rldp2/RldpConnection.h"
-#include "rldp2/rldp-metrics.h"
 #include "td/actor/actor.h"
 #include "td/actor/core/Scheduler.h"
 #include "td/utils/Random.h"
@@ -702,33 +700,6 @@ TEST(MetricsGolden, Adnl) {
             emitted_families([](Context ctx) {
               ::ton::adnl::AdnlPeerTableMetrics peer_table;
               ctx.with_name("adnl").collect(peer_table);
-            }));
-}
-
-TEST(MetricsGolden, Rldp2) {
-  // RldpIn::collect
-  ASSERT_EQ(families({
-                "ton_rldp2_wire_bytes counter",
-                "ton_rldp2_wire_packets counter",
-                "ton_rldp2_transport_dropped counter",
-                "ton_rldp2_transport_transfers counter",
-                "ton_rldp2_transport_connections gauge",
-                "ton_rldp2_transport_queries_pending gauge",
-                "ton_rldp2_app_bytes counter",
-                "ton_rldp2_app_messages counter",
-                "ton_rldp2_app_dropped counter",
-                "ton_rldp2_query_roundtrip_seconds histogram",
-                "ton_rldp2_query_roundtrip_failed counter",
-                "ton_rldp2_message_delivery_seconds histogram",
-                "ton_rldp2_message_delivery_failed counter",
-            }),
-            emitted_families([](Context ctx) {
-              ::ton::rldp2::RldpConnMetrics aggregate;
-              ::ton::rldp2::RldpMetrics metrics;
-              auto rldp = ctx.with_name("rldp2");
-              rldp.collect(aggregate.wire, "wire");
-              rldp.collect(aggregate.transport_dropped, "transport_dropped");
-              rldp.collect(metrics);
             }));
 }
 

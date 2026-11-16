@@ -32,7 +32,6 @@
 #include "auto/tl/ton_api.hpp"
 #include "fec/fec.h"
 #include "keys/encryptor.h"
-#include "rldp2/rldp.h"
 #include "td/actor/SharedFuture.h"
 #include "td/utils/DecTree.h"
 #include "td/utils/LRUCache.h"
