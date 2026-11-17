@@ -390,7 +390,7 @@ void FullNodeImpl::update_public_overlay_mode(double fast_sync_authority_until) 
   }
   enable_public_overlays_at_ = td::Timestamp::never();
   bool is_validator_or_collator = !local_keys_.empty() || !local_collator_nodes_.empty();
-  if (!is_validator_or_collator) {
+  if (opts_.public_rebroadcast_enabled_ || !is_validator_or_collator) {
     set_public_overlays_enabled(true);
     return;
   }
@@ -480,6 +480,18 @@ td::actor::Task<> FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::Bu
   }
   td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
   co_return {};
+}
+
+void FullNodeImpl::relay_external_message_to_fast_sync(ShardIdFull shard, td::BufferSlice data) {
+  if (!opts_.public_rebroadcast_enabled_ || opts_.config_.ext_messages_broadcast_disabled_) {
+    return;
+  }
+  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(shard).first;
+  if (fast_sync_overlay.empty()) {
+    VLOG(full_node, WARNING) << "dropping relayed external message: no fast-sync overlay for " << shard;
+    return;
+  }
+  td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_external_message, std::move(data));
 }
 
 void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
@@ -885,6 +897,9 @@ void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast final
   if (send_to_custom) {
     send_block_finality_broadcast_to_custom_overlays(finality);
   }
+  if (opts_.public_rebroadcast_enabled_ && source == BroadcastSource::fast_sync_overlay) {
+    send_block_finality_broadcast(finality.clone(), broadcast_mode_public);
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::got_block_finality, finality.block_id,
                           finality.sig_set, source, [id = finality.block_id](td::Result<> R) {
                             if (R.is_error()) {
@@ -899,6 +914,9 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
                                                      BroadcastSource source, bool send_to_custom) {
   if (send_to_custom) {
     send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
+  }
+  if (opts_.public_rebroadcast_enabled_ && source == BroadcastSource::fast_sync_overlay) {
+    send_block_candidate(block_id, cc_seqno, validator_set_hash, data.clone(), broadcast_mode_public);
   }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::add_cached_block_data, block_id, cc_seqno,
                           std::move(data), source, [block_id](td::Result<> R) {

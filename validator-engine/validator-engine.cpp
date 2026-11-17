@@ -6216,6 +6216,21 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_initial_sync_delay, v); });
         return td::Status::OK();
       });
+  p.add_option(
+      '\0', "public-rebroadcast",
+      "relay fast-sync Plumtree blocks to public overlays and validated public externals to fast-sync",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::enable_public_rebroadcast); }); });
+  p.add_checked_option('\0', "public-rebroadcast-fanout", "Plumtree eager fanout for public rebroadcasts (default: 50)",
+                       [&](td::Slice value) -> td::Status {
+                         TRY_RESULT(fanout, td::to_integer_safe<td::uint32>(value));
+                         if (fanout == 0) {
+                           return td::Status::Error("public-rebroadcast-fanout should be positive");
+                         }
+                         acts.push_back([&x, fanout]() {
+                           td::actor::send_closure(x, &ValidatorEngine::set_public_rebroadcast_fanout, fanout);
+                         });
+                         return td::Status::OK();
+                       });
   for (size_t iter = 0; iter < 3; ++iter) {
     static const char *suffixes[3] = {"", "-fast-sync", "-custom"};
     const char *suffix = suffixes[iter];

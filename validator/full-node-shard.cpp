@@ -112,6 +112,12 @@ void FullNodeShardImpl::create_overlay() {
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
   opts.enable_plumtree_broadcast_ = true;
+  if (opts_.public_rebroadcast_enabled_) {
+    opts.is_original_sender_ = true;
+    opts.plumtree_fec_options_.original_sender_eager_limit_ = opts_.public_rebroadcast_fanout_;
+    opts.plumtree_fec_options_.ihave_fanout_ = opts_.public_rebroadcast_fanout_;
+    opts.max_peers_ = std::max(opts.max_peers_, opts_.public_rebroadcast_fanout_);
+  }
   opts.plumtree_fec_options_.stats_store_limit_ = k_public_plumtree_stats_store_limit;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
                           std::make_unique<Callback>(actor_id(this)), rules_,
@@ -153,8 +159,24 @@ void FullNodeShardImpl::process_external_message_broadcast(ton_api::tonNode_exte
     promise.set_result(td::Unit());
     return;
   }
+
+  auto data = std::move(message.message_->data_);
+  if (opts_.public_rebroadcast_enabled_ && !opts_.config_.ext_messages_broadcast_disabled_) {
+    auto relay_promise =
+        td::PromiseCreator::lambda([promise = std::move(promise), full_node = full_node_, shard = shard_,
+                                    relay_data = data.clone()](td::Result<td::Unit> result) mutable {
+          if (result.is_ok()) {
+            td::actor::send_closure(full_node, &FullNode::relay_external_message_to_fast_sync, shard,
+                                    std::move(relay_data));
+          }
+          promise.set_result(std::move(result));
+        });
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
+                            std::move(data), 0, std::move(relay_promise));
+    return;
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
-                          std::move(message.message_->data_), 0, std::move(promise));
+                          std::move(data), 0, std::move(promise));
 }
 
 void FullNodeShardImpl::remove_neighbour(adnl::AdnlNodeIdShort id) {

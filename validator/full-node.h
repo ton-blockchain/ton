@@ -56,6 +56,9 @@ struct FullNodeOptions {
   double fast_sync_broadcast_speed_multiplier_ = 1.0;
   double initial_sync_delay_ = 60.0;
 
+  bool public_rebroadcast_enabled_ = false;
+  td::uint32 public_rebroadcast_fanout_ = 50;
+
   struct RateLimiterParams {
     double window_size_ = 1.0;
     size_t limit_global_ = 96, limit_heavy_ = 64, limit_medium_ = 72, limit_small_ = 200;
@@ -147,6 +150,7 @@ class FullNode : public td::actor::Actor {
 
   virtual void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) = 0;
   virtual void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) = 0;
+  virtual void relay_external_message_to_fast_sync(ShardIdFull shard, td::BufferSlice data) = 0;
 
   virtual void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
                                                 bool send_to_custom) = 0;
