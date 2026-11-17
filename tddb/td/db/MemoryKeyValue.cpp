@@ -53,6 +53,10 @@ Result<std::vector<MemoryKeyValue::GetStatus>> MemoryKeyValue::get_multi(td::Spa
 }
 
 Status MemoryKeyValue::for_each(std::function<Status(Slice, Slice)> f) {
+  return for_each(std::move(f), {});
+}
+
+Status MemoryKeyValue::for_each(std::function<Status(Slice, Slice)> f, ForEachOptions) {
   for (auto &unlocked_bucket : buckets_) {
     auto bucket = lock(unlocked_bucket);
     for (auto &it : bucket->map) {
