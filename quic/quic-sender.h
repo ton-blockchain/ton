@@ -140,7 +140,6 @@ class QuicSender : public adnl::AdnlSenderEx {
   // Takes a ready connection: the round-trip timer is already running by the time it is entered.
   td::actor::Task<td::BufferSlice> send_query_coro_inner(std::shared_ptr<Connection> conn, StreamOptions options,
                                                          td::BufferSlice data, Trust trust);
-  td::actor::Task<std::string> get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id);
   td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
 
   std::shared_ptr<Connection> get_or_create_connection(AdnlPath path);

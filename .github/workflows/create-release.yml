@@ -213,22 +213,6 @@ jobs:
           asset_name: http-proxy.exe
           tag: ${{ inputs.tag }}
 
-      - name: Upload Windows 2019 single artifact - storage-daemon-cli
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86-64-windows/storage-daemon-cli.exe
-          asset_name: storage-daemon-cli.exe
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Windows 2019 single artifact - storage-daemon
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86-64-windows/storage-daemon.exe
-          asset_name: storage-daemon.exe
-          tag: ${{ inputs.tag }}
-
       - name: Upload Windows 2019 single artifact - tonlibjson
         uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
@@ -309,22 +293,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-macos/http-proxy
           asset_name: http-proxy-mac-x86-64
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Mac x86-64 single artifact - storage-daemon-cli
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-macos/storage-daemon-cli
-          asset_name: storage-daemon-cli-mac-x86-64
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Mac x86-64 single artifact - storage-daemon
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-macos/storage-daemon
-          asset_name: storage-daemon-mac-x86-64
           tag: ${{ inputs.tag }}
 
       - name: Upload Mac x86-64 single artifact - tonlibjson
@@ -408,22 +376,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-macos/http-proxy
           asset_name: http-proxy-mac-arm64
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Mac arm64 single artifact - storage-daemon-cli
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-arm64-macos/storage-daemon-cli
-          asset_name: storage-daemon-cli-mac-arm64
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Mac arm64 single artifact - storage-daemon
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-arm64-macos/storage-daemon
-          asset_name: storage-daemon-mac-arm64
           tag: ${{ inputs.tag }}
 
       - name: Upload Mac arm64 single artifact - tonlibjson
@@ -516,22 +468,6 @@ jobs:
           asset_name: http-proxy-linux-x86_64
           tag: ${{ inputs.tag }}
 
-      - name: Upload Linux x86-64 single artifact - storage-daemon-cli
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-linux/storage-daemon-cli
-          asset_name: storage-daemon-cli-linux-x86_64
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Linux x86-64 single artifact - storage-daemon
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-linux/storage-daemon
-          asset_name: storage-daemon-linux-x86_64
-          tag: ${{ inputs.tag }}
-
       - name: Upload Linux x86-64 single artifact - tonlibjson
         uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
@@ -613,22 +549,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-linux/http-proxy
           asset_name: http-proxy-linux-arm64
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Linux arm64 single artifact - storage-daemon-cli
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-arm64-linux/storage-daemon-cli
-          asset_name: storage-daemon-cli-linux-arm64
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Linux arm64 single artifact - storage-daemon
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-arm64-linux/storage-daemon
-          asset_name: storage-daemon-linux-arm64
           tag: ${{ inputs.tag }}
 
       - name: Upload Linux arm64 single artifact - tonlibjson

@@ -45,6 +45,21 @@ namespace validator {
 
 namespace fullnode {
 
+enum class PublicRebroadcastType { candidate, finality };
+inline constexpr metrics::LabelEnum<PublicRebroadcastType, 2> ton_metric_label(PublicRebroadcastType) {
+  return {"type", {{"candidate", "finality"}}};
+}
+
+enum class PublicRebroadcastSource { fast_sync, custom };
+inline constexpr metrics::LabelEnum<PublicRebroadcastSource, 2> ton_metric_label(PublicRebroadcastSource) {
+  return {"source", {{"fast_sync", "custom"}}};
+}
+
+enum class ExternalRelayResult { relayed, no_fast_sync_route };
+inline constexpr metrics::LabelEnum<ExternalRelayResult, 2> ton_metric_label(ExternalRelayResult) {
+  return {"result", {{"relayed", "no_fast_sync_route"}}};
+}
+
 class FullNodeImpl : public FullNode {
  public:
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
@@ -67,6 +82,7 @@ class FullNodeImpl : public FullNode {
 
   void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) override;
   void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) override;
+  void relay_external_message_to_fast_sync(ShardIdFull shard, td::BufferSlice data) override;
 
   void on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor);
 
@@ -124,17 +140,34 @@ class FullNodeImpl : public FullNode {
   td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
                                                 QuerySource source) override;
 
+  td::actor::Task<> collect(metrics::Context ctx) override;
+
   void start_up() override;
 
   FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
                td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-               td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
-               td::actor::ActorId<overlay::Overlays> overlays,
+               td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
                td::Promise<td::Unit> started_promise);
 
  private:
+  struct RebroadcasterMetrics {
+    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType, PublicRebroadcastSource>
+        broadcasts;
+    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType, PublicRebroadcastSource> arrivals;
+    metrics::Labeled<metrics::Gauge<double>, overlay::OverlayChain, PublicRebroadcastType>
+        last_broadcast_timestamp_seconds;
+    metrics::Labeled<metrics::Counter, ExternalRelayResult> external_messages;
+
+    void collect(metrics::Context ctx) const {
+      ctx.collect(broadcasts, "broadcasts");
+      ctx.collect(arrivals, "arrivals");
+      ctx.collect(last_broadcast_timestamp_seconds, "last_broadcast_timestamp_seconds");
+      ctx.collect(external_messages, "external_messages");
+    }
+  } rebroadcaster_metrics_;
+
   struct ShardInfo {
     td::actor::ActorOwn<FullNodeShard> actor;
     PublicKeyHash local_id = PublicKeyHash::zero();
@@ -146,6 +179,10 @@ class FullNodeImpl : public FullNode {
   void set_public_overlays_enabled(bool enabled);
   void update_public_overlay_mode(double fast_sync_authority_until);
   void update_fast_sync_and_public_overlays();
+  void record_public_rebroadcast_arrival(const BlockIdExt& block_id, PublicRebroadcastType type,
+                                         PublicRebroadcastSource source);
+  void record_public_rebroadcast(const BlockIdExt& block_id, PublicRebroadcastType type,
+                                 PublicRebroadcastSource source);
 
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
@@ -162,7 +199,6 @@ class FullNodeImpl : public FullNode {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<dht::Dht> dht_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
@@ -195,6 +231,8 @@ class FullNodeImpl : public FullNode {
   std::map<std::string, CustomOverlayInfo> custom_overlays_;
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{10000};
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_finality_{10000};
+  td::LRUCache<BlockIdExt, td::Unit> public_rebroadcasted_candidates_{256};
+  td::LRUCache<BlockIdExt, td::Unit> public_rebroadcasted_finalities_{256};
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);
@@ -219,7 +257,7 @@ class FullNodeImpl : public FullNode {
   td::Timestamp plumtree_stats_exchange_at_ = td::Timestamp::never();
 
   void schedule_plumtree_stats_exchange();
-  void start_plumtree_stats_exchange();
+  void start_plumtree_stats_exchange(bool exchange_fast_sync);
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 

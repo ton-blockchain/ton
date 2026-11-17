@@ -94,6 +94,11 @@ class Callback : public ton::overlay::Overlays::Callback {
   }
   void receive_query(ton::adnl::AdnlNodeIdShort src, ton::overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                      td::Promise<td::BufferSlice> promise) override {
+    auto query = ton::fetch_tl_object<ton::ton_api::tonNode_getCapabilities>(std::move(data), true);
+    if (query.is_ok()) {
+      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::tonNode_capabilities>(3, 3, 0));
+      return;
+    }
     UNREACHABLE();
   }
   void receive_broadcast(ton::PublicKeyHash src, ton::overlay::OverlayIdShort overlay_id,
@@ -101,6 +106,45 @@ class Callback : public ton::overlay::Overlays::Callback {
     CHECK(td::sha256_bits256(data.as_slice()) == bcast_hash);
     CHECK(remaining.fetch_sub(1, std::memory_order_relaxed) > 0);
   }
+};
+
+class TestSender : public ton::adnl::AdnlSenderEx {
+ public:
+  explicit TestSender(td::actor::ActorId<ton::adnl::Adnl> adnl) : adnl_(adnl) {
+  }
+
+  void add_id(ton::adnl::AdnlNodeIdShort local_id) override {
+  }
+
+  void send_message(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data) override {
+    td::actor::send_closure(adnl_, &ton::adnl::AdnlSenderInterface::send_message, src, dst, std::move(data));
+  }
+
+  void send_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, std::string name,
+                  td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) override {
+    td::actor::send_closure(adnl_, &ton::adnl::AdnlSenderInterface::send_query, src, dst, std::move(name),
+                            std::move(promise), timeout, std::move(data));
+  }
+
+  void send_query_ex(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, std::string name,
+                     td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
+                     td::uint64 max_answer_size) override {
+    td::actor::send_closure(adnl_, &ton::adnl::AdnlSenderInterface::send_query_ex, src, dst, std::move(name),
+                            std::move(promise), timeout, std::move(data), max_answer_size);
+  }
+
+  void get_conn_ip_str(ton::adnl::AdnlNodeIdShort local_id, ton::adnl::AdnlNodeIdShort peer_id,
+                       td::Promise<td::string> promise) override {
+    td::actor::send_closure(adnl_, &ton::adnl::AdnlSenderInterface::get_conn_ip_str, local_id, peer_id,
+                            std::move(promise));
+  }
+
+ private:
+  void on_mtu_updated(td::optional<ton::adnl::AdnlNodeIdShort> local_id,
+                      td::optional<ton::adnl::AdnlNodeIdShort> peer_id) override {
+  }
+
+  td::actor::ActorId<ton::adnl::Adnl> adnl_;
 };
 
 int main(int argc, char *argv[]) {
@@ -116,6 +160,7 @@ int main(int argc, char *argv[]) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::TestLoopbackNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
+  td::actor::ActorOwn<TestSender> sender;
   td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager;
 
   td::actor::Scheduler scheduler({7});
@@ -124,8 +169,9 @@ int main(int argc, char *argv[]) {
     keyring = ton::keyring::Keyring::create(db_root_);
     network_manager = td::actor::create_actor<ton::adnl::TestLoopbackNetworkManager>("test net");
     adnl = ton::adnl::Adnl::create(db_root_, keyring.get());
-    overlay_manager =
-        ton::overlay::Overlays::create(db_root_, keyring.get(), adnl.get(), td::actor::ActorId<ton::dht::Dht>{});
+    sender = td::actor::create_actor<TestSender>("test overlay sender", adnl.get());
+    overlay_manager = ton::overlay::Overlays::create(db_root_, keyring.get(), adnl.get(), sender.get(),
+                                                     td::actor::ActorId<ton::dht::Dht>{});
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
   });
 

@@ -390,8 +390,6 @@ void FullNodeFastSyncOverlay::init() {
     td::actor::ActorId<FullNodeFastSyncOverlay> node_;
   };
 
-  td::actor::send_closure(quic_, &quic::QuicSender::add_id, local_id_);
-
   std::map<PublicKeyHash, td::uint32> authorized_keys;
   for (auto id : current_validators_adnl_) {
     authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
@@ -408,15 +406,17 @@ void FullNodeFastSyncOverlay::init() {
   options.local_overlay_member_flags_ =
       receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
+
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
-  options.twostep_broadcast_sender_ = quic_;
   options.send_twostep_broadcast_ = true;
   options.enable_plumtree_broadcast_ = true;
   options.is_original_sender_ = is_original_sender;
-  options.plumtree_broadcast_sender_ = quic_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
+  td::actor::send_closure(overlays_, &overlay::Overlays::update_semiprivate_authorized_nodes, local_id_, overlay_id_,
+                          std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
+                          std::vector<adnl::AdnlNodeIdShort>());
 
   inited_ = true;
   if (shard_.is_masterchain()) {
@@ -480,26 +480,36 @@ void FullNodeFastSyncOverlay::set_params(bool receive_plumtree_broadcasts) {
   }
 }
 
+void FullNodeFastSyncOverlay::update_authorized_nodes(std::vector<adnl::AdnlNodeIdShort> add,
+                                                      std::vector<adnl::AdnlNodeIdShort> remove) {
+  authorized_nodes_.insert(add.begin(), add.end());
+  for (auto &id : remove) {
+    authorized_nodes_.erase(id);
+  }
+  if (inited_) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::update_semiprivate_authorized_nodes, local_id_, overlay_id_,
+                            std::move(add), std::move(remove));
+  }
+}
+
 td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
   class QuerySenderImpl : public QuerySenderInterface {
    public:
     QuerySenderImpl(adnl::AdnlNodeIdShort peer_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
-                    td::actor::ActorId<overlay::Overlays> overlays,
-                    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
-                    td::actor::ActorId<FullNodeFastSyncOverlay> parent, std::pair<td::uint32, td::uint32> proto_version)
+                    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<FullNodeFastSyncOverlay> parent,
+                    std::pair<td::uint32, td::uint32> proto_version)
         : peer_id_(peer_id)
         , local_id_(local_id)
         , overlay_id_(overlay_id)
         , overlays_(std::move(overlays))
-        , adnl_sender_(std::move(adnl_sender))
         , parent_(std::move(parent))
         , proto_version_(proto_version) {
     }
 
     void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
                     td::Promise<td::BufferSlice> promise) const override {
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id_, local_id_, overlay_id_, "q",
-                              std::move(promise), timeout, std::move(query), max_answer_size, adnl_sender_);
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id_, local_id_, overlay_id_, "q",
+                              std::move(promise), timeout, std::move(query), max_answer_size);
     }
 
     void query_finished(td::Status S) const override {
@@ -521,7 +531,6 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
     adnl::AdnlNodeIdShort local_id_;
     overlay::OverlayIdShort overlay_id_;
     td::actor::ActorId<overlay::Overlays> overlays_;
-    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
     td::actor::ActorId<FullNodeFastSyncOverlay> parent_;
     std::pair<td::uint32, td::uint32> proto_version_;
   };
@@ -536,8 +545,7 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
     co_return td::Status::Error(ErrorCode::notready, "no nodes");
   }
   auto proto_version = peers_info_[*peer].proto_version;
-  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, quic_, actor_id(this),
-                                              proto_version);
+  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, actor_id(this), proto_version);
 }
 
 void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) {
@@ -581,8 +589,8 @@ td::actor::Task<> FullNodeFastSyncOverlay::ping_peer(adnl::AdnlNodeIdShort peer_
   CHECK(inited_);
   td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
   auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id, local_id_, overlay_id_, "q",
-                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, quic_);
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id, local_id_, overlay_id_, "q",
+                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024);
   auto r_response = co_await std::move(task).wrap();
   if (!is_validator_adnl(peer_id)) {
     co_return {};
@@ -688,9 +696,30 @@ double FullNodeFastSyncOverlays::update_overlays(
     std::set<adnl::AdnlNodeIdShort> my_adnl_ids, const std::set<adnl::AdnlNodeIdShort> &local_collator_adnl_ids,
     std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
     const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
-    const td::actor::ActorId<quic::QuicSender> &quic, const td::actor::ActorId<overlay::Overlays> &overlays,
+    const td::actor::ActorId<overlay::Overlays> &overlays,
     const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
     const td::actor::ActorId<FullNode> &full_node) {
+  auto new_registry_state = ValidatorRegistryState::fetch(state);
+  std::vector<adnl::AdnlNodeIdShort> authorized_nodes_add, authorized_nodes_remove;
+  ValidatorRegistryState::scan_nodes_diff(
+      *registry_state_, *new_registry_state,
+      [&](adnl::AdnlNodeIdShort id, std::optional<ValidatorRegistryState::Node> old_node,
+          std::optional<ValidatorRegistryState::Node> new_node) {
+        bool old_auth = old_node && (old_node->roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY);
+        bool new_auth = new_node && (new_node->roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY);
+        if (old_auth == new_auth) {
+          return;
+        }
+        if (old_auth) {
+          authorized_nodes_remove.push_back(id);
+          authorized_nodes_.erase(id);
+        } else {
+          authorized_nodes_add.push_back(id);
+          authorized_nodes_.insert(id);
+        }
+      });
+  registry_state_ = std::move(new_registry_state);
+
   monitoring_shards.insert(ShardIdFull{masterchainId});
   std::set<ShardIdFull> all_shards;
   all_shards.insert(ShardIdFull{masterchainId});
@@ -845,11 +874,15 @@ double FullNodeFastSyncOverlays::update_overlays(
     }
 
     // Remove if it is not authorized
-    if (!overlays_info.is_validator_ && overlays_info.current_certificate_.empty()) {
+    if (!overlays_info.is_validator_ && overlays_info.current_certificate_.empty() &&
+        !authorized_nodes_.contains(local_id)) {
       id_to_overlays_.erase(local_id);
       continue;
     }
     authority_until = std::max(authority_until, current_certificate_authority_until);
+    if (authorized_nodes_.contains(local_id)) {
+      authority_until = std::max<double>(authority_until, state->get_unix_time() + 3600 * 12);
+    }
 
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
@@ -860,12 +893,19 @@ double FullNodeFastSyncOverlays::update_overlays(
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_plumtree_broadcasts, config_,
-            broadcast_speed_multiplier, keyring, adnl, quic, overlays, validator_manager, full_node);
+            broadcast_speed_multiplier, keyring, adnl, overlays, validator_manager, full_node);
+        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::update_authorized_nodes,
+                                std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
+                                std::vector<adnl::AdnlNodeIdShort>());
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_plumtree_broadcasts);
         if (changed_certificate) {
           td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
                                   overlays_info.current_certificate_);
+        }
+        if (!authorized_nodes_add.empty() || !authorized_nodes_remove.empty()) {
+          td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::update_authorized_nodes, authorized_nodes_add,
+                                  authorized_nodes_remove);
         }
       }
     }

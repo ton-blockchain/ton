@@ -1747,33 +1747,59 @@ void ValidatorEngine::set_shard_check_function() {
   }
 }
 
+template <typename T>
+static ton::tl_object_ptr<T> load_json_config(const std::string &filename, const std::string &name) {
+  auto r_data = td::read_file(filename);
+  if (r_data.is_error()) {
+    return ton::tl_object_ptr<T>{};
+  }
+  auto data = r_data.move_as_ok();
+  auto r_json = td::json_decode(data.as_slice());
+  if (r_json.is_error()) {
+    LOG(ERROR) << "Failed to parse " << name << ": " << r_json.move_as_error();
+    return ton::tl_object_ptr<T>{};
+  }
+  auto json = r_json.move_as_ok();
+  if (json.type() != td::JsonValueType::Object) {
+    LOG(ERROR) << "Failed to parse " << name << ": json is not an object";
+    return ton::tl_object_ptr<T>{};
+  }
+  auto obj = ton::create_tl_object<T>();
+  if (auto S = ton::ton_api::from_json(*obj, json.get_object()); S.is_error()) {
+    LOG(ERROR) << "Failed to parse " << name << ": " << S;
+    return ton::tl_object_ptr<T>{};
+  }
+  return obj;
+}
+
 void ValidatorEngine::load_collators_list() {
-  collators_list_ = {};
-  auto data_R = td::read_file(collators_list_file());
-  if (data_R.is_error()) {
-    return;
-  }
-  auto data = data_R.move_as_ok();
-  auto json_R = td::json_decode(data.as_slice());
-  if (json_R.is_error()) {
-    LOG(ERROR) << "Failed to parse collators list: " << json_R.move_as_error();
-    return;
-  }
-  auto json = json_R.move_as_ok();
-  collators_list_ = ton::create_tl_object<ton::ton_api::engine_validator_collatorsList>();
-  auto S = ton::ton_api::from_json(*collators_list_, json.get_object());
-  if (S.is_error()) {
-    LOG(ERROR) << "Failed to parse collators list: " << S;
-    collators_list_ = {};
+  collators_list_ =
+      load_json_config<ton::ton_api::engine_validator_collatorsList>(collators_list_file(), "collators list");
+  if (!collators_list_) {
     return;
   }
   td::Ref<ton::validator::CollatorsList> list{true};
-  S = list.write().unpack(*collators_list_);
+  auto S = list.write().unpack(*collators_list_);
   if (S.is_ok()) {
     validator_options_.write().set_collators_list(std::move(list));
   } else {
-    LOG(ERROR) << "Invalid collators list: " << S.move_as_error();
+    LOG(ERROR) << "Invalid collators list: " << S;
     collators_list_ = {};
+  }
+}
+
+void ValidatorEngine::load_registry_voting_config() {
+  registry_voting_config_ = load_json_config<ton::ton_api::engine_validator_registryVotingConfig>(
+      registry_voting_config_file(), "registry voting config");
+  if (!registry_voting_config_) {
+    return;
+  }
+  auto R = ton::validator::RegistryVotingConfig::unpack(*registry_voting_config_);
+  if (R.is_ok()) {
+    validator_options_.write().set_registry_voting_config(R.move_as_ok());
+  } else {
+    LOG(ERROR) << "Invalid registry voting config: " << R.move_as_error();
+    registry_voting_config_ = {};
   }
 }
 
@@ -1845,23 +1871,9 @@ static std::vector<ton::validator::NoncriticalParamsOverride> convert_overrides(
 }
 
 void ValidatorEngine::load_noncritical_params_overrides() {
-  noncritical_params_overrides_ = {};
-  auto data_R = td::read_file(noncritical_params_overrides_file());
-  if (data_R.is_error()) {
-    return;
-  }
-  auto data = data_R.move_as_ok();
-  auto json_R = td::json_decode(data.as_slice());
-  if (json_R.is_error()) {
-    LOG(ERROR) << "Failed to parse noncritical params overrides: " << json_R.move_as_error();
-    return;
-  }
-  auto json = json_R.move_as_ok();
-  noncritical_params_overrides_ = ton::create_tl_object<ton::ton_api::consensus_noncriticalParamsOverrideList>();
-  auto S = ton::ton_api::from_json(*noncritical_params_overrides_, json.get_object());
-  if (S.is_error()) {
-    LOG(ERROR) << "Failed to parse noncritical params overrides: " << S;
-    noncritical_params_overrides_ = {};
+  noncritical_params_overrides_ = load_json_config<ton::ton_api::consensus_noncriticalParamsOverrideList>(
+      noncritical_params_overrides_file(), "noncritical params overrides");
+  if (!noncritical_params_overrides_) {
     return;
   }
   validator_options_.write().set_noncritical_params_overrides(convert_overrides(*noncritical_params_overrides_));
@@ -2191,6 +2203,7 @@ void ValidatorEngine::got_key(ton::PublicKey key) {
 void ValidatorEngine::start() {
   set_shard_check_function();
   load_collators_list();
+  load_registry_voting_config();
   load_shard_block_verifier_config();
   load_noncritical_params_overrides();
   if (config_.ext_message_pool_config) {
@@ -2320,7 +2333,7 @@ void ValidatorEngine::start_overlays() {
         .max_packets = 1024,
         .max_data_size = 2 << 20,
     };
-    overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(),
+    overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), quic_.get(),
                                                       dht_nodes_[default_dht_node_].get(), buffer_limits);
     td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::overlay::Overlays>,
                             overlay_manager_.get(), &ton::overlay::Overlays::collect);
@@ -2338,8 +2351,8 @@ void ValidatorEngine::start_validator() {
                                                           !state_serializer_disabled_flag_);
   load_collator_options();
 
-  validator_manager_ = ton::validator::ValidatorManagerFactory::create(
-      validator_options_, db_root_, keyring_.get(), adnl_.get(), quic_.get(), overlay_manager_.get());
+  validator_manager_ = ton::validator::ValidatorManagerFactory::create(validator_options_, db_root_, keyring_.get(),
+                                                                       adnl_.get(), overlay_manager_.get());
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::validator::ValidatorManagerInterface>,
                           validator_manager_.get(), &ton::validator::ValidatorManagerInterface::collect);
 
@@ -2361,12 +2374,6 @@ void ValidatorEngine::start_validator() {
       LOG(ERROR) << "Cannot start shard block retainer: no adnl id " << shard_block_retainer_adnl_id_;
     }
   }
-
-  // The last collector any configuration registers is the one above: start_adnl -> ... ->
-  // start_validator runs unconditionally in one turn, and the start-up steps after it register
-  // none. They can also wait on the full node coming up, so sealing at the end of the chain would
-  // keep /metrics answering 503 for the whole database warm-up instead of just for start-up.
-  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::ready);
 
   started_validator();
 }
@@ -2400,9 +2407,10 @@ void ValidatorEngine::start_full_node() {
     full_node_options.config_ = config_.full_node_config;
     full_node_ = ton::validator::fullnode::FullNode::create(
         full_node_id_, validator_options_->zero_block_id().file_hash, full_node_options, keyring_.get(), adnl_.get(),
-        quic_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
+    td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::validator::fullnode::FullNode>,
+                            full_node_.get(), &ton::validator::fullnode::FullNode::collect);
     for (auto &v : config_.validators) {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
                               [](td::Result<>) {});
@@ -2430,6 +2438,9 @@ void ValidatorEngine::start_full_node() {
   } else {
     started_full_node();
   }
+  // FullNode is the last optional collector. Seal immediately after creating it rather than waiting
+  // for its database warm-up callback.
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::ready);
 }
 
 void ValidatorEngine::started_full_node() {
@@ -5515,6 +5526,54 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showShard
   }
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setRegistryVotingConfig &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  auto R = ton::validator::RegistryVotingConfig::unpack(*query.config_);
+  if (R.is_error()) {
+    promise.set_value(create_control_query_error(R.move_as_error_prefix("Invalid config: ")));
+    return;
+  }
+  auto s = td::json_encode<std::string>(td::ToJson(*query.config_), true);
+  auto S = td::write_file(registry_voting_config_file(), s);
+  if (S.is_error()) {
+    promise.set_value(create_control_query_error(std::move(S)));
+    return;
+  }
+  registry_voting_config_ = std::move(query.config_);
+  validator_options_.write().set_registry_voting_config(R.move_as_ok());
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                          validator_options_);
+  promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showRegistryVotingConfig &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  if (registry_voting_config_) {
+    promise.set_value(ton::serialize_tl_object(registry_voting_config_, true));
+  } else {
+    promise.set_value(create_control_query_error(td::Status::Error("registry voting config is empty")));
+  }
+}
+
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides &query,
                                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                                         td::Promise<td::BufferSlice> promise) {
@@ -6089,8 +6148,7 @@ int main(int argc, char *argv[]) {
                  });
                });
   p.add_option('\0', "collect-plumtree-stats",
-               "store Plumtree topology stats collected in the fast sync overlay to a given file (json format); only "
-               "effective on validators",
+               "store fast-sync and local public-overlay Plumtree topology stats to a given file (json format)",
                [&](td::Slice s) {
                  acts.push_back([&x, s = s.str()]() {
                    td::actor::send_closure(x, &ValidatorEngine::set_plumtree_stats_filename, s);
@@ -6157,6 +6215,23 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_initial_sync_delay, v); });
         return td::Status::OK();
       });
+  p.add_option(
+      '\0', "public-rebroadcast",
+      "relay fast-sync and custom-overlay block broadcasts to public overlays and validated public externals to "
+      "fast-sync",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::enable_public_rebroadcast); }); });
+  p.add_checked_option('\0', "public-rebroadcast-fanout",
+                       "Plumtree eager and IHAVE fanout for public rebroadcasts (default: 50)",
+                       [&](td::Slice value) -> td::Status {
+                         TRY_RESULT(fanout, td::to_integer_safe<td::uint32>(value));
+                         if (fanout == 0) {
+                           return td::Status::Error("public-rebroadcast-fanout should be positive");
+                         }
+                         acts.push_back([&x, fanout]() {
+                           td::actor::send_closure(x, &ValidatorEngine::set_public_rebroadcast_fanout, fanout);
+                         });
+                         return td::Status::OK();
+                       });
   for (size_t iter = 0; iter < 3; ++iter) {
     static const char *suffixes[3] = {"", "-fast-sync", "-custom"};
     const char *suffix = suffixes[iter];

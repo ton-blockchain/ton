@@ -61,6 +61,10 @@
 #endif
 #include <iostream>
 
+#include "adnl/adnl-node.h"
+#include "td/actor/coro_utils.h"
+#include "td/utils/overloaded.h"
+
 #include "git.h"
 
 using namespace std::literals::string_literals;
@@ -289,6 +293,162 @@ bool TestNode::dump_cached_cell(td::Slice hash_pfx, td::Slice type_name) {
     return false;
   }
   return true;
+}
+
+td::actor::Task<> TestNode::dump_validator_registry() {
+  auto R = co_await dump_validator_registry_inner().wrap();
+  if (R.is_error()) {
+    LOG(ERROR) << "dump validator registry error: " << R.error();
+  }
+  after_got_result(R.is_ok());
+  co_return {};
+}
+
+td::Result<ton::tl_object_ptr<ton::ton_api::adnl_node>> parse_adnl_node(ton::adnl::AdnlNodeIdShort id,
+                                                                        Ref<vm::Cell> cell) {
+  vm::CellSlice cs{vm::NoVm{}, cell};
+  TRY_BOOL(cs.size_refs() == 0 && cs.size() % 8 == 0);
+  td::BufferSlice buf{cs.size() / 8};
+  cs.fetch_bytes(buf.as_slice());
+  TRY_RESULT(tl, ton::fetch_tl_object<ton::ton_api::adnl_node>(buf, true));
+  TRY_RESULT(id_full, ton::adnl::AdnlNodeIdFull::create(tl->id_));
+  if (id_full.compute_short_id() != id) {
+    return td::Status::Error("wrong node adnl id");
+  }
+  return std::move(tl);
+}
+
+td::actor::Task<> TestNode::dump_validator_registry_inner() {
+  LOG(INFO) << "Starting dumpvalidatorregistry";
+  auto [task, promise] = td::actor::StartedTask<std::unique_ptr<block::Config>>::make_bridge();
+  get_config_params(mc_last_id_, std::move(promise), 0x1000, "", {46});
+  auto config = co_await std::move(task);
+  auto registry_config = CO_TRY(config->get_validator_registry_config());
+  LOG(INFO) << "Validator registry address = -1:" << registry_config.contract_address.to_hex();
+
+  auto addr = ton::create_tl_object<ton::lite_api::liteServer_accountId>(-1, registry_config.contract_address);
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_getAccountState>(
+      ton::create_tl_lite_block_id(mc_last_id_), std::move(addr));
+  b = ton::create_serialize_tl_object<ton::lite_api::liteServer_query>(std::move(b));
+  auto data = co_await td::actor::ask(client_, &liteclient::ExtClient::send_query, "query", std::move(b),
+                                      td::Timestamp::in(10.0));
+  auto f = CO_TRY(ton::fetch_tl_object<ton::lite_api::liteServer_accountState>(data, true));
+  auto root = CO_TRY(vm::std_boc_deserialize(f->state_));
+  block::gen::Account::Record_account acc;
+  block::gen::AccountStorage::Record store;
+  block::gen::AccountState::Record_account_active state;
+  block::gen::StateInit::Record state_init;
+  if (!(tlb::unpack_cell(root, acc) && tlb::csr_unpack(acc.storage, store) && tlb::csr_unpack(store.state, state) &&
+        tlb::csr_unpack(state.x, state_init) && state_init.data->size_refs())) {
+    co_return td::Status::Error("cannot unpack account");
+  }
+
+  block::gen::ValRegistryStorage::Record storage;
+  if (!tlb::unpack_cell(state_init.data->prefetch_ref(), storage)) {
+    co_return td::Status::Error("cannot unpack registry storage");
+  }
+  static const char* role_names[2] = {"collator", "protected-overlay"};
+  td::StringBuilder sb;
+  sb << "Validator registry state:\n";
+  sb << "Nodes:\n";
+  vm::Dictionary{storage.nodes, 256}.check_for_each([&](Ref<vm::CellSlice> cs, td::ConstBitPtr key, int key_len) {
+    CHECK(key_len == 256);
+    td::Bits256 adnl_id{key};
+    block::gen::ValRegistryNode::Record rec;
+    if (!tlb::csr_unpack(cs, rec)) {
+      LOG(WARNING) << "failed to parse node " << adnl_id;
+      return true;
+    }
+    sb << "  " << adnl_id << " is_validator=" << rec.is_validator << " roles=" << rec.roles;
+    if (rec.roles != 0) {
+      sb << " (";
+      for (int i = 0; i < 2; ++i) {
+        if (rec.roles & (1u << i)) {
+          if (rec.roles & ((1u << i) - 1)) {
+            sb << ", ";
+          }
+          sb << role_names[i];
+        }
+      }
+      sb << ")";
+    }
+    sb << "\n";
+    if (rec.adnl_node->size_refs()) {
+      auto r_node = parse_adnl_node(ton::adnl::AdnlNodeIdShort{adnl_id}, rec.adnl_node->prefetch_ref());
+      if (r_node.is_error()) {
+        sb << "    Bad address list: " << r_node.error().message() << "\n";
+      } else {
+        sb << "    Address list:";
+        for (auto& addr : r_node.ok()->addr_list_->addrs_) {
+          ton::ton_api::downcast_call(*addr,
+                                      td::overloaded(
+                                          [&](const ton::ton_api::adnl_address_udp& obj) {
+                                            sb << " adnl:" << td::IPAddress::ipv4_to_str(obj.ip_) << ":" << obj.port_;
+                                          },
+                                          [&](const ton::ton_api::adnl_address_quic& obj) {
+                                            sb << " quic:" << td::IPAddress::ipv4_to_str(obj.ip_) << ":" << obj.port_;
+                                          },
+                                          [&](const auto&) { sb << " unknown"; }));
+        }
+        sb << "\n";
+      }
+    } else {
+      sb << "    No address list\n";
+    }
+    return true;
+  });
+  sb << "Votings:\n";
+  vm::Dictionary{storage.votings, 256 + 32 + 32}.check_for_each(
+      [&](Ref<vm::CellSlice> cs, td::ConstBitPtr key, int key_len) {
+        CHECK(key_len == 256 + 32 + 32);
+        td::Bits256 adnl_id{key};
+        auto roles_add = (td::uint32)(key + 256).get_uint(32);
+        auto roles_remove = (td::uint32)(key + 256 + 32).get_uint(32);
+        block::gen::ValRegistryVoting::Record rec;
+        block::gen::ValidatorSet::Record_validators_ext val_set;
+        if (!tlb::csr_unpack(cs, rec) || !tlb::unpack_cell(rec.validator_set, val_set)) {
+          LOG(WARNING) << "failed to parse voting " << adnl_id << " " << roles_add << " " << roles_remove;
+          return true;
+        }
+        sb << "  " << adnl_id << " roles_add=" << roles_add;
+        if (roles_add != 0) {
+          sb << " (";
+          for (int i = 0; i < 2; ++i) {
+            if (roles_add & (1u << i)) {
+              if (roles_add & ((1u << i) - 1)) {
+                sb << ", ";
+              }
+              sb << role_names[i];
+            }
+          }
+          sb << ")";
+        }
+        sb << " roles_remove=" << roles_remove;
+        if (roles_remove != 0) {
+          sb << " (";
+          for (int i = 0; i < 2; ++i) {
+            if (roles_remove & (1u << i)) {
+              if (roles_remove & ((1u << i) - 1)) {
+                sb << ", ";
+              }
+              sb << role_names[i];
+            }
+          }
+          sb << ")";
+        }
+        if (rec.is_reverse) {
+          sb << " REVERSE";
+        }
+        sb << "\n";
+        sb << "    voted_weight="
+           << td::StringBuilder::FixedDouble{(double)rec.voted_weight / (double)val_set.total_weight * 100.0, 3}
+           << "% required_weight="
+           << td::StringBuilder::FixedDouble{(double)rec.required_weight / (double)val_set.total_weight * 100.0, 3}
+           << "%\n";
+        return true;
+      });
+  td::TerminalIO::out() << sb.as_cslice();
+  co_return {};
 }
 
 bool TestNode::get_server_time() {
@@ -1055,6 +1215,7 @@ bool TestNode::show_help(std::string command) {
          "dumpcellas <tlb-type> <hex-hash-pfx>\nFinds a cached cell by a prefix of its hash and prints it as a value "
          "of <tlb-type>\n"
          "privkey <filename>\tLoads a private key from file\n"
+         "dumpvalidatorregistry\tPrints data of validator registry contract\n"
          "help [<command>]\tThis help\n"
          "quit\tExit\n";
   return true;
@@ -1221,6 +1382,13 @@ bool TestNode::do_parse_line() {
     td::Slice tname;
     return (word == "dumpcell" || get_word_to(tname)) && get_word_to(chash) && seekeoln() &&
            dump_cached_cell(chash, tname);
+  } else if (word == "dumpvalidatorregistry") {
+    if (!eoln()) {
+      return false;
+    }
+    running_queries_++;
+    dump_validator_registry().start().detach("dump validator registry");
+    return true;
   } else if (word == "quit" && eoln()) {
     LOG(INFO) << "Exiting";
     stop();

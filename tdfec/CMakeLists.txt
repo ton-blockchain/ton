@@ -49,23 +49,6 @@ target_include_directories(tdfec PUBLIC
 )
 target_link_libraries(tdfec PUBLIC tdutils)
 
-if (USE_LIBRAPTORQ)
-  set(THIRD_PARTY_FEC_SOURCE
-    test/LibRaptorQ.h
-    test/LibRaptorQ.cpp
-  )
-
-  add_library(third_party_fec STATIC ${THIRD_PARTY_FEC_SOURCE})
-  target_include_directories(third_party_fec PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../third-party/libraptorq/src
-  )
-
-  target_link_libraries(third_party_fec PRIVATE tdutils RaptorQ_Static)
-endif()
-
-
 set(FEC_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/fec-test.cpp
   PARENT_SCOPE

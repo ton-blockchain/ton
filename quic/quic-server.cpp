@@ -594,6 +594,16 @@ void QuicServer::on_connection_closed(QuicConnectionId cid) {
   callback_->on_closed(cid);
 }
 
+void QuicServer::get_conn_ip_str(QuicConnectionId cid, td::Promise<td::string> promise) {
+  auto connection = find_connection(cid);
+  if (!connection) {
+    promise.set_value("undefined");
+    return;
+  }
+  const auto &address = connection->remote_address;
+  promise.set_value(PSTRING() << address.get_ip_str().str() << ":" << address.get_port());
+}
+
 void QuicServer::close_connection(QuicConnectionId cid, CloseCode code) {
   guard_.close_connection(cid, code);  // records the discourage verdict, then drops via Host::drop_connection
 }

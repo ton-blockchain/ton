@@ -119,7 +119,6 @@ def app_traffic(metric):
         line("adnl {{kind}} {{direction}}", net_rate(f"ton_adnl_{metric}", "kind, direction")),
         line("quic {{trust}} {{kind}} {{direction}}",
              net_rate(f"ton_quic_{metric}", "trust, kind, direction", trusted=True)),
-        line("rldp2 {{kind}} {{direction}}", net_rate(f"ton_rldp2_{metric}", "kind, direction")),
     ]
 
 
@@ -143,30 +142,6 @@ def broadcast(metric, *, n=6):
                  net_rate(counter, "tl", direction=direction)
                  + busiest(counter, n=n, direction=direction))
             for direction in ("in", "out")]
-
-
-def transfer_rate(**labels):
-    """RLDP2 bulk transfers per second, optionally only those in one terminal state."""
-    return f"rate(ton_rldp2_transport_transfers_total{sel(**NET, **labels)}[{RATE}])"
-
-
-def transfer_failure_share():
-    """One node's failed and timed-out transfers over all its terminal outcomes."""
-    by = f"{NODE_KEYS}, direction"
-    failed = summed(f"{by}, state", transfer_rate(state="~failed|timeout"))
-    ended = summed(by, transfer_rate())
-    return (f"({failed} / on ({by}) group_left {ended})"
-            f" and on ({by}) ({ended} > 0)")
-
-
-def adnl_stack_bytes():
-    """Everything an adnl datagram carried: its own payloads plus the rldp2 traffic on top."""
-    def tagged(metric, layer, **labels):
-        return (f'label_replace(rate(ton_{metric}{sel(**NET, **labels)}[{RATE}]),'
-                f' "layer", "{layer}", "", "")')
-
-    return (f'{tagged("adnl_app_bytes_total", "adnl", tl="!rldp2.messagePart")}'
-            f' or {tagged("rldp2_app_bytes_total", "rldp2")}')
 
 
 def overflow_by_node(transport):
@@ -230,7 +205,7 @@ VARIABLES = [
         description=(
             "Filters peer-attributable QUIC app, query, confirmation, and ready-connection metrics. "
             "The wire/app overhead ratio remains all-peers so its app denominator matches the "
-            "unsplit wire numerator. Socket/pre-auth QUIC and all ADNL, RLDP2, and overlay series "
+            "unsplit wire numerator. Socket/pre-auth QUIC and all ADNL and overlay series "
             "also remain all-peers. Pre-trust builds expose no trust label: their QUIC series "
             "appear under All, but not under trusted or untrusted."
         ),
@@ -244,8 +219,7 @@ ROWS = [
         thresholds=thresholds(base="blue"),
         description=(
             "UDP payload bytes/s the sockets received, summed over ADNL and QUIC for all selected "
-            "nodes. RLDP2 rides inside ADNL and is already counted there. Informational; no health "
-            "threshold."
+            "nodes. Informational; no health threshold."
         ),
     ),
     plain_stat(
@@ -316,9 +290,7 @@ ROWS = [
                 "Transport-accept to answer for queries we send: network + peer processing + "
                 "transfer time. The p95 is each node's own; the Node switch collapses across "
                 "nodes, so worst asks 'is RTT bad everywhere or on one node' and the hover row "
-                "names it. QUIC is split by peer class; ADNL remains all-peers. RLDP2 "
-                "bulk-transfer latency is separate below because it is not comparable with "
-                "low-latency ADNL/QUIC."
+                "names it. QUIC is split by peer class; ADNL remains all-peers."
             ),
         ),
         net_agg_timeseries(
@@ -333,9 +305,7 @@ ROWS = [
                 "data and FIN for unidirectional messages, while legacy bidirectional messages use "
                 "the receiver's empty receipt. DATAGRAM messages have no confirmation sample. "
                 "Results are split by peer class; each node's own p95 is collapsed across nodes "
-                "by the Node switch. "
-                "Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below "
-                "because bulk-transfer latency is not comparable."
+                "by the Node switch. Plain ADNL has no acknowledgement."
             ),
         ),
         net_agg_timeseries(
@@ -346,15 +316,11 @@ ROWS = [
                 key="trust", name="quic {{trust}} confirmation"),
             node_share("quic {{trust}} roundtrip", "ton_quic_query_roundtrip_failed_total",
                        "ton_quic_query_roundtrip_seconds_count", "trust", trusted=True),
-            node_share("rldp2 roundtrip", "ton_rldp2_query_roundtrip_failed_total",
-                       "ton_rldp2_query_roundtrip_seconds_count"),
             agg_line(ratio(net_rate("ton_quic_transport_packets_lost_total", NODE_KEYS),
                            net_rate("ton_quic_transport_packets_total", NODE_KEYS,
                                     direction="out")), name="quic packet loss"),
             node_share("adnl roundtrip", "ton_adnl_query_roundtrip_failed_total",
                        "ton_adnl_query_roundtrip_seconds_count"),
-            node_share("rldp2 delivery", "ton_rldp2_message_delivery_failed_total",
-                       "ton_rldp2_message_delivery_seconds_count"),
             unit="percentunit", id=22, w=8, h=9, thresholds=failure_bands(),
             description=(
                 "Failures divided by measured confirmations, roundtrips, or packets, computed per "
@@ -362,7 +328,7 @@ ROWS = [
                 "one struggling peer set is not averaged away; at the default worst each line is "
                 "its worst node and the hidden ⇒ row names it. Idle series disappear rather than "
                 "presenting 0/0 as healthy. QUIC app outcomes are split by peer class; packet "
-                "loss, ADNL, and RLDP2 remain all-peers. Persistent values above 1% deserve "
+                "loss and ADNL remain all-peers. Persistent values above 1% deserve "
                 "investigation."
             ),
         ),
@@ -381,7 +347,7 @@ ROWS = [
                 "for a p95 shift. Same measurement and same per-node p95 the Node switch "
                 "collapses, with ADNL and QUIC each showing their top 8 types by call volume over "
                 "the visible range. The peer-class filter applies to the QUIC lines only; ADNL "
-                "remains all-peers. RLDP2 stays on its bulk-transfer panels."
+                "remains all-peers."
             ),
         ),
         net_agg_timeseries(
@@ -402,15 +368,14 @@ ROWS = [
             "Network drops by tier and reason",
             drops("quic", "wire"), drops("quic", "transport"), drops("quic", "app", trusted=True),
             drops("adnl", "transport"), drops("adnl", "wire"), drops("adnl", "app"),
-            drops("rldp2", "transport"), drops("rldp2", "app"),
             unit="ops", id=16,
             description=(
                 "Nonzero drop rates by tier, direction, and reason, computed per node and then "
                 "collapsed by the Node aggregation switch — at the default worst, each is its "
                 "worst node, which the hover rows name, because drops usually come from one node. "
                 "The "
-                "peer-class filter applies only to QUIC app drops; wire, pre-auth transport, ADNL, "
-                "and RLDP2 remain all-peers. QUIC app out/limited indicates stream-credit "
+                "peer-class filter applies only to QUIC app drops; wire, pre-auth transport and "
+                "ADNL remain all-peers. QUIC app out/limited indicates stream-credit "
                 "exhaustion."
             ),
         ),
@@ -478,8 +443,6 @@ ROWS = [
                        floor=0.1, trusted=True),
             node_share("adnl {{tl}}", "ton_adnl_query_roundtrip_failed_total",
                        "ton_adnl_query_roundtrip_seconds_count", "tl", floor=0.1),
-            node_share("rldp2 {{tl}}", "ton_rldp2_query_roundtrip_failed_total",
-                       "ton_rldp2_query_roundtrip_seconds_count", "tl", floor=0.1),
             unit="percentunit", id=33, h=9,
             axis_label="failure share", thresholds=failure_bands(),
             legend=table_legend("lastNotNull"),
@@ -487,7 +450,7 @@ ROWS = [
                 "Outbound query failure share by type and transport, computed per node and "
                 "collapsed by the Node aggregation switch (worst node per series by default); "
                 "series below 0.1 q/s on a node are hidden there. QUIC is split by peer class; "
-                "ADNL and RLDP2 remain all-peers."
+                "ADNL remains all-peers."
             ),
         ),
     ]),
@@ -557,8 +520,7 @@ ROWS = [
             scope="every selected node", unit="Bps", id=7, w=8,
             description=(
                 "UDP payload bytes/s from each transport's socket accounting, summed across "
-                "selected nodes. ADNL and QUIC own sockets; RLDP2 rides inside ADNL and is already "
-                "present in its socket total."
+                "selected nodes."
             ),
         ),
         chain_timeseries(
@@ -568,8 +530,7 @@ ROWS = [
             description=(
                 "UDP datagrams/s from each transport's socket accounting, summed across selected "
                 "nodes — the packet-count view of the throughput panel, exposing the small-packet "
-                "load and syscall pressure that bytes/s hides. ADNL and QUIC own sockets; RLDP2 "
-                "rides inside ADNL and is already present in its socket total."
+                "load and syscall pressure that bytes/s hides."
             ),
         ),
         net_agg_timeseries(
@@ -600,33 +561,26 @@ ROWS = [
             node_rate("adnl {{direction}}", "ton_adnl_app_bytes_total"),
             node_rate("quic {{trust}} {{direction}}", "ton_quic_app_bytes_total",
                       "trust, direction", trusted=True),
-            node_rate("rldp2 {{direction}}", "ton_rldp2_app_bytes_total"),
             unit="Bps", id=9,
             description=(
                 "Application payload bytes/s after protocol framing, per node and then collapsed "
                 "by the Node aggregation switch rather than summed, so the panel does not grow "
                 "with the selection; at the default worst each line is its busiest node and the "
-                "hover rows name it. QUIC is split by peer class; ADNL and RLDP2 remain "
-                "all-peers. ADNL includes RLDP2 datagrams, so ADNL + RLDP2 double-counts."
+                "hover rows name it. QUIC is split by peer class; ADNL remains all-peers."
             ),
         ),
         net_agg_timeseries(
             "Wire / app bytes (overhead factor, log scale)",
             node_share("quic {{direction}}", "ton_quic_wire_bytes_total",
                        "ton_quic_app_bytes_total", "direction"),
-            agg_line(ratio(net_rate("ton_adnl_wire_bytes_total", f"{NODE_KEYS}, direction"),
-                           summed(f"{NODE_KEYS}, direction", adnl_stack_bytes())),
-                     key="direction", name="adnl stack {{direction}}"),
-            node_share("rldp2 over adnl {{direction}}", "ton_rldp2_wire_bytes_total",
-                       "ton_rldp2_app_bytes_total", "direction"),
+            node_share("adnl {{direction}}", "ton_adnl_wire_bytes_total",
+                       "ton_adnl_app_bytes_total", "direction"),
             unit="short", id=11, min=None, log=10,  # a log axis cannot start at zero
             legend=table_legend("lastNotNull"),
             description=(
                 "Wire bytes per delivered payload byte, per node and then collapsed by the Node "
-                "aggregation switch (worst node per direction by default). QUIC "
-                "compares its own tiers; ADNL stack replaces rldp2.messagePart transfer data with "
-                "RLDP2-delivered payload; RLDP2 alone exposes FEC, retransmission, and "
-                "failed-transfer overhead. Idle transports disappear. The peer-class filter does "
+                "aggregation switch (worst node per direction by default). Each transport "
+                "compares its own wire and app tiers. Idle transports disappear. The peer-class filter does "
                 "not apply because wire counters are all-peers. Log scale."
             ),
         ),
@@ -638,7 +592,7 @@ ROWS = [
             legend=table_legend("lastNotNull"),
             description=(
                 "Messages, queries, and answers/s at each transport's app boundary, summed across "
-                "selected nodes. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. "
+                "selected nodes. QUIC is split by peer class; ADNL remains all-peers. "
                 "Query and answer rates should track; a growing gap means unanswered queries."
             ),
         ),
@@ -692,12 +646,12 @@ ROWS = [
             line("quic {{trust}} {{tl}}",
                  net_rate("ton_quic_query_roundtrip_seconds_count", "trust, tl", trusted=True)
                  + busiest("ton_quic_query_roundtrip_seconds_count", n=5, trusted=True)),
-            outbound_queries("adnl"), outbound_queries("rldp2"),
+            outbound_queries("adnl"),
             scope="every selected node", unit="reqps", id=27, h=9,
             legend=table_legend("lastNotNull"),
             description=(
                 "Outbound queries/s by type and transport, derived from roundtrip histogram "
-                "counts. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. Fleet sum; "
+                "counts. QUIC is split by peer class; ADNL remains all-peers. Fleet sum; "
                 "rank-stable top 5 per transport."
             ),
         ),
@@ -719,49 +673,6 @@ ROWS = [
                 "Broadcast content bytes/s, not wire bytes. Transport FEC-part bytes minus this "
                 "signal the redundancy and duplicate-reception tax. Fleet sum; rank-stable top 6 "
                 "per direction; inbound includes a node's own broadcasts."
-            ),
-        ),
-    ]),
-    row("RLDP2 bulk transfers", id=46, collapsed=True, panels=[
-        chain_timeseries(
-            "RLDP2 latency p95",
-            line("query roundtrip p95", quantile("ton_rldp2_query_roundtrip_seconds")),
-            line("message delivery p95", quantile("ton_rldp2_message_delivery_seconds")),
-            scope="every selected node", unit="s", id=50,
-            description=(
-                "Outbound RLDP2 query roundtrip and message-delivery p95 from fleet-summed "
-                "histogram buckets. RLDP2 carries bulk transfers, so compare it separately from "
-                "low-latency ADNL/QUIC. No data is normal when RLDP2 is idle. Delivery covers only "
-                "sends carrying a timeout."
-            ),
-        ),
-        net_agg_timeseries(
-            "RLDP2 transfer failures",
-            agg_line(transfer_failure_share(), key="direction, state"),
-            line("completed {{direction}}",
-                 summed("direction", transfer_rate(state="completed"))),
-            unit="percentunit", id=52,
-            axis_label="failure share", thresholds=failure_bands(),
-            legend=table_legend("lastNotNull", "max", sort="Max"),
-            styles=[series_style("^completed ", regex=True, unit="ops", axis="right",
-                                 axis_label="completed/s", width=1, fill=0, bands="off")],
-            description=(
-                "Failed and timed-out whole RLDP2 transfers as a share of all terminal outcomes, "
-                "split by direction, per node and then collapsed by the Node aggregation switch — "
-                "at the default worst, the hover rows name that node. "
-                "Completed transfers/s stays visible on the right axis as fleet activity context "
-                "without flattening the failure signal. Yellow at 1%; red at 5%."
-            ),
-        ),
-        chain_timeseries(
-            "RLDP2 wire activity",
-            line("wire packets {{direction}}",
-                 net_rate("ton_rldp2_wire_packets_total", "direction")),
-            scope="every selected node", unit="pps", id=51, w=24,
-            description=(
-                "RLDP2 datagrams/s exchanged with ADNL across the fleet. A flat zero proves the "
-                "metric is present while bulk transfer is idle. Transfer outcomes use their own "
-                "panel and scale above."
             ),
         ),
     ]),

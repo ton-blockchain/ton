@@ -104,6 +104,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase, private Flo
   // Releases exactly one peer-opened unidirectional stream after the callback has processed it.
   void release_peer_uni_stream_credit(QuicConnectionId cid);
   void on_connection_closed(QuicConnectionId cid);
+  void get_conn_ip_str(QuicConnectionId cid, td::Promise<td::string> promise);
   // Close a connection, telling the peer why; an abuse close also discourages the IP.
   void close_connection(QuicConnectionId cid, CloseCode code);
   void set_reserved_only(bool reserved_only);
