@@ -171,22 +171,20 @@ td::actor::Task<QuerySender> FullNodeCustomOverlay::get_query_sender() {
   class QuerySenderImpl : public QuerySenderInterface {
    public:
     QuerySenderImpl(adnl::AdnlNodeIdShort peer_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
-                    td::actor::ActorId<overlay::Overlays> overlays,
-                    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
-                    td::actor::ActorId<FullNodeCustomOverlay> parent, std::pair<td::uint32, td::uint32> proto_version)
+                    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<FullNodeCustomOverlay> parent,
+                    std::pair<td::uint32, td::uint32> proto_version)
         : peer_id_(peer_id)
         , local_id_(local_id)
         , overlay_id_(overlay_id)
         , overlays_(std::move(overlays))
-        , adnl_sender_(std::move(adnl_sender))
         , parent_(std::move(parent))
         , proto_version_(proto_version) {
     }
 
     void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
                     td::Promise<td::BufferSlice> promise) const override {
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id_, local_id_, overlay_id_, "q",
-                              std::move(promise), timeout, std::move(query), max_answer_size, adnl_sender_);
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id_, local_id_, overlay_id_, "q",
+                              std::move(promise), timeout, std::move(query), max_answer_size);
     }
 
     void query_finished(td::Status S) const override {
@@ -208,7 +206,6 @@ td::actor::Task<QuerySender> FullNodeCustomOverlay::get_query_sender() {
     adnl::AdnlNodeIdShort local_id_;
     overlay::OverlayIdShort overlay_id_;
     td::actor::ActorId<overlay::Overlays> overlays_;
-    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
     td::actor::ActorId<FullNodeCustomOverlay> parent_;
     std::pair<td::uint32, td::uint32> proto_version_;
   };
@@ -223,8 +220,7 @@ td::actor::Task<QuerySender> FullNodeCustomOverlay::get_query_sender() {
     co_return td::Status::Error(ErrorCode::notready, "no nodes");
   }
   auto proto_version = peers_info_[*peer].proto_version;
-  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, quic_, actor_id(this),
-                                              proto_version);
+  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, actor_id(this), proto_version);
 }
 
 void FullNodeCustomOverlay::start_up() {
@@ -256,8 +252,6 @@ void FullNodeCustomOverlay::try_init() {
 }
 
 void FullNodeCustomOverlay::init() {
-  td::actor::send_closure(quic_, &adnl::AdnlSenderEx::add_id, local_id_);
-
   VLOG(full_node, WARNING) << "Creating custom overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
                            << nodes_.size() << " nodes, " << msg_senders_.size() << " msg senders, "
                            << block_senders_.size() << " block senders, overlay_id=" << overlay_id_;
@@ -294,7 +288,6 @@ void FullNodeCustomOverlay::init() {
   overlay_options.name_ = "custom." + name_;
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
   overlay_options.send_twostep_broadcast_ = true;
-  overlay_options.twostep_broadcast_sender_ = quic_;
 
   td::actor::send_closure(
       overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(), nodes_,
@@ -344,8 +337,8 @@ td::actor::Task<> FullNodeCustomOverlay::ping_peer(adnl::AdnlNodeIdShort peer_id
   CHECK(inited_);
   td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
   auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id, local_id_, overlay_id_, "q",
-                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, quic_);
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id, local_id_, overlay_id_, "q",
+                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024);
   auto r_response = co_await std::move(task).wrap();
   PeerInfo &peer_info = peers_info_[peer_id];
   if (r_response.is_error()) {

@@ -71,8 +71,6 @@ class BroadcastsPlumtree {
   explicit BroadcastsPlumtree(PlumtreeFecOptions options = {}, bool is_original_sender = false);
   ~BroadcastsPlumtree();
 
-  void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender);
-
   void send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
   void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
             td::BufferSlice data);
@@ -105,6 +103,8 @@ class BroadcastsPlumtree {
   td::Timestamp next_alarm_at();
   void gc(OverlayImpl *overlay);
   void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
+  bool is_eager_peer(adnl::AdnlNodeIdShort peer) const;
+  std::vector<adnl::AdnlNodeIdShort> get_simple_eager_peers() const;
 
  private:
   class Impl;

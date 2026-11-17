@@ -241,7 +241,6 @@ class Bus : public td::actor::Bus {
   td::Ref<CollatorSchedule> collator_schedule;
 
   td::actor::ActorId<overlay::Overlays> overlays;
-  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
   std::unique_ptr<Db> db;
 
   td::Promise<td::Unit> stop_promise;

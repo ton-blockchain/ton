@@ -390,8 +390,6 @@ void FullNodeFastSyncOverlay::init() {
     td::actor::ActorId<FullNodeFastSyncOverlay> node_;
   };
 
-  td::actor::send_closure(quic_, &quic::QuicSender::add_id, local_id_);
-
   std::map<PublicKeyHash, td::uint32> authorized_keys;
   for (auto id : current_validators_adnl_) {
     authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
@@ -410,11 +408,9 @@ void FullNodeFastSyncOverlay::init() {
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
 
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
-  options.twostep_broadcast_sender_ = quic_;
   options.send_twostep_broadcast_ = true;
   options.enable_plumtree_broadcast_ = true;
   options.is_original_sender_ = is_original_sender;
-  options.plumtree_broadcast_sender_ = quic_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
@@ -500,22 +496,20 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
   class QuerySenderImpl : public QuerySenderInterface {
    public:
     QuerySenderImpl(adnl::AdnlNodeIdShort peer_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
-                    td::actor::ActorId<overlay::Overlays> overlays,
-                    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
-                    td::actor::ActorId<FullNodeFastSyncOverlay> parent, std::pair<td::uint32, td::uint32> proto_version)
+                    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<FullNodeFastSyncOverlay> parent,
+                    std::pair<td::uint32, td::uint32> proto_version)
         : peer_id_(peer_id)
         , local_id_(local_id)
         , overlay_id_(overlay_id)
         , overlays_(std::move(overlays))
-        , adnl_sender_(std::move(adnl_sender))
         , parent_(std::move(parent))
         , proto_version_(proto_version) {
     }
 
     void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
                     td::Promise<td::BufferSlice> promise) const override {
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id_, local_id_, overlay_id_, "q",
-                              std::move(promise), timeout, std::move(query), max_answer_size, adnl_sender_);
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id_, local_id_, overlay_id_, "q",
+                              std::move(promise), timeout, std::move(query), max_answer_size);
     }
 
     void query_finished(td::Status S) const override {
@@ -537,7 +531,6 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
     adnl::AdnlNodeIdShort local_id_;
     overlay::OverlayIdShort overlay_id_;
     td::actor::ActorId<overlay::Overlays> overlays_;
-    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
     td::actor::ActorId<FullNodeFastSyncOverlay> parent_;
     std::pair<td::uint32, td::uint32> proto_version_;
   };
@@ -552,8 +545,7 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
     co_return td::Status::Error(ErrorCode::notready, "no nodes");
   }
   auto proto_version = peers_info_[*peer].proto_version;
-  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, quic_, actor_id(this),
-                                              proto_version);
+  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, actor_id(this), proto_version);
 }
 
 void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) {
@@ -597,8 +589,8 @@ td::actor::Task<> FullNodeFastSyncOverlay::ping_peer(adnl::AdnlNodeIdShort peer_
   CHECK(inited_);
   td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
   auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id, local_id_, overlay_id_, "q",
-                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, quic_);
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id, local_id_, overlay_id_, "q",
+                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024);
   auto r_response = co_await std::move(task).wrap();
   if (!is_validator_adnl(peer_id)) {
     co_return {};
@@ -704,7 +696,7 @@ double FullNodeFastSyncOverlays::update_overlays(
     std::set<adnl::AdnlNodeIdShort> my_adnl_ids, const std::set<adnl::AdnlNodeIdShort> &local_collator_adnl_ids,
     std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
     const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
-    const td::actor::ActorId<quic::QuicSender> &quic, const td::actor::ActorId<overlay::Overlays> &overlays,
+    const td::actor::ActorId<overlay::Overlays> &overlays,
     const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
     const td::actor::ActorId<FullNode> &full_node) {
   auto new_registry_state = ValidatorRegistryState::fetch(state);
@@ -901,7 +893,7 @@ double FullNodeFastSyncOverlays::update_overlays(
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_plumtree_broadcasts, config_,
-            broadcast_speed_multiplier, keyring, adnl, quic, overlays, validator_manager, full_node);
+            broadcast_speed_multiplier, keyring, adnl, overlays, validator_manager, full_node);
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::update_authorized_nodes,
                                 std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
                                 std::vector<adnl::AdnlNodeIdShort>());

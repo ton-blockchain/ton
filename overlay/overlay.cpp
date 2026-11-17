@@ -55,27 +55,26 @@ static constexpr td::uint64 plumtree_payload_mtu() {
   return static_cast<td::uint64>(Overlays::max_fec_broadcast_size()) + 4096;
 }
 
-td::actor::ActorOwn<Overlay> Overlay::create_public(td::actor::ActorId<keyring::Keyring> keyring,
-                                                    td::actor::ActorId<adnl::Adnl> adnl,
-                                                    td::actor::ActorId<OverlayManager> manager,
-                                                    td::actor::ActorId<dht::Dht> dht_node,
-                                                    adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                                    std::unique_ptr<Overlays::Callback> callback,
-                                                    OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) {
+td::actor::ActorOwn<Overlay> Overlay::create_public(
+    td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+    td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<OverlayManager> manager,
+    td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+    std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) {
   std::string actor_name = overlay_actor_name(overlay_id, opts);
   return td::actor::create_actor<OverlayImpl>(
-      std::move(actor_name), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id), OverlayType::Public,
-      std::vector<adnl::AdnlNodeIdShort>(), std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
-      std::move(callback), std::move(rules), std::move(scope), std::move(opts));
+      std::move(actor_name), keyring, adnl, quic, manager, dht_node, local_id, std::move(overlay_id),
+      OverlayType::Public, std::vector<adnl::AdnlNodeIdShort>(), std::vector<PublicKeyHash>(),
+      OverlayMemberCertificate{}, std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_private(
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
-    OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-    OverlayPrivacyRules rules, std::string scope, OverlayOptions opts) {
+    td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<OverlayManager> manager,
+    td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+    std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
+    std::string scope, OverlayOptions opts) {
   std::string actor_name = overlay_actor_name(overlay_id, opts);
-  return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, manager, dht_node, local_id,
+  return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, quic, manager, dht_node, local_id,
                                               std::move(overlay_id), OverlayType::FixedMemberList, std::move(nodes),
                                               std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
                                               std::move(callback), std::move(rules), std::move(scope), std::move(opts));
@@ -83,25 +82,28 @@ td::actor::ActorOwn<Overlay> Overlay::create_private(
 
 td::actor::ActorOwn<Overlay> Overlay::create_semiprivate(
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
-    OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
+    td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<OverlayManager> manager,
+    td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+    std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
     OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
     std::string scope, OverlayOptions opts) {
   std::string actor_name = overlay_actor_name(overlay_id, opts);
-  return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, manager, dht_node, local_id,
+  return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, quic, manager, dht_node, local_id,
                                               std::move(overlay_id), OverlayType::CertificatedMembers, std::move(nodes),
                                               std::move(root_public_keys), std::move(cert), std::move(callback),
                                               std::move(rules), std::move(scope), std::move(opts));
 }
 
 OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                         td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
-                         adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, OverlayType overlay_type,
-                         std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
-                         OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback,
-                         OverlayPrivacyRules rules, td::string scope, OverlayOptions opts)
+                         td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<OverlayManager> manager,
+                         td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
+                         OverlayIdFull overlay_id, OverlayType overlay_type, std::vector<adnl::AdnlNodeIdShort> nodes,
+                         std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert,
+                         std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules, td::string scope,
+                         OverlayOptions opts)
     : keyring_(keyring)
     , adnl_(adnl)
+    , quic_(quic)
     , manager_(manager)
     , dht_node_(dht_node)
     , local_id_(local_id)
@@ -114,40 +116,17 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     , announce_self_(opts.announce_self_)
     , opts_(std::move(opts)) {
   overlay_id_ = id_full_.compute_short_id();
-  frequent_dht_lookup_ = opts_.frequent_dht_lookup_;
   peer_list_.local_member_flags_ = opts_.local_overlay_member_flags_;
   opts_.broadcast_speed_multiplier_ = std::max(opts_.broadcast_speed_multiplier_, 1e-9);
 
   VLOG(overlay, INFO) << this << ": creating";
 
-  auto nodes_size = static_cast<td::uint32>(nodes.size());
   OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
-  update_neighbours(nodes_size);
 
-  if (overlay_type_ == OverlayType::Public &&
-      (!opts_.twostep_broadcast_sender_.empty() || opts_.send_twostep_broadcast_)) {
+  if (overlay_type_ == OverlayType::Public && opts_.send_twostep_broadcast_) {
     VLOG(overlay, WARNING) << "Cannot enable twostep broadcasts in public overlay";
-    opts_.twostep_broadcast_sender_ = {};
     opts_.send_twostep_broadcast_ = false;
   }
-  if (!opts_.enable_plumtree_broadcast_) {
-    opts_.plumtree_broadcast_sender_ = {};
-  }
-  if (opts_.enable_plumtree_broadcast_ && opts_.plumtree_broadcast_sender_.empty()) {
-    VLOG(overlay, WARNING) << "Plumtree broadcast sender is not set";
-    opts_.enable_plumtree_broadcast_ = false;
-  }
-  if (opts_.send_twostep_broadcast_ && opts_.twostep_broadcast_sender_.empty()) {
-    VLOG(overlay, WARNING) << "Twostep broadcast sender is not set";
-    opts_.send_twostep_broadcast_ = false;
-  }
-  if (!opts_.twostep_broadcast_sender_.empty()) {
-    broadcasts_twostep_.init_sender(opts_.twostep_broadcast_sender_);
-  }
-  if (!opts_.plumtree_broadcast_sender_.empty()) {
-    broadcasts_plumtree_.init_sender(opts_.plumtree_broadcast_sender_);
-  }
-
   receive_peers_rate_limiter_ = td::RateLimiterWindow{10.0, 10 * opts_.nodes_to_send_ * 2 * 10};
   unauthorized_broadcasts_limiter_.broadcast_rate_limiter_ = td::RateLimiterWindow{opts_.unauth_broadcast_rate_limit_};
   unauthorized_broadcasts_limiter_.broadcast_size_rate_limiter_ =
@@ -285,7 +264,7 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
 
 td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                                  tl_object_ptr<ton_api::overlay_broadcastTwostepSimple> bcast) {
-  if (opts_.twostep_broadcast_sender_.empty()) {
+  if (!opts_.send_twostep_broadcast_) {
     co_return td::Status::Error("twostep broadcasts are not enabled");
   }
   co_await broadcasts_twostep_.process_broadcast(this, message_from, std::move(bcast));
@@ -294,7 +273,7 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
 
 td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                                  tl_object_ptr<ton_api::overlay_broadcastTwostepFec> bcast) {
-  if (opts_.twostep_broadcast_sender_.empty()) {
+  if (!opts_.send_twostep_broadcast_) {
     co_return td::Status::Error("twostep broadcasts are not enabled");
   }
   co_await broadcasts_twostep_.process_broadcast(this, message_from, std::move(bcast));
@@ -398,7 +377,9 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_a
 
 void OverlayImpl::alarm() {
   bcast_gc();
-  broadcasts_plumtree_.alarm(this);
+  if (opts_.enable_plumtree_broadcast_) {
+    broadcasts_plumtree_.alarm(this);
+  }
 
   if (update_throughput_at_.is_in_past()) {
     double t_elapsed = td::Time::now() - last_throughput_update_.at();
@@ -426,7 +407,7 @@ void OverlayImpl::alarm() {
         }
       });
 
-      td::actor::send_closure(adnl_, &adnl::AdnlSenderInterface::get_conn_ip_str, local_id_, key, std::move(P));
+      td::actor::send_closure(quic_, &adnl::AdnlSenderInterface::get_conn_ip_str, local_id_, key, std::move(P));
     });
     total_traffic = total_traffic_ctr;
     total_traffic.normalize(t_elapsed);
@@ -448,16 +429,15 @@ void OverlayImpl::alarm() {
           send_random_peers_v2(peer, {});
         }
       };
-      auto neighbour_id = adnl::AdnlNodeIdShort::zero();
-      if (auto neighbour = get_random_neighbour_peer()) {
-        neighbour_id = neighbour->get_id();
-        send_random_peers_query(neighbour_id);
-      }
-      if (auto peer = get_random_peer()) {
+      auto peers = get_random_alive_peers(1);
+      if (auto *peer = get_random_peer()) {
         auto peer_id = peer->get_id();
-        if (peer_id != neighbour_id) {
-          send_random_peers_query(peer_id);
+        if (peer_id != local_id_ && std::find(peers.begin(), peers.end(), peer_id) == peers.end()) {
+          peers.push_back(peer_id);
         }
+      }
+      for (const auto &peer_id : peers) {
+        send_random_peers_query(peer_id);
       }
     } else {
       VLOG(overlay, WARNING) << "member certificate ist invalid, valid_until="
@@ -489,19 +469,9 @@ void OverlayImpl::alarm() {
       update_db_at_ = td::Timestamp::in(60.0);
     }
 
-    if (update_neighbours_at_.is_in_past()) {
-      update_neighbours(2);
-      update_neighbours_at_ = td::Timestamp::in(td::Random::fast(30.0, 120.0));
-    } else {
-      update_neighbours(0);
-    }
     process_pending_peers();
     alarm_timestamp() = td::Timestamp::in(1.0);
   } else {
-    if (update_neighbours_at_.is_in_past()) {
-      update_neighbours(0);
-      update_neighbours_at_ = td::Timestamp::in(60.0 + td::Random::fast(0, 100) * 0.6);
-    }
     if (opts_.private_ping_peers_) {
       if (private_ping_peers_at_.is_in_past()) {
         ping_random_peers();
@@ -509,10 +479,11 @@ void OverlayImpl::alarm() {
       }
       alarm_timestamp().relax(private_ping_peers_at_);
     }
-    alarm_timestamp().relax(update_neighbours_at_);
     alarm_timestamp().relax(update_throughput_at_);
   }
-  alarm_timestamp().relax(broadcasts_plumtree_.next_alarm_at());
+  if (opts_.enable_plumtree_broadcast_) {
+    alarm_timestamp().relax(broadcasts_plumtree_.next_alarm_at());
+  }
 }
 
 void OverlayImpl::start_up() {
@@ -524,12 +495,7 @@ void OverlayImpl::start_up() {
   }
   alarm_timestamp() = td::Timestamp::in(1);
 
-  if (!opts_.twostep_broadcast_sender_.empty()) {
-    td::actor::send_closure(opts_.twostep_broadcast_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
-  }
-  if (opts_.enable_plumtree_broadcast_ && !opts_.plumtree_broadcast_sender_.empty()) {
-    td::actor::send_closure(opts_.plumtree_broadcast_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
-  }
+  td::actor::send_closure(quic_, &adnl::AdnlSenderEx::add_id, local_id_);
   update_peers_mtu();
 }
 
@@ -539,9 +505,7 @@ void OverlayImpl::tear_down() {
 }
 
 void OverlayImpl::update_peers_mtu() {
-  auto sender =
-      !opts_.twostep_broadcast_sender_.empty() ? opts_.twostep_broadcast_sender_ : opts_.plumtree_broadcast_sender_;
-  if (!sender.empty()) {
+  if (opts_.send_twostep_broadcast_ || opts_.enable_plumtree_broadcast_) {
     td::uint64 mtu = rules_.max_broadcast_size() + 1024;
     std::vector<adnl::AdnlNodeIdShort> peers;
     iterate_all_peers([&](const adnl::AdnlNodeIdShort &peer_id, const OverlayPeer &peer) {
@@ -549,12 +513,12 @@ void OverlayImpl::update_peers_mtu() {
         peers.push_back(peer_id);
       }
     });
-    peers_mtu_guard_ = adnl::PeersMtuGuard{sender, local_id_, std::move(peers), mtu, true};
+    peers_mtu_guard_ = adnl::PeersMtuGuard{quic_, local_id_, std::move(peers), mtu, true};
   }
 }
 
 void OverlayImpl::set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort> peers) {
-  if (!opts_.enable_plumtree_broadcast_ || opts_.plumtree_broadcast_sender_.empty()) {
+  if (!opts_.enable_plumtree_broadcast_) {
     plumtree_eager_mtu_guard_ = {};
     return;
   }
@@ -567,36 +531,7 @@ void OverlayImpl::set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort
       peers.end());
   std::sort(peers.begin(), peers.end());
   peers.erase(std::unique(peers.begin(), peers.end()), peers.end());
-  plumtree_eager_mtu_guard_ =
-      adnl::PeersMtuGuard{opts_.plumtree_broadcast_sender_, local_id_, std::move(peers), plumtree_payload_mtu()};
-}
-
-void OverlayImpl::set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) {
-  for (const auto &peer_id : peer_list_.plumtree_neighbours_) {
-    if (auto *peer = peer_list_.peers_.get(peer_id)) {
-      peer->set_plumtree_neighbour(false);
-    }
-  }
-  peer_list_.plumtree_neighbours_.clear();
-
-  std::set<adnl::AdnlNodeIdShort> used;
-  for (const auto &peer_id : neighbours) {
-    if (peer_id == local_id_ || !used.insert(peer_id).second) {
-      continue;
-    }
-    auto *peer = peer_list_.peers_.get(peer_id);
-    if (!peer) {
-      VLOG(overlay, WARNING) << this << ": test Plumtree neighbour " << peer_id << " is not in peer list";
-      continue;
-    }
-    peer_list_.plumtree_neighbours_.push_back(peer_id);
-    peer->set_plumtree_neighbour(true);
-  }
-
-  // Keep the simulator's pinned topology stable. The Plumtree broadcast object
-  // already has its own copied options, so reads still request the configured
-  // neighbour count while overlay maintenance no longer rotates this list.
-  opts_.plumtree_fec_options_.active_neighbours_ = 0;
+  plumtree_eager_mtu_guard_ = adnl::PeersMtuGuard{quic_, local_id_, std::move(peers), plumtree_payload_mtu()};
 }
 
 void OverlayImpl::receive_dht_nodes(dht::DhtValue v) {
@@ -732,10 +667,6 @@ bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data
     return false;
   }
   if (!opts_.enable_plumtree_broadcast_) {
-    return false;
-  }
-  if (opts_.plumtree_broadcast_sender_.empty()) {
-    VLOG(overlay, WARNING) << "Plumtree broadcast sender is not set";
     return false;
   }
   if (data_size > Overlays::max_fec_broadcast_size()) {
@@ -1025,7 +956,7 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
     node_obj->bdcst_errors_ = peer.broadcast_errors;
     node_obj->fec_bdcst_errors_ = peer.fec_broadcast_errors;
 
-    node_obj->is_neighbour_ = peer.is_neighbour();
+    node_obj->is_neighbour_ = false;
     node_obj->is_alive_ = peer.is_alive();
     node_obj->node_flags_ = peer.get_node()->flags();
 
@@ -1037,11 +968,6 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
 
   res->total_traffic_ = total_traffic.tl();
   res->total_traffic_responses_ = total_traffic_responses.tl();
-  res->stats_.push_back(
-      create_tl_object<ton_api::engine_validator_oneStat>("neighbours_cnt", PSTRING() << neighbours_cnt()));
-  res->stats_.push_back(create_tl_object<ton_api::engine_validator_oneStat>("plumtree_neighbours_cnt",
-                                                                            PSTRING() << plumtree_neighbours_cnt()));
-
   double now = td::Clocks::system();
   for (const PublicKeyHash &key : rules_.get_authorized_keys()) {
     res->broadcasts_.push_back(authorized_key_limiters_[key].broadcasts_.tl(key, now));

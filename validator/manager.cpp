@@ -2296,7 +2296,6 @@ void ValidatorManagerImpl::update_shards() {
       .opts = opts_,
       .keyring = keyring_,
       .overlays = overlays_,
-      .quic = quic_,
       .db_root = db_root_,
       .validator_keys = validator_keys_,
       .local_collator_adnl_ids = local_collator_adnl_ids_,
@@ -3161,10 +3160,9 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<quic::QuicSender> quic,
-    td::actor::ActorId<overlay::Overlays> overlays) {
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  quic, overlays);
+                                                                  overlays);
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {

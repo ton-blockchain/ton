@@ -213,11 +213,11 @@ td::Status BroadcastFec::distribute_part(OverlayImpl *overlay, td::uint32 seqno)
   std::vector<adnl::AdnlNodeIdShort> nodes;
   if (flags_ & Overlays::BroadcastFlagFixedNeighbours()) {
     if (fixed_neighbours_.empty()) {
-      fixed_neighbours_ = overlay->get_neighbours(overlay->propagate_broadcast_to());
+      fixed_neighbours_ = overlay->get_broadcast_neighbours(overlay->propagate_broadcast_to());
     }
     nodes = fixed_neighbours_;
   } else {
-    nodes = overlay->get_neighbours(overlay->propagate_broadcast_to());
+    nodes = overlay->get_broadcast_neighbours(overlay->propagate_broadcast_to());
   }
   auto manager = overlay->overlay_manager();
 
