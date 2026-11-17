@@ -50,6 +50,11 @@ inline constexpr metrics::LabelEnum<PublicRebroadcastType, 2> ton_metric_label(P
   return {"type", {{"candidate", "finality"}}};
 }
 
+enum class PublicRebroadcastSource { fast_sync, custom };
+inline constexpr metrics::LabelEnum<PublicRebroadcastSource, 2> ton_metric_label(PublicRebroadcastSource) {
+  return {"source", {{"fast_sync", "custom"}}};
+}
+
 enum class ExternalRelayResult { relayed, no_fast_sync_route };
 inline constexpr metrics::LabelEnum<ExternalRelayResult, 2> ton_metric_label(ExternalRelayResult) {
   return {"result", {{"relayed", "no_fast_sync_route"}}};
@@ -148,13 +153,16 @@ class FullNodeImpl : public FullNode {
 
  private:
   struct RebroadcasterMetrics {
-    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType> broadcasts;
+    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType, PublicRebroadcastSource>
+        broadcasts;
+    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType, PublicRebroadcastSource> arrivals;
     metrics::Labeled<metrics::Gauge<double>, overlay::OverlayChain, PublicRebroadcastType>
         last_broadcast_timestamp_seconds;
     metrics::Labeled<metrics::Counter, ExternalRelayResult> external_messages;
 
     void collect(metrics::Context ctx) const {
       ctx.collect(broadcasts, "broadcasts");
+      ctx.collect(arrivals, "arrivals");
       ctx.collect(last_broadcast_timestamp_seconds, "last_broadcast_timestamp_seconds");
       ctx.collect(external_messages, "external_messages");
     }
@@ -171,7 +179,10 @@ class FullNodeImpl : public FullNode {
   void set_public_overlays_enabled(bool enabled);
   void update_public_overlay_mode(double fast_sync_authority_until);
   void update_fast_sync_and_public_overlays();
-  void record_public_rebroadcast(const BlockIdExt& block_id, PublicRebroadcastType type);
+  void record_public_rebroadcast_arrival(const BlockIdExt& block_id, PublicRebroadcastType type,
+                                         PublicRebroadcastSource source);
+  void record_public_rebroadcast(const BlockIdExt& block_id, PublicRebroadcastType type,
+                                 PublicRebroadcastSource source);
 
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
@@ -220,6 +231,8 @@ class FullNodeImpl : public FullNode {
   std::map<std::string, CustomOverlayInfo> custom_overlays_;
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{10000};
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_finality_{10000};
+  td::LRUCache<BlockIdExt, td::Unit> public_rebroadcasted_candidates_{256};
+  td::LRUCache<BlockIdExt, td::Unit> public_rebroadcasted_finalities_{256};
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);
