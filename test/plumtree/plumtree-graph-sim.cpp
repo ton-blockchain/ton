@@ -414,12 +414,11 @@ int main(int argc, char **argv) {
   for (auto node_index : validators) {
     validator_roots.push_back(node_index);
   }
-  auto expected_delivery = reachable_nodes(out_neighbours, validator_roots);
+  auto expected_delivery = reachable_nodes(known_peers, validator_roots);
   auto expected_delivered = count_true(expected_delivery);
 
   ton::overlay::OverlayOptions opts;
   opts.enable_plumtree_broadcast_ = true;
-  opts.max_neighbours_ = 5;
 
   scheduler.run_in_context([&] {
     auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
@@ -463,15 +462,9 @@ int main(int argc, char **argv) {
       for (auto peer_index : known_peers[i]) {
         peer_ids.push_back(nodes[peer_index].adnl_id);
       }
-      std::vector<ton::adnl::AdnlNodeIdShort> plumtree_peer_ids;
-      for (auto peer_index : out_neighbours[i]) {
-        plumtree_peer_ids.push_back(nodes[peer_index].adnl_id);
-      }
       td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::create_private_overlay_ex, nodes[i].adnl_id,
                               ton::overlay::OverlayIdFull(overlay_id_full.clone()), std::move(peer_ids),
                               std::make_unique<DeliveryCallback>(delivery, i), rules, "", opts);
-      td::actor::send_closure(network->overlay_manager, &ton::overlay::OverlayManager::set_test_plumtree_neighbours,
-                              nodes[i].adnl_id, overlay_id_short, std::move(plumtree_peer_ids));
     }
   });
   pump_scheduler(scheduler, 128);

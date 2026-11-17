@@ -299,11 +299,9 @@ class OverlayMemberCertificate {
 struct OverlayOptions {
   std::string name_ = "";
   bool announce_self_ = true;
-  bool frequent_dht_lookup_ = false;
   td::uint32 local_overlay_member_flags_ = 0;
   td::int32 max_slaves_in_semiprivate_overlay_ = 5;
   td::uint32 max_peers_ = 300;
-  td::uint32 max_neighbours_ = 10;
   td::uint32 nodes_to_send_ = 4;
   td::uint32 propagate_broadcast_to_ = 5;
   td::uint32 default_permanent_members_flags_ = 0;
@@ -321,7 +319,7 @@ struct OverlayOptions {
     td::uint32 tree_slots_ = parts_ + 1;
     td::uint32 validator_eager_limit_ = 1;
     td::uint32 eager_limit_ = 4;  // 1 incoming, so fanout is practically 3
-    td::uint32 active_neighbours_ = 5;
+    td::uint32 ihave_fanout_ = 5;
     td::uint32 repair_timeout_ms_ = 200;
     td::uint32 max_repair_targets_ = 5;
 
