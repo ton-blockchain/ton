@@ -186,16 +186,36 @@ void AdnlPeerTableImpl::add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, Ad
   update_id(peer_info, std::move(id));
   if (!addr_list.empty()) {
     td::actor::send_closure(get_peer_pair(id_short, peer_info, local_id, it2->second), &AdnlPeerPair::update_addr_list,
-                            std::move(addr_list));
+                            std::move(addr_list), false);
   }
 }
 
 void AdnlPeerTableImpl::add_static_nodes_from_config(AdnlNodesList nodes) {
   for (auto &node : nodes.nodes()) {
     auto id_short = node.compute_short_id();
-    VLOG(adnl, INFO) << "[staticnodes] adding static node " << id_short;
-    static_nodes_.emplace(id_short, std::move(node));
+    VLOG(adnl, INFO) << "[staticnodes] adding static node from config " << id_short;
+    config_static_nodes_.emplace(id_short, std::move(node));
   }
+}
+
+void AdnlPeerTableImpl::add_static_peer(AdnlNode node) {
+  auto id = node.compute_short_id();
+  VLOG(adnl, DEBUG) << "[staticnodes] adding static node " << id;
+  if (auto it = peers_.find(id); it != peers_.end()) {
+    update_id(it->second, node.pub_id());
+    for (auto &e : it->second.peers) {
+      td::actor::send_closure(e.second.actor, &AdnlPeerPair::update_addr_list, node.addr_list(), true);
+    }
+  }
+  if (auto it = static_nodes_.find(id); it != static_nodes_.end()) {
+    it->second = std::move(node);
+  } else {
+    static_nodes_.emplace(id, std::move(node));
+  }
+}
+
+void AdnlPeerTableImpl::del_static_peer(AdnlNodeIdShort id) {
+  static_nodes_.erase(id);
 }
 
 void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message,
@@ -269,12 +289,18 @@ void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, 
         td::actor::send_closure(network_manager_, &AdnlNetworkManager::set_local_id_category, a, cat);
       }
     }
+    it->second.address_list = addr_list;
+    for (auto &cb : local_id_callbacks_) {
+      cb->local_id_updated(a, addr_list);
+    }
     td::actor::send_closure(it->second.local_id, &AdnlLocalId::update_address_list, std::move(addr_list));
   } else {
-    local_ids_.emplace(
-        a, LocalIdInfo{td::actor::create_actor<AdnlLocalId>("localid", std::move(id), std::move(addr_list), mode,
-                                                            actor_id(this), keyring_, dht_node_),
-                       cat, mode});
+    for (auto &cb : local_id_callbacks_) {
+      cb->local_id_added(id, addr_list);
+    }
+    local_ids_.emplace(a, LocalIdInfo{td::actor::create_actor<AdnlLocalId>("localid", id, addr_list, mode,
+                                                                           actor_id(this), keyring_, dht_node_),
+                                      cat, mode, id, addr_list});
     if (!network_manager_.empty()) {
       td::actor::send_closure(network_manager_, &AdnlNetworkManager::set_local_id_category, a, cat);
     }
@@ -283,7 +309,11 @@ void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, 
 
 void AdnlPeerTableImpl::del_id(AdnlNodeIdShort id, td::Promise<td::Unit> promise) {
   VLOG(adnl, INFO) << "adnl: deleting local id " << id;
-  local_ids_.erase(id);
+  if (local_ids_.erase(id)) {
+    for (auto &cb : local_id_callbacks_) {
+      cb->local_id_deleted(id);
+    }
+  }
   promise.set_value(td::Unit());
 }
 
@@ -300,6 +330,13 @@ void AdnlPeerTableImpl::unsubscribe(AdnlNodeIdShort dst, std::string prefix) {
   if (it != local_ids_.end()) {
     td::actor::send_closure(it->second.local_id, &AdnlLocalId::unsubscribe, prefix);
   }
+}
+
+void AdnlPeerTableImpl::add_local_id_callback(std::unique_ptr<LocalIdCallback> callback) {
+  for (auto &[_, info] : local_ids_) {
+    callback->local_id_added(info.id_full, info.address_list);
+  }
+  local_id_callbacks_.push_back(std::move(callback));
 }
 
 void AdnlPeerTableImpl::register_dht_node(td::actor::ActorId<dht::Dht> dht_node) {
@@ -445,7 +482,7 @@ td::actor::Task<> AdnlPeerTableImpl::collect(metrics::Context ctx) {
   metrics_.transport.peers.set(peers_.size());
   metrics_.transport.peer_pairs.set(peer_pairs);
   metrics_.transport.channels.set(channels_.size());
-  metrics_.transport.static_nodes.set(static_nodes_.size());
+  metrics_.transport.static_nodes.set(config_static_nodes_.size() + static_nodes_.size());
   ctx.with_name("adnl").collect(metrics_);
   co_return {};
 }

@@ -1873,6 +1873,48 @@ class ShowShardBlockVerifierConfigQuery : public Query {
   }
 };
 
+class SetRegistryVotingConfigQuery : public Query {
+ public:
+  SetRegistryVotingConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-registry-voting-config";
+  }
+  static std::string get_help() {
+    return "set-registry-voting-config <filename>\tset list of nodes and rules for voting in validator registry from "
+           "file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class ShowRegistryVotingConfigQuery : public Query {
+ public:
+  ShowRegistryVotingConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "show-registry-voting-config";
+  }
+  static std::string get_help() {
+    return "show-registry-voting-config\tshow list of nodes and roles for voting in validator registry";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
 class SetConsensusNoncriticalParamsOverridesQuery : public Query {
  public:
   SetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

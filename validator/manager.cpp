@@ -1937,6 +1937,7 @@ void ValidatorManagerImpl::start_up() {
       "extmessagecleanup", ext_message_pool_.get(), actor_id(this));
   td::mkdir(db_root_ + "/tmp/").ensure();
   td::mkdir(db_root_ + "/catchains/").ensure();
+  validator_registry_watcher_ = ValidatorRegistryWatcher::create(actor_id(this), keyring_, adnl_);
 
   auto Q =
       td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::actor::ActorOwn<adnl::AdnlExtServer>> R) {
@@ -2258,9 +2259,8 @@ void ValidatorManagerImpl::new_masterchain_block() {
   }
 
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::update_last_masterchain_state, last_masterchain_state_);
-  for (auto &[_, actor] : validator_registry_watchers_) {
-    td::actor::send_closure(actor, &ValidatorRegistryWatcher::update, last_masterchain_state_, opts_);
-  }
+  td::actor::send_closure(validator_registry_watcher_, &ValidatorRegistryWatcher::update, last_masterchain_state_,
+                          opts_);
   if (last_masterchain_seqno_ % 1024 == 0) {
     LOG(WARNING) << "applied masterchain block " << last_masterchain_block_id_;
   } else {

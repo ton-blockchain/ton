@@ -2065,6 +2065,52 @@ td::Status ShowShardBlockVerifierConfigQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
+td::Status SetRegistryVotingConfigQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status SetRegistryVotingConfigQuery::send() {
+  TRY_RESULT(data, td::read_file(file_name_));
+  TRY_RESULT(json, td::json_decode(data.as_slice()));
+  auto config = ton::create_tl_object<ton::ton_api::engine_validator_registryVotingConfig>();
+  TRY_STATUS(ton::ton_api::from_json(*config, json.get_object()));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setRegistryVotingConfig>(std::move(config));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetRegistryVotingConfigQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status ShowRegistryVotingConfigQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status ShowRegistryVotingConfigQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_showRegistryVotingConfig>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ShowRegistryVotingConfigQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(config,
+                    ton::fetch_tl_object<ton::ton_api::engine_validator_registryVotingConfig>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "Registry voting config:\n";
+  for (const auto &node : config->nodes_) {
+    td::TerminalIO::out() << "Node " << node->adnl_id_ << " add=" << (td::uint32)node->roles_add_
+                          << " remove=" << (td::uint32)node->roles_remove_;
+  }
+  return td::Status::OK();
+}
+
 td::Status SetConsensusNoncriticalParamsOverridesQuery::run() {
   TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
   TRY_STATUS(tokenizer_.check_endl());

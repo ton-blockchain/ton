@@ -39,10 +39,7 @@ void AdnlPeerPairImpl::start_up() {
     td::actor::send_closure(SelfId, &AdnlPeerPairImpl::got_data_from_db, std::move(R));
   });
   td::actor::send_closure(peer_table_, &AdnlPeerTable::get_addr_list_from_db, local_id_, peer_id_short_, std::move(P1));
-  auto P2 = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<AdnlNode> R) {
-    td::actor::send_closure(SelfId, &AdnlPeerPairImpl::got_data_from_static_nodes, std::move(R));
-  });
-  td::actor::send_closure(peer_table_, &AdnlPeerTable::get_static_node, peer_id_short_, std::move(P2));
+  get_static_node();
 
   set_idle_mark(false);
 }
@@ -822,6 +819,7 @@ td::Result<std::pair<td::actor::ActorId<AdnlNetworkConnection>, bool>> AdnlPeerP
     addr_list_ = AdnlAddressList{};
     conns_.clear();
     has_reverse_addr_ = false;
+    get_static_node();
     return td::Status::Error(ErrorCode::notready, "no active connections");
   }
 
@@ -859,10 +857,13 @@ td::Result<std::pair<td::actor::ActorId<AdnlNetworkConnection>, bool>> AdnlPeerP
   return td::Status::Error(ErrorCode::notready, "no active connections");
 }
 
-void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
+void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list, bool ignore_reinit_date) {
   set_idle_mark(false);
   if (addr_list.empty()) {
     return;
+  }
+  if (ignore_reinit_date) {
+    addr_list.set_reinit_date(reinit_date_);
   }
 
   if (addr_list.reinit_date() > td::Clocks::system() + 60) {
@@ -1051,6 +1052,13 @@ void AdnlPeerPairImpl::got_data_from_db(td::Result<AdnlDbItem> R) {
   update_addr_list(value.priority_addr_list);
 }
 
+void AdnlPeerPairImpl::get_static_node() {
+  auto P2 = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<AdnlNode> R) {
+    td::actor::send_closure(SelfId, &AdnlPeerPairImpl::got_data_from_static_nodes, std::move(R));
+  });
+  td::actor::send_closure(peer_table_, &AdnlPeerTable::get_static_node, peer_id_short_, std::move(P2));
+}
+
 void AdnlPeerPairImpl::got_data_from_static_nodes(td::Result<AdnlNode> R) {
   received_from_static_nodes_ = false;
   if (R.is_error()) {
@@ -1060,7 +1068,7 @@ void AdnlPeerPairImpl::got_data_from_static_nodes(td::Result<AdnlNode> R) {
   if (!value.pub_id().empty()) {
     update_peer_id(value.pub_id());
   }
-  update_addr_list(value.addr_list());
+  update_addr_list(value.addr_list(), true);
 }
 
 void AdnlPeerPairImpl::got_data_from_dht(td::Result<AdnlNode> R) {
