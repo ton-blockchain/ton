@@ -601,7 +601,7 @@ void ValidatorRegistryWatcherImpl::update(Ref<MasterchainState> mc_state, Ref<Va
       continue;
     }
     bool voted = false;
-    for (auto &[key_hash, _] : local_validators_) {
+    for (auto& [key_hash, _] : local_validators_) {
       auto it = to_vote.validator_set->key_to_idx.find(key_hash);
       if (it == to_vote.validator_set->key_to_idx.end()) {
         continue;

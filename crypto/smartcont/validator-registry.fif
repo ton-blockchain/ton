@@ -337,7 +337,7 @@ PROGRAM{
     STREF                   	//  storage.lastValidatorSetUpdateSeqno b
     32 STU                  	//  b
     ENDC                    	//  '280
-    c4 POP                  	// 
+    c4 POP                  	//
   }>
   // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:342
   updateValidatorSetNodes() PROC:<{	//  storage.nodes storage.votings storage.votingsGc storage.extra storage.lastValidatorSetUpdateSeqno validatorSetCell diff
@@ -571,18 +571,18 @@ PROGRAM{
       // 318: setTvmRegisterC3(transformSliceToContinuation(newCode.beginParse()))
       CTOS                  	//  '62
       BLESS                 	//  '63
-      c3 POP                	// 
+      c3 POP                	//
       // 319: acceptExternalMessage()
-      ACCEPT                	// 
+      ACCEPT                	//
       // 320: afterUpdateCode()
-      afterUpdateCode() CALLDICT	// 
+      afterUpdateCode() CALLDICT	//
     }>                      	//  msg.USlot2 msg.UTag msg.USlot1
     // 517: match (msg)
     135 PUSHINT             	//  msg.USlot2 msg.UTag msg.USlot1 '65=135
     s2 PUSH                 	//  msg.USlot2 msg.UTag msg.USlot1 '65=135 msg.UTag
     EQUAL                   	//  msg.USlot2 msg.UTag msg.USlot1 '64
     IFJMP:<{                	//  msg.USlot2 msg.UTag msg.USlot1
-      3 BLKDROP             	// 
+      3 BLKDROP             	//
       // 324: var storage = Storage.fromCell(contract.getData())
       c4 PUSH               	//  '66
       CTOS                  	//  s
@@ -695,14 +695,14 @@ PROGRAM{
       STREF                 	//  storage.lastValidatorSetUpdateSeqno b
       32 STU                	//  b
       ENDC                  	//  '200
-      c4 POP                	// 
+      c4 POP                	//
     }>                      	//  msg.USlot2 msg.UTag msg.USlot1
     // 517: match (msg)
     136 PUSHINT
     ROT                     	//  msg.USlot2 msg.USlot1 '202=136 msg.UTag
     EQUAL                   	//  msg.USlot2 msg.USlot1 '201
     IFJMP:<{                	//  msg.USlot2 msg.USlot1
-      2DROP                 	// 
+      2DROP                 	//
       // 364: var storage = Storage.fromCell(contract.getData())
       c4 PUSH               	//  '203
       CTOS                  	//  s
@@ -915,7 +915,7 @@ PROGRAM{
       STREF                 	//  storage.lastValidatorSetUpdateSeqno b
       32 STU                	//  b
       ENDC                  	//  '336
-      c4 POP                	// 
+      c4 POP                	//
     }>                      	//  msg.USlot2 msg.USlot1
     OVER                    	//  msg.USlot2 msg.USlot1 msg.USlot2
     // 528: val request = msg.request.load()
@@ -1431,7 +1431,7 @@ PROGRAM{
       STREF                 	//  storage.lastValidatorSetUpdateSeqno b
       32 STU                	//  b
       ENDC                  	//  '815
-      c4 POP                	// 
+      c4 POP                	//
     }>                      	//  msg.USlot2 msg.USlot1 request.USlot1 request.USlot2 request.USlot3 request.USlot4 request.USlot5 request.USlot6
     3 3 BLKDROP2            	//  msg.USlot2 msg.USlot1 request.USlot4 request.USlot5 request.USlot6
     s0 s4 XCHG              	//  request.USlot6 msg.USlot1 request.USlot4 request.USlot5 msg.USlot2
@@ -1567,9 +1567,9 @@ PROGRAM{
     STREF                   	//  storage.lastValidatorSetUpdateSeqno b
     32 STU                  	//  b
     ENDC                    	//  '954
-    c4 POP                  	// 
+    c4 POP                  	//
   }>
   // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:541
-  afterUpdateCode() PROC:<{ 	// 
+  afterUpdateCode() PROC:<{ 	//
   }>
 }END>c
