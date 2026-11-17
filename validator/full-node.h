@@ -53,7 +53,7 @@ struct FullNodeOptions {
   FullNodeConfig config_;
   double public_broadcast_speed_multiplier_ = 1.0;
   double private_broadcast_speed_multiplier_ = 1.0;
-  double fast_sync_broadcast_speed_multiplier_ = 1.0;
+  double protected_broadcast_speed_multiplier_ = 1.0;
   double initial_sync_delay_ = 60.0;
 
   bool public_rebroadcast_enabled_ = false;
@@ -64,7 +64,7 @@ struct FullNodeOptions {
     size_t limit_global_ = 96, limit_heavy_ = 64, limit_medium_ = 72, limit_small_ = 200;
   };
   RateLimiterParams rate_limit_public_ = {};
-  RateLimiterParams rate_limit_fast_sync_ = {};
+  RateLimiterParams rate_limit_protected_ = {};
   RateLimiterParams rate_limit_custom_ = {};
 };
 
@@ -84,7 +84,7 @@ struct CustomOverlayParams {
 
 enum class QuerySource {
   public_overlay,
-  fast_sync_overlay,
+  protected_overlay,
   custom_overlay,
   full_node_master,
 };
@@ -93,8 +93,8 @@ inline td::StringBuilder& operator<<(td::StringBuilder& sb, const QuerySource& s
   switch (source) {
     case QuerySource::public_overlay:
       return sb << "public overlay";
-    case QuerySource::fast_sync_overlay:
-      return sb << "fast-sync overlay";
+    case QuerySource::protected_overlay:
+      return sb << "protected overlay";
     case QuerySource::custom_overlay:
       return sb << "custom overlay";
     case QuerySource::full_node_master:
@@ -150,7 +150,7 @@ class FullNode : public td::actor::Actor {
 
   virtual void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) = 0;
   virtual void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) = 0;
-  virtual void relay_external_message_to_fast_sync(ShardIdFull shard, td::BufferSlice data) = 0;
+  virtual void relay_external_message_to_protected_overlay(ShardIdFull shard, td::BufferSlice data) = 0;
 
   virtual void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
                                                 bool send_to_custom) = 0;
@@ -165,8 +165,8 @@ class FullNode : public td::actor::Actor {
                                    tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
                                    std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) = 0;
 
-  virtual void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
-                                                   overlay::OverlayMemberCertificate cert) = 0;
+  virtual void import_protected_overlay_member_certificate(adnl::AdnlNodeIdShort local_id,
+                                                           overlay::OverlayMemberCertificate cert) = 0;
   virtual void initial_config_loaded() = 0;
 
   virtual td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
@@ -183,9 +183,9 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint64 max_zerostate_size() {
     return 16 << 20;
   }
-  enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4, broadcast_mode_all = 7 };
+  enum { broadcast_mode_public = 1, broadcast_mode_protected = 2, broadcast_mode_custom = 4, broadcast_mode_all = 7 };
 
-  static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
+  static constexpr td::int32 MAX_PROTECTED_OVERLAY_CLIENTS = 5;
   static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;
   static constexpr td::uint32 PROTO_VERSION_MINOR = 4;
 

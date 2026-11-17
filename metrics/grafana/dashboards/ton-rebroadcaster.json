@@ -504,7 +504,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "2 * (clamp_max((max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}) == bool 0) + ((max by (job, instance) (ton_rebroadcaster_enabled{job=~\"$job\",instance=~\"$instance\"})) or on (job, instance) (0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) == bool 0) + ((max by (job, instance) (clamp_min(timestamp(ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"master\"}) - ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"master\"}, 0))) or on (job, instance) (1000000000.0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 15) + ((max by (job, instance) (clamp_min(timestamp(ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"shard\"}) - ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"shard\"}, 0))) or on (job, instance) (1000000000.0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 15) + ((sum by (job, instance) (increase(ton_rebroadcaster_external_messages_total{job=~\"$job\",instance=~\"$instance\",result=\"no_fast_sync_route\"}[5m]))) or on (job, instance) (0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 0), 1)) + (clamp_max(((max by (job, instance) (clamp_min(timestamp(ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"master\"}) - ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"master\"}, 0))) or on (job, instance) (1000000000.0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 5) + ((max by (job, instance) (clamp_min(timestamp(ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"shard\"}) - ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"shard\"}, 0))) or on (job, instance) (1000000000.0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 5), 1))",
+          "expr": "2 * (clamp_max((max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}) == bool 0) + ((max by (job, instance) (ton_rebroadcaster_enabled{job=~\"$job\",instance=~\"$instance\"})) or on (job, instance) (0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) == bool 0) + ((max by (job, instance) (clamp_min(timestamp(ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"master\"}) - ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"master\"}, 0))) or on (job, instance) (1000000000.0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 15) + ((max by (job, instance) (clamp_min(timestamp(ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"shard\"}) - ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"shard\"}, 0))) or on (job, instance) (1000000000.0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 15) + ((sum by (job, instance) (increase(ton_rebroadcaster_external_messages_total{job=~\"$job\",instance=~\"$instance\",result=\"no_protected_route\"}[5m]))) or on (job, instance) (0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 0), 1)) + (clamp_max(((max by (job, instance) (clamp_min(timestamp(ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"master\"}) - ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"master\"}, 0))) or on (job, instance) (1000000000.0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 5) + ((max by (job, instance) (clamp_min(timestamp(ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"shard\"}) - ton_rebroadcaster_last_broadcast_timestamp_seconds{job=~\"$job\",instance=~\"$instance\",chain=\"shard\"}, 0))) or on (job, instance) (1000000000.0 + 0 * (max by (job, instance) (up{job=~\"$job\",instance=~\"$instance\"}))) > bool 5), 1))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -577,7 +577,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "One row per selected hero, sorted by hidden severity. Red means the target or rebroadcaster is down, the older candidate/finality stream for either chain has been silent for more than 15 seconds, or a validated external had no fast-sync route in the last five minutes. Yellow starts at five seconds of broadcast silence.",
+      "description": "One row per selected hero, sorted by hidden severity. Red means the target or rebroadcaster is down, the older candidate/finality stream for either chain has been silent for more than 15 seconds, or a validated external had no protected overlay route in the last five minutes. Yellow starts at five seconds of broadcast silence.",
       "transformations": [
         {
           "id": "organize",
@@ -1026,7 +1026,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Master candidate and finality broadcasts/s scheduled from fast-sync or custom overlays to the public Plumtree overlay by each selected hero. Candidate and finality totals separately sum their first-arrival sources."
+      "description": "Master candidate and finality broadcasts/s scheduled from protected or custom overlays to the public Plumtree overlay by each selected hero. Candidate and finality totals separately sum their first-arrival sources."
     },
     {
       "id": 26,
@@ -1140,7 +1140,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Shard candidate and finality broadcasts/s scheduled from fast-sync or custom overlays to the public Plumtree overlay by each selected hero. Candidate and finality totals separately sum their first-arrival sources."
+      "description": "Shard candidate and finality broadcasts/s scheduled from protected or custom overlays to the public Plumtree overlay by each selected hero. Candidate and finality totals separately sum their first-arrival sources."
     },
     {
       "id": 22,
@@ -1242,7 +1242,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Master candidate and finality arrivals/s received from fast-sync and custom overlays by each selected hero, including arrivals suppressed by rebroadcast deduplication."
+      "description": "Master candidate and finality arrivals/s received from protected and custom overlays by each selected hero, including arrivals suppressed by rebroadcast deduplication."
     },
     {
       "id": 27,
@@ -1344,7 +1344,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Shard candidate and finality arrivals/s received from fast-sync and custom overlays by each selected hero, including arrivals suppressed by rebroadcast deduplication."
+      "description": "Shard candidate and finality arrivals/s received from protected and custom overlays by each selected hero, including arrivals suppressed by rebroadcast deduplication."
     },
     {
       "id": 24,
@@ -1958,7 +1958,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (job, instance, result) (rate(ton_rebroadcaster_external_messages_total{job=~\"$job\",instance=~\"$instance\",result=~\"(relayed|no_fast_sync_route)\"}[$__rate_interval]))",
+          "expr": "sum by (job, instance, result) (rate(ton_rebroadcaster_external_messages_total{job=~\"$job\",instance=~\"$instance\",result=~\"(relayed|no_protected_route)\"}[$__rate_interval]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1971,7 +1971,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Validated public external messages/s reaching the relay stage. Relayed means the message was submitted to the matching fast-sync overlay; no_fast_sync_route means no matching overlay was available and the message was dropped."
+      "description": "Validated public external messages/s reaching the relay stage. Relayed means the message was submitted to the matching protected overlay; no_protected_route means no matching overlay was available and the message was dropped."
     }
   ]
 }

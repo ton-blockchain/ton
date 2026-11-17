@@ -140,7 +140,7 @@ class CandidateBroadcastRelayImpl : public td::actor::SpawnsWith<Bus>, public td
     td::BufferSlice data = entry.candidate->data.clone();
     slots_.erase(it);
 
-    int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync;
+    int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_protected;
     if (bus->is_collator) {
       mode = fullnode::FullNode::broadcast_mode_custom;
     }

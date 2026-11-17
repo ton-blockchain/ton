@@ -33,7 +33,7 @@
 #include "td/utils/LRUCache.h"
 
 #include "full-node-custom-overlays.hpp"
-#include "full-node-fast-sync-overlays.hpp"
+#include "full-node-protected-overlays.hpp"
 #include "full-node-queries.hpp"
 #include "full-node-shard.h"
 #include "full-node.h"
@@ -50,14 +50,14 @@ inline constexpr metrics::LabelEnum<PublicRebroadcastType, 2> ton_metric_label(P
   return {"type", {{"candidate", "finality"}}};
 }
 
-enum class PublicRebroadcastSource { fast_sync, custom };
+enum class PublicRebroadcastSource { protected_overlay, custom_overlay };
 inline constexpr metrics::LabelEnum<PublicRebroadcastSource, 2> ton_metric_label(PublicRebroadcastSource) {
-  return {"source", {{"fast_sync", "custom"}}};
+  return {"source", {{"protected", "custom"}}};
 }
 
-enum class ExternalRelayResult { relayed, no_fast_sync_route };
+enum class ExternalRelayResult { relayed, no_protected_route };
 inline constexpr metrics::LabelEnum<ExternalRelayResult, 2> ton_metric_label(ExternalRelayResult) {
-  return {"result", {{"relayed", "no_fast_sync_route"}}};
+  return {"result", {{"relayed", "no_protected_route"}}};
 }
 
 class FullNodeImpl : public FullNode {
@@ -82,7 +82,7 @@ class FullNodeImpl : public FullNode {
 
   void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) override;
   void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) override;
-  void relay_external_message_to_fast_sync(ShardIdFull shard, td::BufferSlice data) override;
+  void relay_external_message_to_protected_overlay(ShardIdFull shard, td::BufferSlice data) override;
 
   void on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor);
 
@@ -127,13 +127,13 @@ class FullNodeImpl : public FullNode {
                            std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) override;
   void alarm() override;
 
-  void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
-                                           overlay::OverlayMemberCertificate cert) override {
-    VLOG(full_node, DEBUG) << "Importing fast sync overlay certificate for " << local_id << " issued by "
+  void import_protected_overlay_member_certificate(adnl::AdnlNodeIdShort local_id,
+                                                   overlay::OverlayMemberCertificate cert) override {
+    VLOG(full_node, DEBUG) << "Importing protected overlay certificate for " << local_id << " issued by "
                            << cert.issued_by().compute_short_id() << " expires in "
                            << (double)cert.expire_at() - td::Clocks::system();
-    fast_sync_overlays_.add_member_certificate(local_id, std::move(cert));
-    update_fast_sync_and_public_overlays();
+    protected_overlays_.add_member_certificate(local_id, std::move(cert));
+    update_protected_and_public_overlays();
   }
   void initial_config_loaded() override;
 
@@ -177,8 +177,8 @@ class FullNodeImpl : public FullNode {
 
   void update_shard_actor(ShardIdFull shard, bool active);
   void set_public_overlays_enabled(bool enabled);
-  void update_public_overlay_mode(double fast_sync_authority_until);
-  void update_fast_sync_and_public_overlays();
+  void update_public_overlay_mode(double protected_overlay_authority_until);
+  void update_protected_and_public_overlays();
   void record_public_rebroadcast_arrival(const BlockIdExt& block_id, PublicRebroadcastType type,
                                          PublicRebroadcastSource source);
   void record_public_rebroadcast(const BlockIdExt& block_id, PublicRebroadcastType type,
@@ -222,7 +222,7 @@ class FullNodeImpl : public FullNode {
   td::Promise<> sync_promise_;
   td::Timestamp sync_completed_at_;
 
-  FullNodeFastSyncOverlays fast_sync_overlays_;
+  FullNodeProtectedOverlays protected_overlays_;
 
   struct CustomOverlayInfo {
     CustomOverlayParams params_;
@@ -257,13 +257,13 @@ class FullNodeImpl : public FullNode {
   td::Timestamp plumtree_stats_exchange_at_ = td::Timestamp::never();
 
   void schedule_plumtree_stats_exchange();
-  void start_plumtree_stats_exchange(bool exchange_fast_sync);
+  void start_plumtree_stats_exchange(bool exchange_protected);
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 
   // Separate handlers for separate rate limiters
   FullNodeQueryHandler query_handler_public_;
-  FullNodeQueryHandler query_handler_fast_sync_;
+  FullNodeQueryHandler query_handler_protected_;
   FullNodeQueryHandler query_handler_custom_;
 
   static std::shared_ptr<RateLimiter<>> make_rate_limiter(const FullNodeOptions::RateLimiterParams& params);

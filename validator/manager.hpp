@@ -81,15 +81,15 @@ class BlockHandleLru : public td::ListNode {
 #define BLOCK_SOURCE_LIST(F)       \
   F(unknown)                       \
   F(block_broadcast_public)        \
-  F(block_broadcast_fast_sync)     \
+  F(block_broadcast_protected)     \
   F(block_broadcast_custom)        \
   F(block_download)                \
   F(candidate_broadcast_public)    \
-  F(candidate_broadcast_fast_sync) \
+  F(candidate_broadcast_protected) \
   F(candidate_broadcast_consensus) \
   F(candidate_broadcast_custom)    \
   F(candidate_finality_public)     \
-  F(candidate_finality_fast_sync)  \
+  F(candidate_finality_protected)  \
   F(candidate_finality_custom)     \
   F(candidate_stored)              \
   F(block_accepted)
@@ -118,8 +118,8 @@ struct BlockReceiveStats {
     switch (source) {
       case BroadcastSource::public_overlay:
         return is_candidate ? BlockSource::candidate_broadcast_public : BlockSource::block_broadcast_public;
-      case BroadcastSource::fast_sync_overlay:
-        return is_candidate ? BlockSource::candidate_broadcast_fast_sync : BlockSource::block_broadcast_fast_sync;
+      case BroadcastSource::protected_overlay:
+        return is_candidate ? BlockSource::candidate_broadcast_protected : BlockSource::block_broadcast_protected;
       case BroadcastSource::custom_overlay:
         return is_candidate ? BlockSource::candidate_broadcast_custom : BlockSource::block_broadcast_custom;
       case BroadcastSource::consensus_overlay:
@@ -132,8 +132,8 @@ struct BlockReceiveStats {
     switch (source) {
       case BroadcastSource::public_overlay:
         return BlockSource::candidate_finality_public;
-      case BroadcastSource::fast_sync_overlay:
-        return BlockSource::candidate_finality_fast_sync;
+      case BroadcastSource::protected_overlay:
+        return BlockSource::candidate_finality_protected;
       case BroadcastSource::custom_overlay:
         return BlockSource::candidate_finality_custom;
       case BroadcastSource::consensus_overlay:
