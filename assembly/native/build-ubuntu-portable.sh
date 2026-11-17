@@ -26,16 +26,6 @@ else
   rm -rf ~/.ccache
 fi
 
-# Avoid -march=native with shared CI ccache to prevent illegal instructions.
-if [ "${GITHUB_ACTIONS}" = "true" ] || [ "$with_ccache" = true ]; then
-  HOST_ARCH="$(uname -m)"
-  if [ "${HOST_ARCH}" = "x86_64" ]; then
-    TON_ARCH="x86-64"
-  elif [ "${HOST_ARCH}" = "aarch64" ] || [ "${HOST_ARCH}" = "arm64" ]; then
-    TON_ARCH="armv8-a"
-  fi
-fi
-
 if [ ! -d "build" ]; then
   mkdir build
   cd build
@@ -45,8 +35,9 @@ else
 fi
 
 CMAKE_EXTRA_ARGS=()
+# Leave TON_ARCH unset to use the CMake default (native), independently of ccache.
 if [ -n "${TON_ARCH}" ]; then
-  CMAKE_EXTRA_ARGS+=(-DTON_ARCH=${TON_ARCH})
+  CMAKE_EXTRA_ARGS+=("-DTON_ARCH=${TON_ARCH}")
 fi
 
 cmake -GNinja .. \
