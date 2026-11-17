@@ -109,6 +109,7 @@ void FullNodeShardImpl::create_overlay() {
   };
   overlay::OverlayOptions opts;
   opts.name_ = "shard" + shard_.to_str();
+  opts.overlay_chain_ = shard_.is_masterchain() ? overlay::OverlayChain::master : overlay::OverlayChain::shard;
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
   opts.enable_plumtree_broadcast_ = true;
@@ -116,6 +117,7 @@ void FullNodeShardImpl::create_overlay() {
     opts.is_original_sender_ = true;
     opts.plumtree_fec_options_.original_sender_eager_limit_ = opts_.public_rebroadcast_fanout_;
     opts.plumtree_fec_options_.ihave_fanout_ = opts_.public_rebroadcast_fanout_;
+    opts.max_peers_ = std::max<td::uint32>(opts.max_peers_, 600);
     opts.max_peers_ = std::max(opts.max_peers_, opts_.public_rebroadcast_fanout_);
   }
   opts.plumtree_fec_options_.stats_store_limit_ = k_public_plumtree_stats_store_limit;

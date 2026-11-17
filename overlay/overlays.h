@@ -19,6 +19,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <vector>
 
 #include "adnl/adnl-node-id.hpp"
@@ -40,6 +41,11 @@ namespace ton {
 namespace overlay {
 
 enum class OverlayType { Public, FixedMemberList, CertificatedMembers };
+
+enum class OverlayChain { master, shard };
+inline constexpr metrics::LabelEnum<OverlayChain, 2> ton_metric_label(OverlayChain) {
+  return {"chain", {{"master", "shard"}}};
+}
 
 class OverlayIdShort {
  public:
@@ -331,10 +337,37 @@ struct OverlayOptions {
   bool is_original_sender_ = false;
   PlumtreeFecOptions plumtree_fec_options_;
 
+  std::optional<OverlayChain> overlay_chain_;
+
   td::RateLimiterWindow::Params auth_broadcast_rate_limit_ = {};
   td::RateLimiterWindow::Params auth_broadcast_size_rate_limit_ = {};
   td::RateLimiterWindow::Params unauth_broadcast_rate_limit_ = {};
   td::RateLimiterWindow::Params unauth_broadcast_size_rate_limit_ = {};
+};
+
+struct PlumtreeEagerPeerStats {
+  td::uint64 peers = 0;
+  td::uint64 trees = 0;
+};
+
+struct PublicOverlayMetrics {
+  td::uint64 peers = 0;
+  PlumtreeEagerPeerStats eager_peers;
+
+  PublicOverlayMetrics &operator+=(const PublicOverlayMetrics &other) {
+    peers += other.peers;
+    eager_peers.peers += other.eager_peers.peers;
+    eager_peers.trees += other.eager_peers.trees;
+    return *this;
+  }
+
+  void collect(metrics::Context ctx) const;
+};
+
+struct OverlayMetrics {
+  metrics::TlTrafficBucket broadcasts;
+  std::optional<OverlayChain> public_chain;
+  PublicOverlayMetrics public_overlay;
 };
 
 using PlumtreeFecOptions = OverlayOptions::PlumtreeFecOptions;
@@ -476,9 +509,8 @@ class Overlays : public td::actor::Actor {
     co_return {};
   }
 
-  // Merge one overlay's drained inbound broadcast content into the manager's aggregate (the bucket is
-  // non-atomic, so it must be accumulated on the manager thread). `done` is fulfilled after the merge.
-  virtual void absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) = 0;
+  // Merge one overlay's drained counters and topology snapshot on the manager thread.
+  virtual void absorb_metrics(OverlayMetrics delta, td::Promise<td::Unit> done) = 0;
 
   virtual void update_semiprivate_authorized_nodes(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
                                                    std::vector<adnl::AdnlNodeIdShort> add,
