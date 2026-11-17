@@ -6141,13 +6141,13 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('\0', "fast-state-serializer", "deprecated option (enabled by default)", [&]() {});
   p.add_option('\0', "collect-validator-telemetry",
-               "store validator telemetry from fast sync overlay to a given file (json format)", [&](td::Slice s) {
+               "store validator telemetry from protected overlay to a given file (json format)", [&](td::Slice s) {
                  acts.push_back([&x, s = s.str()]() {
                    td::actor::send_closure(x, &ValidatorEngine::set_validator_telemetry_filename, s);
                  });
                });
   p.add_option('\0', "collect-plumtree-stats",
-               "store fast-sync and local public-overlay Plumtree topology stats to a given file (json format)",
+               "store protected and local public overlay Plumtree topology stats to a given file (json format)",
                [&](td::Slice s) {
                  acts.push_back([&x, s = s.str()]() {
                    td::actor::send_closure(x, &ValidatorEngine::set_plumtree_stats_filename, s);
@@ -6183,17 +6183,18 @@ int main(int argc, char *argv[]) {
         return td::Status::OK();
       });
   p.add_checked_option(
-      '\0', "broadcast-speed-fast-sync",
-      "multiplier for broadcast speed in fast-sync overlays (experimental, default is 3.33, which is ~1 MB/s)",
+      '\0', "broadcast-speed-protected",
+      "multiplier for broadcast speed in protected overlays (experimental, default is 3.33, which is ~1 MB/s)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v <= 0.0) {
-          return td::Status::Error("broadcast-speed-fast-sync should be positive");
+          return td::Status::Error("broadcast-speed-protected should be positive");
         }
         acts.push_back(
             [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_fast_sync, v); });
         return td::Status::OK();
       });
+  p.add_alias("broadcast-speed-fast-sync", "broadcast-speed-protected");
   p.add_option('\0', "broadcast-speed-catchain", "deprecated", [&](td::Slice) {});
   p.add_option(
       '\0', "permanent-celldb",
@@ -6216,8 +6217,8 @@ int main(int argc, char *argv[]) {
       });
   p.add_option(
       '\0', "public-rebroadcast",
-      "relay fast-sync and custom-overlay block broadcasts to public overlays and validated public externals to "
-      "fast-sync",
+      "relay protected and custom overlay block broadcasts to public overlays and validated public externals to "
+      "protected overlays",
       [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::enable_public_rebroadcast); }); });
   p.add_checked_option('\0', "public-rebroadcast-fanout",
                        "Plumtree eager and IHAVE fanout for public rebroadcasts (default: 50)",
@@ -6232,9 +6233,9 @@ int main(int argc, char *argv[]) {
                          return td::Status::OK();
                        });
   for (size_t iter = 0; iter < 3; ++iter) {
-    static const char *suffixes[3] = {"", "-fast-sync", "-custom"};
+    static const char *suffixes[3] = {"", "-protected", "-custom"};
     const char *suffix = suffixes[iter];
-    static const char *names[3] = {"public", "fast sync", "custom"};
+    static const char *names[3] = {"public", "protected", "custom"};
     const char *name = names[iter];
     auto limiter = [=](ton::validator::fullnode::FullNodeOptions &opts)
         -> ton::validator::fullnode::FullNodeOptions::RateLimiterParams & {
@@ -6314,6 +6315,11 @@ int main(int argc, char *argv[]) {
                            return td::Status::OK();
                          });
   }
+  p.add_alias("fullnode-ratelimit-window-size-fast-sync", "fullnode-ratelimit-window-size-protected");
+  p.add_alias("fullnode-ratelimit-global-fast-sync", "fullnode-ratelimit-global-protected");
+  p.add_alias("fullnode-ratelimit-heavy-fast-sync", "fullnode-ratelimit-heavy-protected");
+  p.add_alias("fullnode-ratelimit-medium-fast-sync", "fullnode-ratelimit-medium-protected");
+  p.add_alias("fullnode-ratelimit-small-fast-sync", "fullnode-ratelimit-small-protected");
   p.add_checked_option(
       '\0', "auto-sign", "ADNL id (hex) to receive automatically issued shard overlay certificates",
       [&](td::Slice s) -> td::Status {
