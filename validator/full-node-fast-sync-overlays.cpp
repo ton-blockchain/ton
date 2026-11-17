@@ -407,7 +407,6 @@ void FullNodeFastSyncOverlay::init() {
   options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   options.local_overlay_member_flags_ =
       receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
-  // Change to 0 to fully transition to setting clients via validator registry
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
 
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
