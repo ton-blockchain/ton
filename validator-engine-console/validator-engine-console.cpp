@@ -172,9 +172,9 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<ClearCollatorsListQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ShowCollatorsListQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SignOverlayMemberCertificateQuery>>());
-  add_query_runner(std::make_unique<QueryRunnerImpl<ImportFastSyncMemberCertificateQuery>>());
-  add_query_runner(std::make_unique<QueryRunnerImpl<AddFastSyncOverlayClientQuery>>());
-  add_query_runner(std::make_unique<QueryRunnerImpl<DelFastSyncOverlayClientQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ImportProtectedOverlayMemberCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<AddProtectedOverlayClientQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<DelProtectedOverlayClientQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SetShardBlockVerifierConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ClearShardBlockVerifierConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ShowShardBlockVerifierConfigQuery>>());

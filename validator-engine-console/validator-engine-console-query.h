@@ -1751,9 +1751,9 @@ class SignOverlayMemberCertificateQuery : public Query {
   std::string file_name_;
 };
 
-class ImportFastSyncMemberCertificateQuery : public Query {
+class ImportProtectedOverlayMemberCertificateQuery : public Query {
  public:
-  ImportFastSyncMemberCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+  ImportProtectedOverlayMemberCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
       : Query(console, std::move(tokenizer)) {
   }
   td::Status run() override;
@@ -1778,9 +1778,9 @@ class ImportFastSyncMemberCertificateQuery : public Query {
   std::string file_name_;
 };
 
-class AddFastSyncOverlayClientQuery : public Query {
+class AddProtectedOverlayClientQuery : public Query {
  public:
-  AddFastSyncOverlayClientQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+  AddProtectedOverlayClientQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
       : Query(console, std::move(tokenizer)) {
   }
   td::Status run() override;
@@ -1805,9 +1805,9 @@ class AddFastSyncOverlayClientQuery : public Query {
   td::int32 slot_;
 };
 
-class DelFastSyncOverlayClientQuery : public Query {
+class DelProtectedOverlayClientQuery : public Query {
  public:
-  DelFastSyncOverlayClientQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+  DelProtectedOverlayClientQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
       : Query(console, std::move(tokenizer)) {
   }
   td::Status run() override;
@@ -1817,7 +1817,7 @@ class DelFastSyncOverlayClientQuery : public Query {
     return "del-protected-overlay-client";
   }
   static std::string get_help() {
-    return "del-protected-overlay-client <adnl_id> <slot>\tstops issuing member certificates to <adnl_id> (hex)";
+    return "del-protected-overlay-client <adnl_id>\tstops issuing member certificates to <adnl_id> (hex)";
   }
   static std::vector<std::string> get_aliases() {
     return {"del-fast-sync-overlay-client"};

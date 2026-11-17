@@ -1929,62 +1929,62 @@ td::Status SignOverlayMemberCertificateQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
-td::Status ImportFastSyncMemberCertificateQuery::run() {
+td::Status ImportProtectedOverlayMemberCertificateQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<td::Bits256>());
   TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
-td::Status ImportFastSyncMemberCertificateQuery::send() {
+td::Status ImportProtectedOverlayMemberCertificateQuery::send() {
   TRY_RESULT(data, td::read_file(file_name_));
   TRY_RESULT(certificate, ton::fetch_tl_object<ton::ton_api::overlay_MemberCertificate>(data, true));
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_importFastSyncMemberCertificate>(
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_importProtectedOverlayMemberCertificate>(
       adnl_id_, std::move(certificate));
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
 
-td::Status ImportFastSyncMemberCertificateQuery::receive(td::BufferSlice data) {
+td::Status ImportProtectedOverlayMemberCertificateQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "success\n";
   return td::Status::OK();
 }
 
-td::Status AddFastSyncOverlayClientQuery::run() {
+td::Status AddProtectedOverlayClientQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<td::Bits256>());
   TRY_RESULT_ASSIGN(slot_, tokenizer_.get_token<td::int32>());
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
-td::Status AddFastSyncOverlayClientQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addFastSyncClient>(adnl_id_, slot_);
+td::Status AddProtectedOverlayClientQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addProtectedOverlayClient>(adnl_id_, slot_);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
 
-td::Status AddFastSyncOverlayClientQuery::receive(td::BufferSlice data) {
+td::Status AddProtectedOverlayClientQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "success\n";
   return td::Status::OK();
 }
 
-td::Status DelFastSyncOverlayClientQuery::run() {
+td::Status DelProtectedOverlayClientQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<td::Bits256>());
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
-td::Status DelFastSyncOverlayClientQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delFastSyncClient>(adnl_id_);
+td::Status DelProtectedOverlayClientQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delProtectedOverlayClient>(adnl_id_);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
 
-td::Status DelFastSyncOverlayClientQuery::receive(td::BufferSlice data) {
+td::Status DelProtectedOverlayClientQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "success\n";

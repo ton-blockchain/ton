@@ -351,7 +351,7 @@ tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int25
 
 tonNode.privateBlockOverlayId zero_state_file_hash:int256 nodes:(vector int256) = tonNode.PrivateBlockOverlayId;
 tonNode.customOverlayId zero_state_file_hash:int256 name:string nodes:(vector int256) = tonNode.CustomOverlayId;
-tonNode.fastSyncOverlayId zero_state_file_hash:int256 shard:tonNode.shardId = tonNode.FastSyncOverlayId;
+tonNode.protectedOverlayId#1af10554 zero_state_file_hash:int256 shard:tonNode.shardId = tonNode.ProtectedOverlayId;
 
 tonNode.keyBlocks blocks:(vector tonNode.blockIdExt) incomplete:Bool error:Bool = tonNode.KeyBlocks;
 
@@ -377,7 +377,7 @@ tonNode.outMsgQueueProof queue_proofs:bytes block_state_proofs:bytes msg_counts:
 tonNode.outMsgQueueProofEmpty = tonNode.OutMsgQueueProof;
 
 tonNode.forgetPeer = tonNode.ForgetPeer;
-tonNode.newFastSyncMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = tonNode.NewFastSyncMemberCertificate;
+tonNode.newProtectedOverlayMemberCertificate#739ff5af adnl_id:int256 certificate:overlay.MemberCertificate = tonNode.NewProtectedOverlayMemberCertificate;
 
 
 ---functions---
@@ -677,8 +677,8 @@ engine.validator.shardOverlayStats.neighbour id:string verison_major:int version
     roundtrip:double unreliability:double = engine.validator.shardOverlayStats.Neighbour;
 engine.validator.shardOverlayStats shard:string active:Bool
     neighbours:(vector engine.validator.shardOverlayStats.neighbour) = engine.validator.ShardOverlayStats;
-engine.validator.fastSyncOverlayStats shard:string validators_adnl:(vector int256) root_public_keys:(vector int256)
-    member_certificate:overlay.MemberCertificate receive_broadcasts:Bool = engine.validator.FastSyncOverlayStats;
+engine.validator.protectedOverlayStats shard:string validators_adnl:(vector int256) root_public_keys:(vector int256)
+    member_certificate:overlay.MemberCertificate receive_broadcasts:Bool = engine.validator.ProtectedOverlayStats;
 
 engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
@@ -772,9 +772,9 @@ engine.validator.clearCollatorsList = engine.validator.Success;
 engine.validator.showCollatorsList = engine.validator.CollatorsList;
 
 engine.validator.signOverlayMemberCertificate sign_by:int256 adnl_id:int256 slot:int expire_at:int = overlay.MemberCertificate;
-engine.validator.importFastSyncMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.Success;
-engine.validator.addFastSyncClient adnl_id:int256 slot:int = engine.validator.Success;
-engine.validator.delFastSyncClient adnl_id:int256 = engine.validator.Success;
+engine.validator.importProtectedOverlayMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.Success;
+engine.validator.addProtectedOverlayClient adnl_id:int256 slot:int = engine.validator.Success;
+engine.validator.delProtectedOverlayClient adnl_id:int256 = engine.validator.Success;
 
 engine.validator.setShardBlockVerifierConfig config:engine.validator.shardBlockVerifierConfig = engine.validator.Success;
 engine.validator.showShardBlockVerifierConfig = engine.validator.ShardBlockVerifierConfig;

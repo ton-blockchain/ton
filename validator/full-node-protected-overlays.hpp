@@ -27,7 +27,7 @@
 
 namespace ton::validator::fullnode {
 
-class FullNodeFastSyncOverlay : public td::actor::Actor {
+class FullNodeProtectedOverlay : public td::actor::Actor {
  public:
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast& query);
   void process_block_finality_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast& query);
@@ -63,7 +63,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   void send_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type, ShardIdFull shard,
                            std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records);
-  void send_plumtree_stats_to(td::actor::ActorId<FullNodeFastSyncOverlay> collector);
+  void send_plumtree_stats_to(td::actor::ActorId<FullNodeProtectedOverlay> collector);
 
   void start_up() override;
   void tear_down() override;
@@ -80,15 +80,15 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   td::actor::Task<QuerySender> get_query_sender();
 
-  FullNodeFastSyncOverlay(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, FileHash zero_state_file_hash,
-                          std::vector<PublicKeyHash> root_public_keys,
-                          std::vector<adnl::AdnlNodeIdShort> current_validators_adnl,
-                          overlay::OverlayMemberCertificate member_certificate, bool receive_plumtree_broadcasts,
-                          FullNodeConfig config, double broadcast_speed_multiplier,
-                          td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                          td::actor::ActorId<overlay::Overlays> overlays,
-                          td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                          td::actor::ActorId<FullNode> full_node)
+  FullNodeProtectedOverlay(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, FileHash zero_state_file_hash,
+                           std::vector<PublicKeyHash> root_public_keys,
+                           std::vector<adnl::AdnlNodeIdShort> current_validators_adnl,
+                           overlay::OverlayMemberCertificate member_certificate, bool receive_plumtree_broadcasts,
+                           FullNodeConfig config, double broadcast_speed_multiplier,
+                           td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+                           td::actor::ActorId<overlay::Overlays> overlays,
+                           td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                           td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
       , shard_(shard)
       , root_public_keys_(std::move(root_public_keys))
@@ -149,22 +149,22 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   td::DecTree<adnl::AdnlNodeIdShort, td::Unit> alive_peers_;
 
   bool is_validator_adnl(adnl::AdnlNodeIdShort id) const {
-    // Sorted in FullNodeFastSyncOverlays::update_overlays
+    // Sorted in FullNodeProtectedOverlays::update_overlays
     return std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), id);
   }
 
   td::actor::Task<> ping_peer(adnl::AdnlNodeIdShort peer_id);
 };
 
-class FullNodeFastSyncOverlays {
+class FullNodeProtectedOverlays {
  public:
-  explicit FullNodeFastSyncOverlays(FullNodeConfig config) : config_(std::move(config)) {
+  explicit FullNodeProtectedOverlays(FullNodeConfig config) : config_(std::move(config)) {
   }
 
-  std::pair<td::actor::ActorId<FullNodeFastSyncOverlay>, adnl::AdnlNodeIdShort> choose_overlay(
+  std::pair<td::actor::ActorId<FullNodeProtectedOverlay>, adnl::AdnlNodeIdShort> choose_overlay(
       ShardIdFull shard, bool require_validator = false);
-  td::actor::ActorId<FullNodeFastSyncOverlay> get_masterchain_overlay_for(adnl::AdnlNodeIdShort adnl_id);
-  void send_plumtree_stats(td::actor::ActorId<FullNodeFastSyncOverlay> collector, std::size_t overlays_limit) const;
+  td::actor::ActorId<FullNodeProtectedOverlay> get_masterchain_overlay_for(adnl::AdnlNodeIdShort adnl_id);
+  void send_plumtree_stats(td::actor::ActorId<FullNodeProtectedOverlay> collector, std::size_t overlays_limit) const;
   void set_config(FullNodeConfig config);
   double update_overlays(td::Ref<MasterchainState> state, const std::set<PublicKeyHash>& local_keys,
                          std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
@@ -179,7 +179,7 @@ class FullNodeFastSyncOverlays {
 
  private:
   struct Overlays {
-    std::map<ShardIdFull, td::actor::ActorOwn<FullNodeFastSyncOverlay>> overlays_;
+    std::map<ShardIdFull, td::actor::ActorOwn<FullNodeProtectedOverlay>> overlays_;
     overlay::OverlayMemberCertificate current_certificate_;
     bool is_validator_{false};
     bool is_collator_{false};
