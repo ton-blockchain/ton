@@ -77,9 +77,9 @@ def broadcast_age(
 
 MC_AGE = broadcast_age("master", oldest=True, default=True)
 SHARD_AGE = broadcast_age("shard", oldest=True, default=True)
-NO_FAST_SYNC_ROUTE = node_default(
+NO_PROTECTED_ROUTE = node_default(
     node_increase(
-        "ton_rebroadcaster_external_messages_total", result="no_fast_sync_route"
+        "ton_rebroadcaster_external_messages_total", result="no_protected_route"
     ),
     0,
 )
@@ -87,7 +87,7 @@ NO_FAST_SYNC_ROUTE = node_default(
 RED = (
     f"clamp_max(({UP} == bool 0) + ({ENABLED} == bool 0) + "
     f"({MC_AGE} > bool 15) + ({SHARD_AGE} > bool 15) + "
-    f"({NO_FAST_SYNC_ROUTE} > bool 0), 1)"
+    f"({NO_PROTECTED_ROUTE} > bool 0), 1)"
 )
 WARN = f"clamp_max(({MC_AGE} > bool 5) + ({SHARD_AGE} > bool 5), 1)"
 SEVERITY = f"2 * ({RED}) + ({WARN})"
@@ -107,7 +107,7 @@ def broadcast_rate_panel(chain, title, panel_id):
         h=9,
         legend=table_legend("lastNotNull", "min", "max", sort="Min"),
         description=(
-            f"{chain.capitalize()} candidate and finality broadcasts/s scheduled from fast-sync "
+            f"{chain.capitalize()} candidate and finality broadcasts/s scheduled from protected "
             "or custom overlays to the public Plumtree overlay by each selected hero. Candidate "
             "and finality totals separately sum their first-arrival sources."
         ),
@@ -171,7 +171,7 @@ def arrival_rate_panel(chain, title, panel_id):
         h=9,
         legend=table_legend("lastNotNull", "min", "max", sort="Min"),
         description=(
-            f"{chain.capitalize()} candidate and finality arrivals/s received from fast-sync "
+            f"{chain.capitalize()} candidate and finality arrivals/s received from protected "
             "and custom overlays by each selected hero, including arrivals suppressed by "
             "rebroadcast deduplication."
         ),
@@ -256,7 +256,7 @@ ROWS = [
         description=(
             "One row per selected hero, sorted by hidden severity. Red means the target or "
             "rebroadcaster is down, the older candidate/finality stream for either chain has "
-            "been silent for more than 15 seconds, or a validated external had no fast-sync "
+            "been silent for more than 15 seconds, or a validated external had no protected "
             "route in the last five minutes. Yellow starts at five seconds of broadcast silence."
         ),
         overrides={"fieldConfig": {"defaults": {"custom": {"minWidth": 50}}}},
@@ -296,7 +296,7 @@ ROWS = [
             node_rate(
                 "ton_rebroadcaster_external_messages_total",
                 "result",
-                result="~(relayed|no_fast_sync_route)",
+                result="~(relayed|no_protected_route)",
             ),
         ),
         id=42,
@@ -305,7 +305,7 @@ ROWS = [
         legend=table_legend("lastNotNull", "max", sort="Max"),
         description=(
             "Validated public external messages/s reaching the relay stage. Relayed means the "
-            "message was submitted to the matching fast-sync overlay; no_fast_sync_route means "
+            "message was submitted to the matching protected overlay; no_protected_route means "
             "no matching overlay was available and the message was dropped."
         ),
     ),

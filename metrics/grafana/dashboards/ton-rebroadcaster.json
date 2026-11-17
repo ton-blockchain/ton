@@ -577,7 +577,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "One row per selected hero, sorted by hidden severity. Red means the target or rebroadcaster is down, the older candidate/finality stream for either chain has been silent for more than 15 seconds, or a validated external had no protected overlay route in the last five minutes. Yellow starts at five seconds of broadcast silence.",
+      "description": "One row per selected hero, sorted by hidden severity. Red means the target or rebroadcaster is down, the older candidate/finality stream for either chain has been silent for more than 15 seconds, or a validated external had no protected route in the last five minutes. Yellow starts at five seconds of broadcast silence.",
       "transformations": [
         {
           "id": "organize",
