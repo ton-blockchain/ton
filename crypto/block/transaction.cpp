@@ -3658,7 +3658,6 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
   }
 
   bool store_storage_dict_hash = cfg.store_storage_dict_hash && !account.is_masterchain();
-  // TODO: pick global_version
   if (cfg.global_version >= 18 && account.is_special) {
     new_storage_used = StorageUsed{.cells = 0, .bits = 0};
     new_account_storage_stat = {};
