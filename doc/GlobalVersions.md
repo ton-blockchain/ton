@@ -359,3 +359,8 @@ __Enabled in mainnet on 2026-07-23__
 ### Other changes
 - Masterchain validators check global balance of grams in the blockchain.
   - The value is stored to `global_balance.grams` in `McStateExtra`.
+
+## Version 18
+
+### Transaction changes
+- Storage stats are not calculated for governance contracts. `StorageUsed` is set to zero.
