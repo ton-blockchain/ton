@@ -464,9 +464,10 @@ void OverlayImpl::receive_pong(adnl::AdnlNodeIdShort peer, double elapsed) {
   on_ping_result(peer, true, elapsed);
 }
 
-static bool should_remove_peer(const OverlayPeer &peer, double now) {
+bool OverlayImpl::should_remove_peer(const OverlayPeer &peer, double now) {
   return !peer.is_permanent_member() &&
-         (peer.get_version() + Overlays::overlay_peer_ttl() < now || peer.certificate()->is_expired(now));
+         (peer.get_version() + Overlays::overlay_peer_ttl() < now ||
+          (peer.certificate()->is_expired(now) && !authorized_semiprivate_nodes_.contains(peer.get_id())));
 }
 
 static constexpr size_t peer_sampling_extra_attempts = 16;

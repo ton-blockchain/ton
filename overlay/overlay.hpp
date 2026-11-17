@@ -444,6 +444,7 @@ class OverlayImpl : public Overlay {
   td::actor::Task<> process_pending_peer(OverlayNode node);
   void del_some_peers();
   void del_peer(const adnl::AdnlNodeIdShort &id);
+  bool should_remove_peer(const OverlayPeer &peer, double now);
   OverlayPeer *get_random_peer(bool only_alive = false);
   bool is_root_public_key(const PublicKeyHash &key) const;
   void update_peers_mtu();
