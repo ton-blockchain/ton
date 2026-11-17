@@ -399,7 +399,7 @@ delivered", not "received from peers".
 
 ## Public rebroadcaster
 
-Collected by `FullNode`. The forwarding counter records fast-sync or custom-overlay candidates and
+Collected by `FullNode`. The forwarding counter records protected or custom overlay candidates and
 finality submitted to the public-overlay send path; the overlay metrics above describe the resulting
 public topology.
 
@@ -407,10 +407,10 @@ public topology.
 |---|---|---|---|
 | `ton_rebroadcaster_enabled` | gauge | — | 1 when `--public-rebroadcast` is enabled. |
 | `ton_rebroadcaster_configured_fanout` | gauge | — | Configured original-sender Plumtree eager and IHAVE fanout. |
-| `ton_rebroadcaster_broadcasts_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=fast_sync\|custom` | Unique broadcasts scheduled for forwarding into the corresponding public overlay. `source` is the first arrival to win rebroadcaster deduplication. |
-| `ton_rebroadcaster_arrivals_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=fast_sync\|custom` | All eligible fast-sync and custom-overlay arrivals observed by the rebroadcaster, including the first arrival and later duplicates. |
+| `ton_rebroadcaster_broadcasts_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=protected\|custom` | Unique broadcasts scheduled for forwarding into the corresponding public overlay. `source` is the first arrival to win rebroadcaster deduplication. |
+| `ton_rebroadcaster_arrivals_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=protected\|custom` | All eligible protected and custom overlay arrivals observed by the rebroadcaster, including the first arrival and later duplicates. |
 | `ton_rebroadcaster_last_broadcast_timestamp_seconds` | gauge | `chain=master\|shard`, `type=candidate\|finality` | Unix timestamp of the latest forwarding decision from either source; 0 until the first one. |
-| `ton_rebroadcaster_external_messages_total` | counter | `result=relayed\|no_fast_sync_route` | Validated public external messages reaching the relay stage. `relayed` means submission to the matching fast-sync overlay; `no_fast_sync_route` means no matching overlay was available. |
+| `ton_rebroadcaster_external_messages_total` | counter | `result=relayed\|no_protected_route` | Validated public external messages reaching the relay stage. `relayed` means submission to the matching protected overlay; `no_protected_route` means no matching overlay was available. |
 
 ---
 
@@ -425,10 +425,10 @@ The two block-receive families come first and are unchanged:
 | `ton_first_received_total` | counter | `workchain=0\|-1`, `source` | For each block that reaches "applied", one increment for the **earliest** source that delivered it. |
 | `ton_received_total` | counter | `workchain`, `source` | For each applied block, one increment **per distinct source** that delivered it, including sources that arrived after the block was applied — but only as long as the block is still in the 1000-entry LRU of receive stats, so a source that turns up much later is missed. |
 
-`source` values: `unknown`, `block_broadcast_public`, `block_broadcast_fast_sync`,
+`source` values: `unknown`, `block_broadcast_public`, `block_broadcast_protected`,
 `block_broadcast_custom`, `block_download`, `candidate_broadcast_public`,
-`candidate_broadcast_fast_sync`, `candidate_broadcast_consensus`, `candidate_broadcast_custom`,
-`candidate_finality_public`, `candidate_finality_fast_sync`, `candidate_finality_custom`,
+`candidate_broadcast_protected`, `candidate_broadcast_consensus`, `candidate_broadcast_custom`,
+`candidate_finality_public`, `candidate_finality_protected`, `candidate_finality_custom`,
 `candidate_stored`, `block_accepted`.
 
 Cardinality is fixed at 2 × 14 = 28 series per family; `workchain` is a closed two-value domain,
@@ -928,7 +928,7 @@ sum by (reason, direction) (rate(ton_adnl_transport_dropped_total[5m]))
 ```
 
 **Where do my blocks come from?** Share of first delivery per source (a validator should see
-`candidate_broadcast_consensus` dominate; a fullnode, the broadcast/fast-sync paths):
+`candidate_broadcast_consensus` dominate; a fullnode, the broadcast/protected paths):
 
 ```promql
 sum by (source) (rate(ton_first_received_total[15m]))
