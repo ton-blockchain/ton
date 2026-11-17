@@ -197,7 +197,6 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .config = info.config,
       .session_id = info.session_id,
       .overlays = ctx.deps.overlays,
-      .adnl_sender = ctx.deps.quic,
       .db_root = ctx.deps.db_root,
       .all_overlay_nodes = info.overlay_members,
       .all_current_validators = info.all_current_validators,

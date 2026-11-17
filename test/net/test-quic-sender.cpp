@@ -937,6 +937,29 @@ TEST(QuicSender, BasicQuery) {
   });
 }
 
+TEST(QuicSender, ConnectionIpLookupIsPassive) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("ip-a", next_port());
+    auto b = co_await t.create_node("ip-b", next_port());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    auto before = co_await td::actor::ask(a.quic_sender, &ton::quic::QuicSender::get_conn_ip_str, a.id, b.id);
+    ASSERT_EQ(before, "undefined");
+
+    co_await t.send_query(a, b, "connect");
+
+    auto outbound = co_await td::actor::ask(a.quic_sender, &ton::quic::QuicSender::get_conn_ip_str, a.id, b.id);
+    ASSERT_EQ(outbound, PSTRING() << b.ip << ":" << b.port + 1000);
+
+    auto inbound = co_await td::actor::ask(b.quic_sender, &ton::quic::QuicSender::get_conn_ip_str, b.id, a.id);
+    ASSERT_EQ(inbound, PSTRING() << a.ip << ":" << a.port + 1000);
+
+    co_return td::Unit{};
+  });
+}
+
 TEST(QuicSender, ReadyMetricsByDirectionAndTrust) {
   run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
     auto a = co_await t.create_node("metrics-a", next_port());

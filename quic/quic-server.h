@@ -114,6 +114,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   // Releases exactly one peer-opened unidirectional stream after the callback has processed it.
   void release_peer_uni_stream_credit(QuicConnectionId cid);
   void on_connection_closed(QuicConnectionId cid);
+  void get_conn_ip_str(QuicConnectionId cid, td::Promise<td::string> promise);
   void log_stats(std::string reason = "stats");
 
   // A handshake's direction is who dialled: `out` is us, `in` is the peer.

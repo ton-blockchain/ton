@@ -84,7 +84,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
                           overlay::OverlayMemberCertificate member_certificate, bool receive_plumtree_broadcasts,
                           FullNodeConfig config, double broadcast_speed_multiplier,
                           td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                          td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
+                          td::actor::ActorId<overlay::Overlays> overlays,
                           td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                           td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
@@ -98,7 +98,6 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
       , zero_state_file_hash_(zero_state_file_hash)
       , keyring_(keyring)
       , adnl_(adnl)
-      , quic_(quic)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
       , full_node_(full_node) {
@@ -117,7 +116,6 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<FullNode> full_node_;
@@ -170,7 +168,7 @@ class FullNodeFastSyncOverlays {
                          const std::set<adnl::AdnlNodeIdShort>& local_collator_adnl_ids,
                          std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
                          double broadcast_speed_multiplier, const td::actor::ActorId<keyring::Keyring>& keyring,
-                         const td::actor::ActorId<adnl::Adnl>& adnl, const td::actor::ActorId<quic::QuicSender>& quic,
+                         const td::actor::ActorId<adnl::Adnl>& adnl,
                          const td::actor::ActorId<overlay::Overlays>& overlays,
                          const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
                          const td::actor::ActorId<FullNode>& full_node);

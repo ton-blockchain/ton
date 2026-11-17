@@ -41,7 +41,8 @@ class Overlay;
 class OverlayManager : public Overlays {
  public:
   OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                 td::actor::ActorId<dht::Dht> dht, OverlayManagerBufferLimits buffer_limits = {});
+                 td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<dht::Dht> dht,
+                 OverlayManagerBufferLimits buffer_limits = {});
   void start_up() override;
   void save_to_db(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, std::vector<OverlayNode> nodes);
 
@@ -64,19 +65,10 @@ class OverlayManager : public Overlays {
                                  OverlayPrivacyRules rules, std::string scope, OverlayOptions opts) override;
   void delete_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id) override;
   void send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, std::string name,
-                  td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice query) override {
-    send_query_via(dst, src, overlay_id, std::move(name), std::move(promise), timeout, std::move(query),
-                   adnl::Adnl::huge_packet_max_size(), adnl_);
-  }
-  void send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, std::string name,
-                      td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice query,
-                      td::uint64 max_answer_size, td::actor::ActorId<adnl::AdnlSenderInterface> via) override;
+                  td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice query,
+                  td::uint64 max_answer_size) override;
   void send_message(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                    td::BufferSlice object) override {
-    send_message_via(dst, src, overlay_id, std::move(object), adnl_);
-  }
-  void send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                        td::BufferSlice object, td::actor::ActorId<adnl::AdnlSenderInterface> via) override;
+                    td::BufferSlice object) override;
 
   void send_broadcast(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice object) override;
   void send_broadcast_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as, td::uint32 flags,
@@ -102,9 +94,6 @@ class OverlayManager : public Overlays {
   void update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
                                OverlayMemberCertificate certificate) override;
-  void set_test_plumtree_neighbours(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                                    std::vector<adnl::AdnlNodeIdShort> neighbours);
-
   void get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, td::uint32 max_peers,
                                 td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) override;
 
@@ -172,6 +161,7 @@ class OverlayManager : public Overlays {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<adnl::AdnlSenderEx> quic_;
   td::actor::ActorId<dht::Dht> dht_node_;
 
   using DbType = td::KeyValueAsync<td::Bits256, td::BufferSlice>;
