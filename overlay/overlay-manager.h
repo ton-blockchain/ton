@@ -108,7 +108,7 @@ class OverlayManager : public Overlays {
   void forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, adnl::AdnlNodeIdShort peer_id) override;
 
   td::actor::Task<> collect(metrics::Context ctx) override;
-  void absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) override;
+  void absorb_metrics(OverlayMetrics delta, td::Promise<td::Unit> done) override;
 
   void update_semiprivate_authorized_nodes(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
                                            std::vector<adnl::AdnlNodeIdShort> add,
@@ -129,6 +129,7 @@ class OverlayManager : public Overlays {
 
   // Broadcast content: outbound recorded here directly, inbound drained from the per-overlay actors.
   metrics::Labeled<metrics::TlTrafficBucket, metrics::Direction> broadcasts_;
+  metrics::Labeled<PublicOverlayMetrics, OverlayChain> public_metrics_;
 
   struct BufferedRequest {
     adnl::AdnlNodeIdShort src;

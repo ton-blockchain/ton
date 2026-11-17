@@ -38,7 +38,7 @@ each nesting level appends a segment joined with `_`:
   families even when nothing was ever observed.
 
 Registered collectors, in order: the exporter itself, `AdnlNetworkManager`, `Adnl`, `QuicSender`,
-`Overlays`, `ValidatorManagerInterface`.
+`Overlays`, `ValidatorManagerInterface`, `FullNode`.
 
 ## Scrape semantics
 
@@ -75,7 +75,7 @@ between gathers (see *Known gaps*).
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_exporter_collectors` | gauge | — | Registered collector callbacks: 6 in a full validator-engine, 5 when no DHT node is configured (which also drops the `ton_overlay_*` families, since the overlay manager is only created with one). |
+| `ton_exporter_collectors` | gauge | — | Registered collector callbacks: 7 with both DHT and FullNode, 6 when either optional collector is absent, and 5 when both are absent. Without DHT the `ton_overlay_*` families are absent; without FullNode the `ton_rebroadcaster_*` families are absent. |
 | `ton_exporter_collections_total` | counter | — | Gather attempts started. Concurrent scrapes sharing one flight increment it once. It stays zero before the seal and while nobody scrapes. |
 | `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** successful gather (the current one sets it after this body is already rendered). How much of a scrape interval collection itself costs. |
 | `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, read straight from the process-global registry on each gather (its totals are already cumulative, so nothing is mirrored). `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …); a site registers on first execution, so one that has never run emits no series. |
@@ -381,6 +381,8 @@ pairs), with a `tear_down` flush so a dying overlay's counts survive.
 |---|---|---|---|
 | `ton_overlay_broadcast_bytes_total` | counter | `direction=in\|out`, `tl` | Broadcast content bytes. `out` at the four terminal `send_broadcast*` entry points, pre-FEC-encoding, and only for content submitted to an overlay this node participates in (still counted if certificate checks later reject it). `in` at `deliver_broadcast`, post-reassembly. |
 | `ton_overlay_broadcast_messages_total` | counter | same | Broadcast count for the same events. |
+| `ton_overlay_public_peer_memberships` | gauge | `chain=master\|shard` | Entries in the public-overlay peer tables for this chain. Shard values are aggregated if more than one public shard overlay exists. |
+| `ton_overlay_public_plumtree_eager_peers_avg` | gauge | `chain=master\|shard` | Average eager-set size across every Plumtree tree in the public overlays for this chain. These peers receive full payloads rather than only IHAVEs. |
 
 Two semantics worth knowing. Sizes here are content bytes while the transport tiers count wire
 bytes, so the transport app tier's FEC-part traffic (`*_app_*` under the four FEC constructors:
@@ -392,6 +394,22 @@ their content, so they land under the content's own `tl` in the app tier. And `d
 includes self-originated broadcasts — a node delivers its own broadcast to its own callbacks, so a
 locally originated broadcast increments both directions; `in` means "content this overlay
 delivered", not "received from peers".
+
+---
+
+## Public rebroadcaster
+
+Collected by `FullNode`. The forwarding counter records the decision to pass a fast-sync candidate
+or finality into its public-overlay send path; the overlay metrics above describe the resulting
+public topology.
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_rebroadcaster_enabled` | gauge | — | 1 when `--public-rebroadcast` is enabled. |
+| `ton_rebroadcaster_configured_fanout` | gauge | — | Configured original-sender Plumtree eager and IHAVE fanout. |
+| `ton_rebroadcaster_broadcasts_total` | counter | `chain=master\|shard`, `type=candidate\|finality` | Fast-sync broadcasts scheduled for forwarding into the corresponding public overlay. |
+| `ton_rebroadcaster_last_broadcast_timestamp_seconds` | gauge | same | Unix timestamp of the latest such forwarding decision; 0 until the first one. |
+| `ton_rebroadcaster_external_messages_total` | counter | `result=relayed\|no_fast_sync_route` | Validated public external messages reaching the relay stage. `relayed` means submission to the matching fast-sync overlay; `no_fast_sync_route` means no matching overlay was available. |
 
 ---
 

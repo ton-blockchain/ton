@@ -2374,12 +2374,6 @@ void ValidatorEngine::start_validator() {
     }
   }
 
-  // The last collector any configuration registers is the one above: start_adnl -> ... ->
-  // start_validator runs unconditionally in one turn, and the start-up steps after it register
-  // none. They can also wait on the full node coming up, so sealing at the end of the chain would
-  // keep /metrics answering 503 for the whole database warm-up instead of just for start-up.
-  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::ready);
-
   started_validator();
 }
 
@@ -2414,6 +2408,8 @@ void ValidatorEngine::start_full_node() {
         full_node_id_, validator_options_->zero_block_id().file_hash, full_node_options, keyring_.get(), adnl_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
+    td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::validator::fullnode::FullNode>,
+                            full_node_.get(), &ton::validator::fullnode::FullNode::collect);
     for (auto &v : config_.validators) {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
                               [](td::Result<>) {});
@@ -2441,6 +2437,9 @@ void ValidatorEngine::start_full_node() {
   } else {
     started_full_node();
   }
+  // FullNode is the last optional collector. Seal immediately after creating it rather than waiting
+  // for its database warm-up callback.
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::ready);
 }
 
 void ValidatorEngine::started_full_node() {
@@ -6219,7 +6218,8 @@ int main(int argc, char *argv[]) {
       '\0', "public-rebroadcast",
       "relay fast-sync Plumtree blocks to public overlays and validated public externals to fast-sync",
       [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::enable_public_rebroadcast); }); });
-  p.add_checked_option('\0', "public-rebroadcast-fanout", "Plumtree eager fanout for public rebroadcasts (default: 50)",
+  p.add_checked_option('\0', "public-rebroadcast-fanout",
+                       "Plumtree eager and IHAVE fanout for public rebroadcasts (default: 50)",
                        [&](td::Slice value) -> td::Status {
                          TRY_RESULT(fanout, td::to_integer_safe<td::uint32>(value));
                          if (fanout == 0) {
