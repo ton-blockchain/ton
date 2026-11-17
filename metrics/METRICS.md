@@ -399,16 +399,17 @@ delivered", not "received from peers".
 
 ## Public rebroadcaster
 
-Collected by `FullNode`. The forwarding counter records the decision to pass a fast-sync candidate
-or finality into its public-overlay send path; the overlay metrics above describe the resulting
+Collected by `FullNode`. The forwarding counter records fast-sync or custom-overlay candidates and
+finality submitted to the public-overlay send path; the overlay metrics above describe the resulting
 public topology.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
 | `ton_rebroadcaster_enabled` | gauge | — | 1 when `--public-rebroadcast` is enabled. |
 | `ton_rebroadcaster_configured_fanout` | gauge | — | Configured original-sender Plumtree eager and IHAVE fanout. |
-| `ton_rebroadcaster_broadcasts_total` | counter | `chain=master\|shard`, `type=candidate\|finality` | Fast-sync broadcasts scheduled for forwarding into the corresponding public overlay. |
-| `ton_rebroadcaster_last_broadcast_timestamp_seconds` | gauge | same | Unix timestamp of the latest such forwarding decision; 0 until the first one. |
+| `ton_rebroadcaster_broadcasts_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=fast_sync\|custom` | Unique broadcasts scheduled for forwarding into the corresponding public overlay. `source` is the first arrival to win rebroadcaster deduplication. |
+| `ton_rebroadcaster_arrivals_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=fast_sync\|custom` | All eligible fast-sync and custom-overlay arrivals observed by the rebroadcaster, including the first arrival and later duplicates. |
+| `ton_rebroadcaster_last_broadcast_timestamp_seconds` | gauge | `chain=master\|shard`, `type=candidate\|finality` | Unix timestamp of the latest forwarding decision from either source; 0 until the first one. |
 | `ton_rebroadcaster_external_messages_total` | counter | `result=relayed\|no_fast_sync_route` | Validated public external messages reaching the relay stage. `relayed` means submission to the matching fast-sync overlay; `no_fast_sync_route` means no matching overlay was available. |
 
 ---

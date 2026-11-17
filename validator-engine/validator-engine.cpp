@@ -6216,7 +6216,8 @@ int main(int argc, char *argv[]) {
       });
   p.add_option(
       '\0', "public-rebroadcast",
-      "relay fast-sync Plumtree blocks to public overlays and validated public externals to fast-sync",
+      "relay fast-sync and custom-overlay block broadcasts to public overlays and validated public externals to "
+      "fast-sync",
       [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::enable_public_rebroadcast); }); });
   p.add_checked_option('\0', "public-rebroadcast-fanout",
                        "Plumtree eager and IHAVE fanout for public rebroadcasts (default: 50)",

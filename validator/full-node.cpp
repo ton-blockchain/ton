@@ -899,9 +899,16 @@ void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast final
   if (send_to_custom) {
     send_block_finality_broadcast_to_custom_overlays(finality);
   }
-  if (opts_.public_rebroadcast_enabled_ && source == BroadcastSource::fast_sync_overlay) {
-    record_public_rebroadcast(finality.block_id, PublicRebroadcastType::finality);
-    send_block_finality_broadcast(finality.clone(), broadcast_mode_public);
+  if (opts_.public_rebroadcast_enabled_ &&
+      (source == BroadcastSource::fast_sync_overlay || source == BroadcastSource::custom_overlay)) {
+    auto rebroadcast_source = source == BroadcastSource::fast_sync_overlay ? PublicRebroadcastSource::fast_sync
+                                                                           : PublicRebroadcastSource::custom;
+    record_public_rebroadcast_arrival(finality.block_id, PublicRebroadcastType::finality, rebroadcast_source);
+    if (!public_rebroadcasted_finalities_.contains(finality.block_id)) {
+      public_rebroadcasted_finalities_.put(finality.block_id, {});
+      record_public_rebroadcast(finality.block_id, PublicRebroadcastType::finality, rebroadcast_source);
+      send_block_finality_broadcast(finality.clone(), broadcast_mode_public);
+    }
   }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::got_block_finality, finality.block_id,
                           finality.sig_set, source, [id = finality.block_id](td::Result<> R) {
@@ -918,9 +925,16 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
   if (send_to_custom) {
     send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   }
-  if (opts_.public_rebroadcast_enabled_ && source == BroadcastSource::fast_sync_overlay) {
-    record_public_rebroadcast(block_id, PublicRebroadcastType::candidate);
-    send_block_candidate(block_id, cc_seqno, validator_set_hash, data.clone(), broadcast_mode_public);
+  if (opts_.public_rebroadcast_enabled_ &&
+      (source == BroadcastSource::fast_sync_overlay || source == BroadcastSource::custom_overlay)) {
+    auto rebroadcast_source = source == BroadcastSource::fast_sync_overlay ? PublicRebroadcastSource::fast_sync
+                                                                           : PublicRebroadcastSource::custom;
+    record_public_rebroadcast_arrival(block_id, PublicRebroadcastType::candidate, rebroadcast_source);
+    if (!public_rebroadcasted_candidates_.contains(block_id)) {
+      public_rebroadcasted_candidates_.put(block_id, {});
+      record_public_rebroadcast(block_id, PublicRebroadcastType::candidate, rebroadcast_source);
+      send_block_candidate(block_id, cc_seqno, validator_set_hash, data.clone(), broadcast_mode_public);
+    }
   }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::add_cached_block_data, block_id, cc_seqno,
                           std::move(data), source, [block_id](td::Result<> R) {
@@ -931,9 +945,16 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
                           });
 }
 
-void FullNodeImpl::record_public_rebroadcast(const BlockIdExt &block_id, PublicRebroadcastType type) {
+void FullNodeImpl::record_public_rebroadcast_arrival(const BlockIdExt &block_id, PublicRebroadcastType type,
+                                                     PublicRebroadcastSource source) {
   auto chain = block_id.is_masterchain() ? overlay::OverlayChain::master : overlay::OverlayChain::shard;
-  rebroadcaster_metrics_.broadcasts.at(chain, type).inc();
+  rebroadcaster_metrics_.arrivals.at(chain, type, source).inc();
+}
+
+void FullNodeImpl::record_public_rebroadcast(const BlockIdExt &block_id, PublicRebroadcastType type,
+                                             PublicRebroadcastSource source) {
+  auto chain = block_id.is_masterchain() ? overlay::OverlayChain::master : overlay::OverlayChain::shard;
+  rebroadcaster_metrics_.broadcasts.at(chain, type, source).inc();
   rebroadcaster_metrics_.last_broadcast_timestamp_seconds.at(chain, type).set(td::Clocks::system());
 }
 
