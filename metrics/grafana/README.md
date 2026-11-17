@@ -251,9 +251,9 @@ Panel semantics live in each panel's description (the (i) icon), sourced from
 
 ## dashgen — the dashboards are generated
 
-The four dashboard JSONs are build artifacts. The source of truth is
+The five dashboard JSONs are build artifacts. The source of truth is
 `metrics/grafana/dashgen/`: one module per board (`ton_overview.py`, `ton_blockchain.py`,
-`ton_network.py`, `ton_actors.py`) describes each dashboard as rows of archetype calls
+`ton_network.py`, `ton_actors.py`, `ton_rebroadcaster.py`) describes each dashboard as rows of archetype calls
 (`worst_node_stat`, `fleet_timeseries`, `agg_timeseries`, `chain_timeseries`, ...) and is the only
 file meant to be read while editing a dashboard. `lib/` is the vocabulary those calls are written
 in: `lib/conventions.py` implements each house pattern exactly once (named worst-node tiles with
