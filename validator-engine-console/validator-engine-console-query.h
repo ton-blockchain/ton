@@ -160,6 +160,7 @@ class QueryRunner {
  public:
   virtual ~QueryRunner() = default;
   virtual std::string name() const = 0;
+  virtual std::vector<std::string> aliases() const = 0;
   virtual std::string help() const = 0;
   virtual td::Status run(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer) const = 0;
 };
@@ -169,6 +170,9 @@ class QueryRunnerImpl : public QueryRunner {
  public:
   std::string name() const override {
     return T::get_name();
+  }
+  std::vector<std::string> aliases() const override {
+    return T::get_aliases();
   }
   std::string help() const override {
     return T::get_help();
@@ -203,6 +207,10 @@ class Query : public td::actor::Actor {
   }
   virtual std::string name() const = 0;
   void handle_error(td::Status error);
+
+  static std::vector<std::string> get_aliases() {
+    return {};
+  }
 
   static std::string time_to_human(int unixtime) {
     char time_buffer[80];
@@ -1752,11 +1760,14 @@ class ImportFastSyncMemberCertificateQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "import-fast-sync-member-certificate";
+    return "import-protected-overlay-member-certificate";
   }
   static std::string get_help() {
-    return "import-fast-sync-membe-rcertificate <adnl_id> <filename>\timport member certificate for fast sync overlay "
-           "for <adnl_id> (hex) from <filename>";
+    return "import-protected-overlay-member-certificate <adnl_id> <filename>\timport member certificate for protected "
+           "overlay for <adnl_id> (hex) from <filename>";
+  }
+  static std::vector<std::string> get_aliases() {
+    return {"import-fast-sync-member-certificate"};
   }
   std::string name() const override {
     return get_name();
@@ -1776,11 +1787,14 @@ class AddFastSyncOverlayClientQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "add-fast-sync-overlay-client";
+    return "add-protected-overlay-client";
   }
   static std::string get_help() {
-    return "add-fast-sync-overlay-client <adnl_id> <slot>\tstarts issuing member certificates to <adnl_id> (hex) on "
+    return "add-protected-overlay-client <adnl_id> <slot>\tstarts issuing member certificates to <adnl_id> (hex) on "
            "slot (int)";
+  }
+  static std::vector<std::string> get_aliases() {
+    return {"add-fast-sync-overlay-client"};
   }
   std::string name() const override {
     return get_name();
@@ -1800,10 +1814,13 @@ class DelFastSyncOverlayClientQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "del-fast-sync-overlay-client";
+    return "del-protected-overlay-client";
   }
   static std::string get_help() {
-    return "del-fast-sync-overlay-client <adnl_id> <slot>\tstops issuing member certificates to <adnl_id> (hex)";
+    return "del-protected-overlay-client <adnl_id> <slot>\tstops issuing member certificates to <adnl_id> (hex)";
+  }
+  static std::vector<std::string> get_aliases() {
+    return {"del-fast-sync-overlay-client"};
   }
   std::string name() const override {
     return get_name();
