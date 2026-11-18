@@ -555,14 +555,14 @@ void OverlayManager::update_member_certificate(adnl::AdnlNodeIdShort local_id, O
 void OverlayManager::update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                              std::vector<adnl::AdnlNodeIdShort> nodes,
                                              std::vector<PublicKeyHash> root_public_keys,
-                                             OverlayMemberCertificate certificate) {
+                                             OverlayMemberCertificate certificate, OverlayPrivacyRules rules) {
   auto it = overlays_.find(local_id);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
       it2->second.member_certificate = certificate;
       td::actor::send_closure(it2->second.overlay, &Overlay::update_root_member_list, std::move(nodes),
-                              std::move(root_public_keys), std::move(certificate));
+                              std::move(root_public_keys), std::move(certificate), std::move(rules));
     }
   }
 }

@@ -657,7 +657,8 @@ std::vector<adnl::AdnlNodeIdShort> OverlayImpl::get_broadcast_neighbours(td::uin
 }
 
 void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids,
-                                          std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert) {
+                                          std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert,
+                                          OverlayPrivacyRules rules) {
   protected_peers_guard_ = adnl::Adnl::ProtectedPeersGuard{adnl_, local_id_, ids};
   auto expected_size = (td::uint32)(ids.size() + root_public_keys.size() * opts_.max_slaves_in_semiprivate_overlay_);
   opts_.max_peers_ = std::max(opts_.max_peers_, expected_size);
@@ -698,7 +699,7 @@ void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids
   peer_list_.persistent_node_count_ = ids.size();
 
   update_member_certificate(std::move(cert));
-  cleanup_authorized_key_limiters();
+  set_privacy_rules(std::move(rules));
 }
 
 void OverlayImpl::update_member_certificate(OverlayMemberCertificate cert) {

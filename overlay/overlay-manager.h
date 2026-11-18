@@ -93,7 +93,7 @@ class OverlayManager : public Overlays {
                                  OverlayMemberCertificate certificate) override;
   void update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
-                               OverlayMemberCertificate certificate) override;
+                               OverlayMemberCertificate certificate, OverlayPrivacyRules rules) override;
   void get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, td::uint32 max_peers,
                                 td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) override;
 

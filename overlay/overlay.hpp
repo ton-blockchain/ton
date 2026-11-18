@@ -328,7 +328,7 @@ class OverlayImpl : public Overlay {
   void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) override;
 
   void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids, std::vector<PublicKeyHash> root_public_keys,
-                               OverlayMemberCertificate cert) override;
+                               OverlayMemberCertificate cert, OverlayPrivacyRules rules) override;
   void get_plumtree_stats_records(
       td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) override;
 

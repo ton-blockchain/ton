@@ -111,7 +111,6 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     , callback_(std::move(callback))
     , broadcasts_plumtree_(opts.plumtree_fec_options_, is_original_plumtree_sender(local_id, nodes, opts))
     , overlay_type_(overlay_type)
-    , rules_(std::move(rules))
     , scope_(scope)
     , announce_self_(opts.announce_self_)
     , opts_(std::move(opts)) {
@@ -121,7 +120,8 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
 
   VLOG(overlay, INFO) << this << ": creating";
 
-  OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
+  OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert),
+                                       std::move(rules));
 
   if (overlay_type_ == OverlayType::Public && opts_.send_twostep_broadcast_) {
     VLOG(overlay, WARNING) << "Cannot enable twostep broadcasts in public overlay";
