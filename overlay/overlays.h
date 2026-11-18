@@ -497,7 +497,7 @@ class Overlays : public td::actor::Actor {
   virtual void update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                        std::vector<adnl::AdnlNodeIdShort> nodes,
                                        std::vector<PublicKeyHash> root_public_keys,
-                                       OverlayMemberCertificate certificate) = 0;
+                                       OverlayMemberCertificate certificate, OverlayPrivacyRules rules) = 0;
 
   virtual void get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, td::uint32 max_peers,
                                         td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) = 0;

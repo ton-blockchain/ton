@@ -35,6 +35,15 @@ namespace {
 constexpr const char *k_called_from_protected = "protected";
 constexpr std::size_t k_plumtree_stats_records_limit = 128;
 
+overlay::OverlayPrivacyRules make_protected_overlay_privacy_rules(
+    const std::vector<adnl::AdnlNodeIdShort> &current_validators_adnl) {
+  std::map<PublicKeyHash, td::uint32> authorized_keys;
+  for (const auto &id : current_validators_adnl) {
+    authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
+  }
+  return {overlay::Overlays::max_fec_broadcast_size(), overlay::CertificateFlags::AllowFec, std::move(authorized_keys)};
+}
+
 template <class T>
 bool write_jsonl(std::ofstream &file, const T &value, const char *name) {
   auto s = td::json_encode<std::string>(td::ToJson(value), false);
@@ -393,12 +402,7 @@ void FullNodeProtectedOverlay::init() {
     td::actor::ActorId<FullNodeProtectedOverlay> node_;
   };
 
-  std::map<PublicKeyHash, td::uint32> authorized_keys;
-  for (auto id : current_validators_adnl_) {
-    authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
-  }
-  overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), overlay::CertificateFlags::AllowFec,
-                                     std::move(authorized_keys)};
+  auto rules = make_protected_overlay_privacy_rules(current_validators_adnl_);
   std::string scope = PSTRING() << R"({ "type": "protected", "shard_id": )" << shard_.shard
                                 << ", \"workchain_id\": " << shard_.workchain << " }";
   auto local_validator_it = std::find(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id_);
@@ -448,8 +452,13 @@ void FullNodeProtectedOverlay::tear_down() {
 
 void FullNodeProtectedOverlay::set_validators(std::vector<PublicKeyHash> root_public_keys,
                                               std::vector<adnl::AdnlNodeIdShort> current_validators_adnl) {
+  if (root_public_keys_ == root_public_keys && current_validators_adnl_ == current_validators_adnl) {
+    return;
+  }
+  bool was_original_sender = is_validator_adnl(local_id_);
   root_public_keys_ = std::move(root_public_keys);
   current_validators_adnl_ = std::move(current_validators_adnl);
+  bool is_original_sender = is_validator_adnl(local_id_);
   for (auto it = peers_info_.begin(); it != peers_info_.end();) {
     if (is_validator_adnl(it->first)) {
       ++it;
@@ -461,8 +470,14 @@ void FullNodeProtectedOverlay::set_validators(std::vector<PublicKeyHash> root_pu
     it = peers_info_.erase(it);
   }
   if (inited_) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
-    init();
+    if (was_original_sender != is_original_sender) {
+      td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+      init();
+    } else {
+      td::actor::send_closure(overlays_, &overlay::Overlays::update_root_member_list, local_id_, overlay_id_,
+                              current_validators_adnl_, root_public_keys_, member_certificate_,
+                              make_protected_overlay_privacy_rules(current_validators_adnl_));
+    }
   }
 }
 
