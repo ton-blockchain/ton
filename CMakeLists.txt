@@ -115,9 +115,46 @@ endif()
 find_program(CCACHE_FOUND ccache)
 if (CCACHE_FOUND)
   if (NOT DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
-    message(STATUS "Using ccache")
-    set(CMAKE_C_COMPILER_LAUNCHER ccache)
-    set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
+    set(TON_CCACHE_LAUNCHER "${CCACHE_FOUND}")
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TON_ARCH STREQUAL "native")
+      # Older ccache versions don't distinguish -march=native on different CPUs.
+      separate_arguments(TON_NATIVE_COMPILER_ARG1 NATIVE_COMMAND "${CMAKE_CXX_COMPILER_ARG1}")
+      execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env LC_ALL=C
+          "${CMAKE_CXX_COMPILER}" ${TON_NATIVE_COMPILER_ARG1} -march=native "-###" -E -x c++ /dev/null
+        RESULT_VARIABLE TON_NATIVE_OPTIONS_RESULT
+        ERROR_VARIABLE TON_NATIVE_OPTIONS
+        OUTPUT_QUIET
+        TIMEOUT 10
+      )
+      execute_process(
+        COMMAND "${CCACHE_FOUND}" --get-config extra_files_to_hash
+        RESULT_VARIABLE TON_CCACHE_CONFIG_RESULT
+        OUTPUT_VARIABLE TON_CCACHE_CONFIG_EXTRAFILES
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        TIMEOUT 10
+      )
+      if (TON_NATIVE_OPTIONS_RESULT STREQUAL "0" AND TON_NATIVE_OPTIONS MATCHES "cc1"
+          AND TON_CCACHE_CONFIG_RESULT STREQUAL "0")
+        set(TON_NATIVE_OPTIONS_FILE "${CMAKE_CURRENT_BINARY_DIR}/ccache-native-options.txt")
+        file(WRITE "${TON_NATIVE_OPTIONS_FILE}" "${TON_NATIVE_OPTIONS}")
+        set(TON_CCACHE_EXTRAFILES "${TON_NATIVE_OPTIONS_FILE}")
+        if (NOT TON_CCACHE_CONFIG_EXTRAFILES STREQUAL "")
+          string(APPEND TON_CCACHE_EXTRAFILES ":${TON_CCACHE_CONFIG_EXTRAFILES}")
+        endif()
+        set(TON_CCACHE_LAUNCHER "${CMAKE_COMMAND}" -E env
+          "CCACHE_EXTRAFILES=${TON_CCACHE_EXTRAFILES}" "${CCACHE_FOUND}")
+      else()
+        message(STATUS "Skipping ccache: could not configure native CPU cache inputs")
+        set(TON_CCACHE_LAUNCHER "")
+      endif()
+    endif()
+    if (TON_CCACHE_LAUNCHER)
+      message(STATUS "Using ccache")
+      set(CMAKE_C_COMPILER_LAUNCHER "${TON_CCACHE_LAUNCHER}")
+      set(CMAKE_CXX_COMPILER_LAUNCHER "${TON_CCACHE_LAUNCHER}")
+    endif()
   endif()
 else()
   message(STATUS "Could NOT find ccache")
@@ -161,6 +198,9 @@ if (TON_USE_ROCKSDB)
     set(WITH_ASAN ${TON_USE_ASAN} CACHE BOOL "")
     set(WITH_TSAN ${TON_USE_TSAN} CACHE BOOL "")
     set(WITH_UBSAN ${TON_USE_UBSAN} CACHE BOOL "")
+    # Preserve the parent compiler launchers, including when caching is disabled.
+    # RocksDB otherwise replaces them with plain ccache.
+    set(CCACHE_FOUND OFF)
     add_subdirectory(third-party/rocksdb EXCLUDE_FROM_ALL)
     # Broken CMake in rocksdb alters properties it has no business changing.
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE)

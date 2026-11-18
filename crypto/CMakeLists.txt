@@ -333,6 +333,10 @@ target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})
 
 target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SECP256K1_INCLUDE_DIR}>)
 
+if (WIN32)
+  target_compile_definitions(ton_crypto_core PUBLIC SECP256K1_STATIC)
+endif()
+
 if (MSVC)
   find_package(Sodium REQUIRED)
   target_compile_definitions(ton_crypto PUBLIC SODIUM_STATIC)
