@@ -198,6 +198,9 @@ if (TON_USE_ROCKSDB)
     set(WITH_ASAN ${TON_USE_ASAN} CACHE BOOL "")
     set(WITH_TSAN ${TON_USE_TSAN} CACHE BOOL "")
     set(WITH_UBSAN ${TON_USE_UBSAN} CACHE BOOL "")
+    # Preserve the parent compiler launchers, including when caching is disabled.
+    # RocksDB otherwise replaces them with plain ccache.
+    set(CCACHE_FOUND OFF)
     add_subdirectory(third-party/rocksdb EXCLUDE_FROM_ALL)
     # Broken CMake in rocksdb alters properties it has no business changing.
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE)
