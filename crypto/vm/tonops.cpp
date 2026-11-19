@@ -796,7 +796,7 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
     }
   }
   td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, 32})};
-  auto res = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, 64});
+  auto res = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, 64}, td::SignatureDomain::Vm);
   stack.push_bool(res.is_ok() || st->get_chksig_always_succeed());
   return 0;
 }

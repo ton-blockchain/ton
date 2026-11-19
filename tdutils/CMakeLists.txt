@@ -249,6 +249,7 @@ set(TDUTILS_SOURCE
   td/utils/Random.h
   td/utils/RateLimiterWindow.h
   td/utils/ScopeGuard.h
+  td/utils/SeqlockCache.h
   td/utils/SharedObjectPool.h
   td/utils/SharedSlice.h
   td/utils/SipHash.h
@@ -332,6 +333,7 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/OrderedEventsProcessor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/port.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/pq.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/SeqlockCache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedObjectPool.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedSlice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SpscRing.cpp
