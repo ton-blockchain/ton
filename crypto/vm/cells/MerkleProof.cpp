@@ -36,7 +36,11 @@ class MerkleProofImpl {
       : usage_tree_(usage_tree), is_left_mu_(is_left_mu) {
   }
 
-  td::Result<Ref<Cell>> create_from(Ref<Cell> cell) {
+  td::Result<Ref<Cell>> create_from(Ref<Cell> cell, td::Span<Ref<Cell>> subproofs = {}) {
+    cells_.reserve(subproofs.size());
+    for (const auto &proof : subproofs) {
+      cells_.emplace(Key{proof->get_hash(0), 0}, proof);
+    }
     if (!is_prunned_) {
       CHECK(usage_tree_);
       dfs_usage_tree(cell, usage_tree_->root_id(), cell->get_level());
@@ -112,8 +116,9 @@ class MerkleProofImpl {
 };
 }  // namespace detail
 
-td::Result<Ref<Cell>> MerkleProof::generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned) {
-  return detail::MerkleProofImpl(is_prunned).create_from(cell);
+td::Result<Ref<Cell>> MerkleProof::generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned,
+                                                td::Span<Ref<Cell>> subproofs) {
+  return detail::MerkleProofImpl(std::move(is_prunned)).create_from(std::move(cell), subproofs);
 }
 
 td::Result<Ref<Cell>> MerkleProof::generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree, bool is_left_mu) {
