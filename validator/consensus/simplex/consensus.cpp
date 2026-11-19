@@ -24,10 +24,24 @@ struct SlotState {
   std::optional<CandidateId> notar_cert;
   bool voted_skip = false;
   bool voted_final = false;
+  bool validation_started = false;
+  std::optional<BlockIdExt> validated_min_mc_block_id;
 };
 
 class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
   using State = ConsensusState<SlotState, td::Unit>;
+
+  struct SpeculativeValidation {
+    CandidateId id;
+    CandidateId parent_id;
+    BlockIdExt parent_block_id;
+    BlockIdExt min_mc_block_id;
+    td::actor::StartedTask<ValidateCandidateResult> result;
+    std::unique_ptr<stats::ValidationStarted> started;
+    std::unique_ptr<stats::ValidationFinished> finished;
+    bool completed = false;
+    bool obsolete = false;
+  };
 
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
@@ -109,6 +123,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    stopping_ = true;
+    if (speculative_) {
+      discard_speculation(speculative_->id);
+    }
     stop();
   }
 
@@ -120,6 +138,9 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
   template <>
   void handle(BusHandle, std::shared_ptr<const FinalizationObserved> event) {
     state_->notify_finalized(event->id.slot);
+    if (speculative_ && speculative_->id.slot <= event->id.slot) {
+      discard_speculation(speculative_->id);
+    }
   }
 
   template <>
@@ -215,6 +236,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     if (candidate->collated_by(*owning_bus()) != owning_bus()->local_adnl_id) {
       owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
     }
+    try_speculate(*slot);
     try_notarize(*slot).start().detach();
   }
 
@@ -236,8 +258,106 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     co_return {};
   }
 
-  td::actor::Task<> try_notarize(State::SlotRef slot) {
+  std::optional<State::SlotRef> active_candidate(const CandidateRef& candidate) {
+    if (stopping_) {
+      return std::nullopt;
+    }
+    auto slot = state_->slot_at(candidate->id.slot);
+    if (!slot || !slot->state->pending_block || (*slot->state->pending_block)->id != candidate->id ||
+        slot->state->voted_notar || (slot->state->notar_cert && slot->state->notar_cert != candidate->id)) {
+      return std::nullopt;
+    }
+    return slot;
+  }
+
+  void discard_speculation(CandidateId id) {
+    if (speculative_ && speculative_->id == id) {
+      speculative_->obsolete = true;
+      // Dropping the result does not cancel ValidateQuery. Reserve the single slot until it finishes.
+      if (speculative_->completed) {
+        speculative_.reset();
+        retry_speculation();
+      }
+    }
+  }
+
+  td::actor::Task<> validate_speculatively(std::shared_ptr<SpeculativeValidation> job, CandidateRef candidate,
+                                         td::Promise<ValidateCandidateResult> promise) {
+    job->started = stats::ValidationStarted::create(job->id);
+    auto result = co_await owning_bus()
+                      .publish<SpeculativeValidationRequest>(candidate, job->parent_id, job->parent_block_id,
+                                                              job->min_mc_block_id)
+                      .wrap();
+    job->finished = stats::ValidationFinished::create(job->id);
+    job->completed = true;
+    if (job->obsolete && speculative_ == job) {
+      speculative_.reset();
+      retry_speculation();
+    }
+    promise.set_result(std::move(result));
+    co_return {};
+  }
+
+  void retry_speculation() {
+    // A pending child's first attempt may have been blocked by the previous reservation.
+    auto [begin, end] = state_->tracked_slots_interval();
+    for (auto i = begin; i < end && !stopping_ && !speculative_; ++i) {
+      try_speculate(*state_->slot_at(i));
+    }
+  }
+
+  void try_speculate(State::SlotRef slot) {
+    if (stopping_ || speculative_ || slot.state->validation_started || slot.state->voted_notar ||
+        !slot.state->pending_block || owning_bus()->shard.workchain != basechainId) {
+      return;
+    }
     const auto& candidate = *slot.state->pending_block;
+    if (candidate->is_empty() || !candidate->parent_id || candidate->id.slot == 0 ||
+        candidate->parent_id->slot != candidate->id.slot - 1 || !active_candidate(candidate)) {
+      return;
+    }
+    auto parent = state_->slot_at(candidate->parent_id->slot);
+    if (!parent || !parent->state->validated_min_mc_block_id || !parent->state->pending_block ||
+        parent->state->voted_notar != candidate->parent_id || parent->state->notar_cert) {
+      return;
+    }
+    const auto& parent_candidate = *parent->state->pending_block;
+    auto parent_block = parent_candidate->block_id();
+    auto block = candidate->block_id();
+    if (parent_candidate->id != candidate->parent_id || parent_candidate->is_empty() ||
+        block.shard_full() != owning_bus()->shard || parent_block.shard_full() != block.shard_full() ||
+        block.seqno() == 0 || parent_block.seqno() != block.seqno() - 1) {
+      return;
+    }
+
+    auto job = std::make_shared<SpeculativeValidation>();
+    job->id = candidate->id;
+    job->parent_id = *candidate->parent_id;
+    job->parent_block_id = parent_block;
+    job->min_mc_block_id = *parent->state->validated_min_mc_block_id;
+    auto [result, promise] = td::actor::StartedTask<ValidateCandidateResult>::make_bridge();
+    job->result = std::move(result);
+    speculative_ = job;
+    validate_speculatively(job, candidate, std::move(promise)).start().detach();
+  }
+
+  td::actor::Task<> try_notarize(State::SlotRef slot) {
+    auto candidate = *slot.state->pending_block;
+    auto result = co_await notarize_candidate(candidate).wrap();
+    discard_speculation(candidate->id);
+
+    // Only an authoritative local vote unlocks the next child, never a speculative success alone.
+    if (!stopping_ && slot.state->voted_notar == candidate->id &&
+        candidate->id.slot + 1 < state_->tracked_slots_interval().end) {
+      auto child = state_->slot_at(candidate->id.slot + 1);
+      if (child) {
+        try_speculate(*child);
+      }
+    }
+    co_return std::move(result);
+  }
+
+  td::actor::Task<> notarize_candidate(CandidateRef candidate) {
     auto store_candidate = owning_bus().publish<StoreCandidate>(candidate).start();
 
     auto maybe_misbehavior = co_await owning_bus().publish<WaitForParent>(candidate);
@@ -245,8 +365,14 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       owning_bus().publish<MisbehaviorReport>(candidate->leader, *maybe_misbehavior);
       co_return {};
     }
+    if (!active_candidate(candidate)) {
+      co_return {};
+    }
 
     auto parent = co_await owning_bus().publish<ResolveState>(candidate->parent_id);
+    if (!active_candidate(candidate)) {
+      co_return {};
+    }
 
     if (!candidate->is_empty() && parent.gen_utime_exact.has_value()) {
       auto earliest = td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.min_block_interval;
@@ -255,7 +381,33 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       }
     }
 
-    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate);
+    auto slot = active_candidate(candidate);
+    if (!slot) {
+      co_return {};
+    }
+    slot->state->validation_started = true;
+
+    std::optional<ValidateCandidateResult> accepted_early;
+    auto job = speculative_;
+    if (job && !job->obsolete && job->id == candidate->id && candidate->parent_id == job->parent_id &&
+        parent.state->as_normal() == job->parent_block_id &&
+        parent.state->min_mc_block_id() == job->min_mc_block_id) {
+      auto early = co_await std::move(job->result).wrap();
+      if (!active_candidate(candidate)) {
+        co_return {};
+      }
+      if (early.is_ok() && early.ok().has<CandidateAccept>()) {
+        accepted_early.emplace(early.move_as_ok());
+        // Keep actual work timestamps; failed attempts leave the ordinary retry's metrics intact.
+        owning_bus().publish<TraceEvent>(std::move(job->started));
+        owning_bus().publish<TraceEvent>(std::move(job->finished));
+      }
+    }
+    auto validation_result = accepted_early ? std::move(*accepted_early)
+                                           : co_await owning_bus().publish<ValidationRequest>(parent.state, candidate);
+    if (!active_candidate(candidate)) {
+      co_return {};
+    }
 
     if (validation_result.has<CandidateReject>()) {
       LOG(WARNING) << "Candidate " << candidate->id
@@ -263,12 +415,36 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       // FIXME: Report misbehavior
       co_return {};
     }
+
+    auto accepted = validation_result.get<CandidateAccept>();
+    auto ok_from = td::Timestamp::at_unix(accepted.ok_from_utime);
+    if (!ok_from.is_in_past()) {
+      LOG(INFO) << "Candidate " << candidate->id << " has timestamp in the future, wait for " << ok_from.in()
+                << " s";
+      co_await td::actor::coro_sleep(ok_from);
+    }
+    if (!active_candidate(candidate)) {
+      co_return {};
+    }
     co_await std::move(store_candidate);
 
-    slot.state->voted_notar = candidate->id;
+    // Certificates/ancestry can change while validation or persistence is suspended.
+    maybe_misbehavior = co_await owning_bus().publish<WaitForParent>(candidate);
+    if (maybe_misbehavior) {
+      owning_bus().publish<MisbehaviorReport>(candidate->leader, *maybe_misbehavior);
+      co_return {};
+    }
+    slot = active_candidate(candidate);
+    if (!slot) {
+      co_return {};
+    }
+    slot->state->voted_notar = candidate->id;
+    if (accepted.can_validate_child) {
+      slot->state->validated_min_mc_block_id = parent.state->min_mc_block_id();
+    }
 
     owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id}).start().detach();
-    try_vote_final(slot);  // If we've observed NotarCert already, it might be possible to vote final.
+    try_vote_final(*slot);  // If we've observed NotarCert already, it might be possible to vote final.
     co_return {};
   }
 
@@ -319,6 +495,8 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
   bool previous_window_had_skip_ = false;
   std::optional<State> state_;
   td::uint32 current_window_ = 0;
+  std::shared_ptr<SpeculativeValidation> speculative_;
+  bool stopping_ = false;
 
   static constexpr double UPCOMING_FIRST_WINDOW_BEFORE = 5.0;
 };
