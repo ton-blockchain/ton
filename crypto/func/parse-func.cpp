@@ -528,6 +528,9 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     res->flags = Expr::_IsRvalue;
     switch (str_type) {
       case 0: {
+        if (str.size() * 8 > 1023) {
+          lex.cur().error_at("too long string constant `", "`");
+        }
         res->strval = td::hex_encode(str);
         break;
       }
@@ -536,7 +539,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
         unsigned char buff[128];
         int bits =
             (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
-        if (bits < 0) {
+        if (bits < 0 || bits > 1023) {
           lex.cur().error_at("Invalid hex bitstring constant `", "`");
         }
         break;
