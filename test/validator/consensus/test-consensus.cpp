@@ -257,7 +257,10 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   }
 
   void receive_candidate(CandidateRef candidate) {
-    owning_bus().publish<CandidateReceived>(candidate);
+    auto decoded = Candidate::deserialize_from_broadcast(candidate->serialize_for_broadcast(), candidate->leader,
+                                                         *owning_bus(), candidate->id.slot)
+                       .move_as_ok();
+    owning_bus().publish<CandidateReceived>(std::move(decoded));
   }
 
   td::actor::Task<td::BufferSlice> receive_query(PeerValidator src, td::BufferSlice query) {
@@ -441,8 +444,16 @@ class TestManagerFacade : public ManagerFacade {
     CHECK(candidate.id.seqno() == prev_seqno + 1);
     CHECK(params.prev_block_state_roots.size() == 1 &&
           params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
+    auto creator = PublicKey{pubkeys::Ed25519{candidate.pubkey}}.compute_short_id();
+    CHECK(params.candidate_roots.not_null() == (params.local_validator_id != creator));
+    if (params.candidate_roots.not_null()) {
+      CHECK(params.candidate_roots->block_root->get_hash().as_bits256() == candidate.id.root_hash);
+      CHECK(params.candidate_roots->block_file_hash == td::sha256_bits256(candidate.data));
+      CHECK(params.candidate_roots->collated_file_hash == td::sha256_bits256(candidate.collated_data));
+    }
     co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(VALIDATION_TIME.first, VALIDATION_TIME.second)));
-    co_return CandidateAccept{.ok_from_utime = co_await get_candidate_gen_utime_exact(candidate)};
+    co_return CandidateAccept{.ok_from_utime =
+                                  co_await get_candidate_gen_utime_exact(candidate, params.candidate_roots)};
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
