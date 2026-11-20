@@ -38,19 +38,66 @@ else
     exit 1
 fi
 
-if [ ! -f "/var/ton-work/db/config.json" ]; then
-  echo -e "\e[1;32m[+]\e[0m Initializing validator-engine:"
-  echo validator-engine -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --ip "$PUBLIC_IP:$VALIDATOR_PORT"
-  validator-engine -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --ip "$PUBLIC_IP:$VALIDATOR_PORT"
-  test $? -eq 0 || { echo "Cannot initialize validator-engine"; exit 2; }
+if [[ ! "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    echo -e "\e[1;31m[!]\e[0m PUBLIC_IP must be an IPv4 address, exiting..."
+    exit 1
+fi
+IFS='.' read -r IP1 IP2 IP3 IP4 <<< "$PUBLIC_IP"
+IP_INT=$(( (IP1 << 24) + (IP2 << 16) + (IP3 << 8) + IP4 ))
+if [ "$IP_INT" -gt 2147483647 ]; then
+    IP_INT=$((IP_INT - 4294967296))
 fi
 
-if [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-    IFS='.' read -r IP1 IP2 IP3 IP4 <<< "$PUBLIC_IP"
-    QUIC_IP_INT=$(( (IP1 << 24) + (IP2 << 16) + (IP3 << 8) + IP4 ))
-    if [ "$QUIC_IP_INT" -gt 2147483647 ]; then
-        QUIC_IP_INT=$((QUIC_IP_INT - 4294967296))
-    fi
+mkdir -p /var/ton-work/db/keyring
+test $? -eq 0 || { echo "Cannot create keyring directory"; exit 2; }
+
+if [ ! -f "/var/ton-work/db/config.json" ]; then
+  echo -e "\e[1;32m[+]\e[0m Initializing /var/ton-work/db/config.json"
+
+  # Key for ADNL category 0 and DHT
+  DHT_KEYS=$(generate-random-id -m keys -n dht)
+  test $? -eq 0 || { echo "Cannot generate DHT key"; exit 2; }
+  read -r DHT_ID1 DHT_ID2 <<< "$DHT_KEYS"
+  cp dht /var/ton-work/db/keyring/$DHT_ID1
+  test $? -eq 0 || { echo "Cannot install DHT private key into keyring"; exit 2; }
+
+  # Key for ADNL category 1 and full node
+  FULLNODE_KEYS=$(generate-random-id -m keys -n fullnode)
+  test $? -eq 0 || { echo "Cannot generate full node key"; exit 2; }
+  read -r FULLNODE_ID1 FULLNODE_ID2 <<< "$FULLNODE_KEYS"
+  cp fullnode /var/ton-work/db/keyring/$FULLNODE_ID1
+  test $? -eq 0 || { echo "Cannot install full node private key into keyring"; exit 2; }
+
+  INIT_CONFIG_TMP=$(mktemp /var/ton-work/db/config.json.init.XXXXXX)
+  test $? -eq 0 || { echo "Cannot create temporary config file"; exit 2; }
+  jq -n --argjson ip "$IP_INT" --argjson port "$VALIDATOR_PORT" \
+        --arg dht_id "$DHT_ID2" --arg fullnode_id "$FULLNODE_ID2" '{
+    "@type": "engine.validator.config",
+    "out_port": 3278,
+    "addrs": [{
+      "@type": "engine.addr",
+      "ip": $ip,
+      "port": $port,
+      "categories": [0, 1, 2, 3],
+      "priority_categories": []
+    }],
+    "adnl": [
+      {"@type": "engine.adnl", "id": $dht_id, "category": 0},
+      {"@type": "engine.adnl", "id": $fullnode_id, "category": 1}
+    ],
+    "dht": [{"@type": "engine.dht", "id": $dht_id}],
+    "validators": [],
+    "fullnode": $fullnode_id,
+    "liteservers": [],
+    "control": []
+  }' > "$INIT_CONFIG_TMP"
+  test $? -eq 0 || { rm -f "$INIT_CONFIG_TMP"; echo "Cannot generate initial config"; exit 2; }
+  mv "$INIT_CONFIG_TMP" /var/ton-work/db/config.json
+  test $? -eq 0 || { rm -f "$INIT_CONFIG_TMP"; echo "Cannot install initial config"; exit 2; }
+fi
+
+{
+    QUIC_IP_INT=$IP_INT
 
     QUIC_CONFIG_TMP=$(mktemp /var/ton-work/db/config.json.quic.XXXXXX)
     test $? -eq 0 || { echo "Cannot create temporary QUIC config file"; exit 2; }
@@ -72,9 +119,7 @@ if [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
     mv "$QUIC_CONFIG_TMP" /var/ton-work/db/config.json
     test $? -eq 0 || { rm -f "$QUIC_CONFIG_TMP"; echo "Cannot replace config after QUIC update"; exit 2; }
     echo -e "\e[1;32m[+]\e[0m QUIC address configured: $PUBLIC_IP:$QUIC_PORT"
-else
-    echo -e "\e[1;31m[!]\e[0m PUBLIC_IP is not IPv4, skipping QUIC address configuration"
-fi
+}
 
 if [ ! -z "$DUMP_URL" ]; then
     echo -e "\e[1;32m[+]\e[0m Using provided dump $DUMP_URL"
@@ -242,5 +287,5 @@ else
 fi
 
 echo -e "\e[1;32m[+]\e[0m Starting validator-engine:"
-echo validator-engine -c /var/ton-work/db/config.json -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --state-ttl $STATE_TTL --archive-ttl $ARCHIVE_TTL --threads $THREADS --verbosity $VERBOSITY $CUSTOM_ARG
-exec validator-engine -c /var/ton-work/db/config.json -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --state-ttl $STATE_TTL --archive-ttl $ARCHIVE_TTL --threads $THREADS --verbosity $VERBOSITY $CUSTOM_ARG
+echo validator-engine -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --state-ttl $STATE_TTL --archive-ttl $ARCHIVE_TTL --threads $THREADS --verbosity $VERBOSITY $CUSTOM_ARG
+exec validator-engine -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --state-ttl $STATE_TTL --archive-ttl $ARCHIVE_TTL --threads $THREADS --verbosity $VERBOSITY $CUSTOM_ARG
