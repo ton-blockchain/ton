@@ -1951,7 +1951,9 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_stats_push(OverlayImpl *over
   if (!inserted) {
     co_return td::Unit{};
   }
-  stats_forward(overlay, *it->second, from);
+  if (!is_original_sender_) {
+    stats_forward(overlay, *it->second, from);
+  }
   co_return td::Unit{};
 }
 
