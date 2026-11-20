@@ -174,7 +174,9 @@ void OverlayImpl::add_peer(OverlayNode node, bool verified, bool checked_signatu
     }
   }
 
-  if (overlay_type_ == OverlayType::CertificatedMembers) {
+  if (overlay_type_ == OverlayType::Public) {
+    node.clear_certificate();
+  } else if (overlay_type_ == OverlayType::CertificatedMembers) {
     auto R = validate_peer_certificate(node.adnl_id_short(), *node.certificate());
     if (R.is_error()) {
       VLOG(overlay, WARNING) << this << ": bad peer certificate node=" << node.adnl_id_short() << ": "
@@ -465,9 +467,19 @@ void OverlayImpl::receive_pong(adnl::AdnlNodeIdShort peer, double elapsed) {
 }
 
 bool OverlayImpl::should_remove_peer(const OverlayPeer &peer, double now) {
-  return !peer.is_permanent_member() &&
-         (peer.get_version() + Overlays::overlay_peer_ttl() < now ||
-          (peer.certificate()->is_expired(now) && !authorized_semiprivate_nodes_.contains(peer.get_id())));
+  if (peer.is_permanent_member()) {
+    return false;
+  }
+  if (peer.get_version() + Overlays::overlay_peer_ttl() < now) {
+    return true;
+  }
+  if (overlay_type_ != OverlayType::CertificatedMembers) {
+    return false;
+  }
+  if (authorized_semiprivate_nodes_.contains(peer.get_id())) {
+    return false;
+  }
+  return peer.certificate()->is_expired(now);
 }
 
 static constexpr size_t peer_sampling_extra_attempts = 16;
