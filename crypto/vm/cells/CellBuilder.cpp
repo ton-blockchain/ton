@@ -100,8 +100,7 @@ Ref<DataCell> CellBuilder::finalize(bool special, DataCell::HashHint hash_hint) 
 Ref<Cell> CellBuilder::create_pruned_branch(Ref<Cell> cell, td::uint32 new_level, td::uint32 virt_level) {
   if (cell->is_loaded() && cell->get_level() <= virt_level && !cell->is_virtualized()) {
     CellSlice cs(NoVm{}, cell);
-    if (cs.size_refs() == 0 && (cs.size() <= 8 + 16 + 256 || cs.get_cell_level() > 0)) {
-      // Return original cell if it has no refs and has no more bits than pruned branch
+    if (cs.size_refs() == 0) {
       return cell;
     }
   }

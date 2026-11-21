@@ -42,11 +42,7 @@ class QuicTester : public td::actor::Actor {
       td::actor::send_closure(tester_, &QuicTester::on_closed, cid);
     }
 
-    void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::StreamCloseEvent event) override {
-      if (event.initiator == ton::quic::StreamInitiator::Peer &&
-          event.direction == ton::quic::StreamDirection::Unidirectional) {
-        td::actor::send_closure(tester_, &QuicTester::release_peer_uni_stream_credit, cid);
-      }
+    void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
     }
 
     void set_peer_mtu_callback(
@@ -118,10 +114,6 @@ class QuicTester : public td::actor::Actor {
   }
 
  private:
-  void release_peer_uni_stream_credit(ton::quic::QuicConnectionId cid) {
-    td::actor::send_closure(server_, &ton::quic::QuicServer::release_peer_uni_stream_credit, cid);
-  }
-
   td::BufferSlice alpn_;
   td::BufferSlice host_;
   int port_;

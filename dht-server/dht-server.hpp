@@ -60,6 +60,7 @@ struct Config {
   };
 
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
+  td::uint16 out_port;
   std::map<Addr, AddrCats> addrs;
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;

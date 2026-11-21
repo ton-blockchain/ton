@@ -41,6 +41,11 @@ AdnlNodeIdShort AdnlLocalId::get_short_id() const {
   return short_id_;
 }
 
+AdnlAddressList AdnlLocalId::get_addr_list() const {
+  CHECK(!addr_list_.empty());
+  return addr_list_;
+}
+
 void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
   [](AdnlLocalId *self, td::IPAddress addr, td::BufferSlice data) -> td::actor::Task<> {
     auto R = co_await self->receive_coro(addr, std::move(data)).wrap();
@@ -183,15 +188,12 @@ void AdnlLocalId::publish_address_list() {
                                        dht_key_description = std::move(dht_key_description),
                                        print_id = print_id()](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
-      VLOG(adnl, ERROR) << print_id << ": cannot sign: " << R.move_as_error();
+      LOG(ERROR) << print_id << ": cannot sign: " << R.move_as_error();
       return;
     }
 
     dht_key_description.update_signature(R.move_as_ok());
-    if (auto S = dht_key_description.check(); S.is_error()) {
-      VLOG(adnl, ERROR) << print_id << ": dht key: " << S;
-      return;
-    }
+    dht_key_description.check().ensure();
 
     auto ttl = static_cast<td::uint32>(td::Clocks::system() + 3600);
     dht::DhtValue dht_value{std::move(dht_key_description), serialize_tl_object(addr_list, true), ttl,
@@ -202,14 +204,11 @@ void AdnlLocalId::publish_address_list() {
     auto Q = td::PromiseCreator::lambda(
         [dht_node, dht_value = std::move(dht_value), print_id](td::Result<td::BufferSlice> R) mutable {
           if (R.is_error()) {
-            VLOG(adnl, ERROR) << print_id << ": cannot sign: " << R.move_as_error();
+            LOG(ERROR) << print_id << ": cannot sign: " << R.move_as_error();
             return;
           }
           dht_value.update_signature(R.move_as_ok());
-          if (auto S = dht_value.check(); S.is_error()) {
-            VLOG(adnl, ERROR) << print_id << ": dht value: " << S;
-            return;
-          }
+          dht_value.check().ensure();
 
           auto E = td::PromiseCreator::lambda([print_id](td::Result<td::Unit> R) {
             if (R.is_error()) {

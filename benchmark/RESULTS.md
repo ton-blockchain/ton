@@ -147,7 +147,7 @@ build/benchmark/bench-state-gen gen --v5-count 80000000 --ballast-count 32000000
   --seed-hex abab…ab --out-dir /mnt/bench/state-full
 
 # a benchmark run
-uv run python test/integration/bench_jetton.py \
+uv run python benchmark/bench_jetton.py \
   --manifest /mnt/bench/state-full/manifest.json \
   --rate 600 --duration 180 --warmup 20 \
   --net-dir /mnt/bench/net-bench --out-dir /mnt/bench/results/my-run
@@ -218,7 +218,7 @@ Measured residuals at the final config:
 ## Reproducing the final number
 
 ```sh
-uv run python test/integration/bench_jetton.py \
+uv run python benchmark/bench_jetton.py \
   --manifest /mnt/bench/state-full-b5/manifest.json \
   --net-dir <dir-on-other-ssd> --celldb-checkpoint-dir /mnt/bench/work/ckpt \
   --rate 1200 --duration 180 --warmup 15 --spam-arg=--connections=8
