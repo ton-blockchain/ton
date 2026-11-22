@@ -980,32 +980,6 @@ cap_name#ff name:Text = SmcCapability;
 dns_storage_address#7473 bag_id:bits256 = DNSRecord;
 
 //
-// PAYMENT CHANNELS
-//
-
-chan_config$_  init_timeout:uint32 close_timeout:uint32 a_key:bits256 b_key:bits256
-  a_addr:^MsgAddressInt b_addr:^MsgAddressInt channel_id:uint64 min_A_extra:Grams = ChanConfig;
-
-chan_state_init$000  signed_A:Bool signed_B:Bool min_A:Grams min_B:Grams expire_at:uint32 A:Grams B:Grams = ChanState;
-chan_state_close$001 signed_A:Bool signed_B:Bool promise_A:Grams promise_B:Grams expire_at:uint32 A:Grams B:Grams = ChanState;
-chan_state_payout$010 A:Grams B:Grams = ChanState;
-
-chan_promise$_ channel_id:uint64 promise_A:Grams promise_B:Grams = ChanPromise;
-chan_signed_promise#_ sig:(Maybe ^bits512) promise:ChanPromise = ChanSignedPromise;
-
-chan_msg_init#27317822 inc_A:Grams inc_B:Grams min_A:Grams min_B:Grams channel_id:uint64 = ChanMsg;
-chan_msg_close#f28ae183 extra_A:Grams extra_B:Grams promise:ChanSignedPromise  = ChanMsg;
-chan_msg_timeout#43278a28 = ChanMsg;
-chan_msg_payout#37fe7810 = ChanMsg;
-
-chan_signed_msg$_ sig_A:(Maybe ^bits512) sig_B:(Maybe ^bits512) msg:ChanMsg = ChanSignedMsg;
-
-chan_op_cmd#912838d1 msg:ChanSignedMsg = ChanOp;
-
-
-chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
-
-//
 // VALIDATOR REGISTRY (old types)
 //
 val_registry_config_old#3601163e contract_address:bits256 max_collators_per_validator:uint32 new_code_hash:(Maybe bits256) = ValRegistryConfig;
