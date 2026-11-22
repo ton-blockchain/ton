@@ -409,6 +409,7 @@ void FullNodeProtectedOverlay::init() {
   bool is_original_sender = local_validator_it != current_validators_adnl_.end();
   overlay::OverlayOptions options;
   options.name_ = "protected" + shard_.to_str();
+  options.nodes_to_send_ = 3;
   options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   options.local_overlay_member_flags_ =
       receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
