@@ -91,7 +91,7 @@ td::Result<td::IPAddress> QuicSender::get_ip_address(const adnl::AdnlNode &node)
 
 QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
                        QuicServer::Options options, FloodLimits flood_limits)
-    : AdnlSenderEx(/* default_mtu = */ adnl::Adnl::get_mtu())
+    : AdnlSenderEx(/* default_mtu = */ 2048)
     , adnl_(std::move(adnl))
     , keyring_(std::move(keyring))
     , server_options_(options)
