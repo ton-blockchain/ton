@@ -29,7 +29,6 @@
 #include "smc-envelope/HighloadWallet.h"
 #include "smc-envelope/HighloadWalletV2.h"
 #include "smc-envelope/ManualDns.h"
-#include "smc-envelope/PaymentChannel.h"
 #include "smc-envelope/SmartContractCode.h"
 #include "smc-envelope/WalletV3.h"
 #include "smc-envelope/WalletV4.h"
@@ -360,38 +359,6 @@ td::Result<ton::RestrictedWallet::InitData> to_init_data(const tonlib_api::rwall
   return std::move(init_data);
 }
 
-td::Result<ton::pchan::Config> to_pchan_config(const tonlib_api::pchan_initialAccountState& pchan_state) {
-  ton::pchan::Config config;
-  if (!pchan_state.config_) {
-    return TonlibError::EmptyField("config");
-  }
-  TRY_RESULT_PREFIX(a_key, get_public_key(pchan_state.config_->alice_public_key_),
-                    TonlibError::InvalidField("alice_public_key", ""));
-  config.a_key = td::SecureString(a_key.key);
-  TRY_RESULT_PREFIX(b_key, get_public_key(pchan_state.config_->bob_public_key_),
-                    TonlibError::InvalidField("bob_public_key", ""));
-  config.b_key = td::SecureString(b_key.key);
-
-  if (!pchan_state.config_->alice_address_) {
-    return TonlibError::EmptyField("config.alice_address");
-  }
-  TRY_RESULT_PREFIX(a_addr, get_account_address(pchan_state.config_->alice_address_->account_address_),
-                    TonlibError::InvalidField("alice_address", ""));
-  config.a_addr = std::move(a_addr);
-
-  if (!pchan_state.config_->bob_address_) {
-    return TonlibError::EmptyField("config.bob_address");
-  }
-  TRY_RESULT_PREFIX(b_addr, get_account_address(pchan_state.config_->bob_address_->account_address_),
-                    TonlibError::InvalidField("bob_address", ""));
-  config.b_addr = std::move(b_addr);
-
-  config.channel_id = pchan_state.config_->channel_id_;
-  config.init_timeout = pchan_state.config_->init_timeout_;
-  config.close_timeout = pchan_state.config_->close_timeout_;
-  return std::move(config);
-}
-
 class AccountState {
  public:
   AccountState(block::StdAddress address, RawAccountState&& raw, td::uint32 wallet_id)
@@ -490,37 +457,6 @@ class AccountState {
 
     return tonlib_api::make_object<tonlib_api::rwallet_accountState>(wallet_id, seqno, balance, std::move(api_config));
   }
-  td::Result<tonlib_api::object_ptr<tonlib_api::pchan_accountState>> to_payment_channel_accountState() const {
-    if (wallet_type_ != PaymentChannel) {
-      return TonlibError::AccountTypeUnexpected("PaymentChannel");
-    }
-    auto pchan = ton::PaymentChannel::create(get_smc_state());
-    TRY_RESULT(info, TRY_VM(pchan->get_info()));
-    TRY_RESULT(a_key, public_key_from_bytes(info.config.a_key));
-    TRY_RESULT(b_key, public_key_from_bytes(info.config.b_key));
-
-    tonlib_api::object_ptr<tonlib_api::pchan_State> tl_state;
-    info.state.visit(td::overloaded(
-        [&](const ton::pchan::StateInit& state) {
-          tl_state = tonlib_api::make_object<tonlib_api::pchan_stateInit>(
-              state.signed_A, state.signed_B, state.min_A, state.min_B, state.A, state.B, state.expire_at);
-        },
-        [&](const ton::pchan::StateClose& state) {
-          tl_state = tonlib_api::make_object<tonlib_api::pchan_stateClose>(
-              state.signed_A, state.signed_B, state.promise_A, state.promise_B, state.A, state.B, state.expire_at);
-        },
-        [&](const ton::pchan::StatePayout& state) {
-          tl_state = tonlib_api::make_object<tonlib_api::pchan_statePayout>(state.A, state.B);
-        }));
-
-    using tonlib_api::make_object;
-    return tonlib_api::make_object<tonlib_api::pchan_accountState>(
-        tonlib_api::make_object<tonlib_api::pchan_config>(
-            a_key.serialize(true), make_object<tonlib_api::accountAddress>(info.config.a_addr.rserialize(true)),
-            b_key.serialize(true), make_object<tonlib_api::accountAddress>(info.config.b_addr.rserialize(true)),
-            info.config.init_timeout, info.config.close_timeout, info.config.channel_id),
-        std::move(tl_state), info.description);
-  }
 
   td::Result<tonlib_api::object_ptr<tonlib_api::dns_accountState>> to_dns_accountState() const {
     if (wallet_type_ != ManualDns) {
@@ -551,8 +487,6 @@ class AccountState {
         return f(to_rwallet_accountState());
       case ManualDns:
         return f(to_dns_accountState());
-      case PaymentChannel:
-        return f(to_payment_channel_accountState());
       case WalletV4:
         return f(to_wallet_v4_accountState());
     }
@@ -601,7 +535,6 @@ class AccountState {
     HighloadWalletV1,
     HighloadWalletV2,
     ManualDns,
-    PaymentChannel,
     RestrictedWallet,
     WalletV4
   };
@@ -616,7 +549,6 @@ class AccountState {
       case AccountState::Empty:
       case AccountState::Unknown:
       case AccountState::ManualDns:
-      case AccountState::PaymentChannel:
         return false;
       case AccountState::WalletV3:
       case AccountState::HighloadWalletV1:
@@ -632,7 +564,6 @@ class AccountState {
       case AccountState::Empty:
       case AccountState::Unknown:
       case AccountState::ManualDns:
-      case AccountState::PaymentChannel:
         return {};
       case AccountState::WalletV3:
         return td::make_unique<ton::WalletV3>(get_smc_state());
@@ -685,77 +616,59 @@ class AccountState {
     }
     downcast_call(
         initial_account_state,
-        td::overloaded(
-            [](auto& x) {},
-            [&](tonlib_api::wallet_v3_initialAccountState& v3wallet) {
-              for (auto revision : ton::SmartContractCode::get_revisions(ton::SmartContractCode::WalletV3)) {
-                auto init_data = to_init_data(v3wallet);
-                if (init_data.is_error()) {
-                  continue;
-                }
-                auto wallet = ton::WalletV3::create(init_data.move_as_ok(), revision);
-                if (!(wallet->get_address(ton::masterchainId) == address_ ||
-                      wallet->get_address(ton::basechainId) == address_)) {
-                  continue;
-                }
-                wallet_type_ = WalletType::WalletV3;
-                wallet_revision_ = revision;
-                set_new_state(wallet->get_state());
-                break;
-              }
-            },
-            [&](tonlib_api::wallet_v4_initialAccountState& v4wallet) {
-              for (auto revision : ton::SmartContractCode::get_revisions(ton::SmartContractCode::WalletV4)) {
-                auto init_data = to_init_data(v4wallet);
-                if (init_data.is_error()) {
-                  continue;
-                }
-                auto wallet = ton::WalletV4::create(init_data.move_as_ok(), revision);
-                if (!(wallet->get_address(ton::masterchainId) == address_ ||
-                      wallet->get_address(ton::basechainId) == address_)) {
-                  continue;
-                }
-                wallet_type_ = WalletType::WalletV4;
-                wallet_revision_ = revision;
-                set_new_state(wallet->get_state());
-                break;
-              }
-            },
-            [&](tonlib_api::rwallet_initialAccountState& rwallet) {
-              for (auto revision : ton::SmartContractCode::get_revisions(ton::SmartContractCode::RestrictedWallet)) {
-                auto r_init_data = to_init_data(rwallet);
-                if (r_init_data.is_error()) {
-                  continue;
-                }
-                auto wallet = ton::RestrictedWallet::create(r_init_data.move_as_ok(), revision);
-                if (!(wallet->get_address(ton::masterchainId) == address_ ||
-                      wallet->get_address(ton::basechainId) == address_)) {
-                  continue;
-                }
-                wallet_type_ = WalletType::RestrictedWallet;
-                wallet_revision_ = revision;
-                set_new_state(wallet->get_state());
-                break;
-              }
-            },
-            [&](tonlib_api::pchan_initialAccountState& pchan) {
-              for (auto revision : ton::SmartContractCode::get_revisions(ton::SmartContractCode::PaymentChannel)) {
-                auto r_conf = to_pchan_config(pchan);
-                if (r_conf.is_error()) {
-                  continue;
-                }
-                auto conf = r_conf.move_as_ok();
-                auto wallet = ton::PaymentChannel::create(conf, revision);
-                if (!(wallet->get_address(ton::masterchainId) == address_ ||
-                      wallet->get_address(ton::basechainId) == address_)) {
-                  continue;
-                }
-                wallet_type_ = WalletType::PaymentChannel;
-                wallet_revision_ = revision;
-                set_new_state(wallet->get_state());
-                break;
-              }
-            }));
+        td::overloaded([](auto& x) {},
+                       [&](tonlib_api::wallet_v3_initialAccountState& v3wallet) {
+                         for (auto revision : ton::SmartContractCode::get_revisions(ton::SmartContractCode::WalletV3)) {
+                           auto init_data = to_init_data(v3wallet);
+                           if (init_data.is_error()) {
+                             continue;
+                           }
+                           auto wallet = ton::WalletV3::create(init_data.move_as_ok(), revision);
+                           if (!(wallet->get_address(ton::masterchainId) == address_ ||
+                                 wallet->get_address(ton::basechainId) == address_)) {
+                             continue;
+                           }
+                           wallet_type_ = WalletType::WalletV3;
+                           wallet_revision_ = revision;
+                           set_new_state(wallet->get_state());
+                           break;
+                         }
+                       },
+                       [&](tonlib_api::wallet_v4_initialAccountState& v4wallet) {
+                         for (auto revision : ton::SmartContractCode::get_revisions(ton::SmartContractCode::WalletV4)) {
+                           auto init_data = to_init_data(v4wallet);
+                           if (init_data.is_error()) {
+                             continue;
+                           }
+                           auto wallet = ton::WalletV4::create(init_data.move_as_ok(), revision);
+                           if (!(wallet->get_address(ton::masterchainId) == address_ ||
+                                 wallet->get_address(ton::basechainId) == address_)) {
+                             continue;
+                           }
+                           wallet_type_ = WalletType::WalletV4;
+                           wallet_revision_ = revision;
+                           set_new_state(wallet->get_state());
+                           break;
+                         }
+                       },
+                       [&](tonlib_api::rwallet_initialAccountState& rwallet) {
+                         for (auto revision :
+                              ton::SmartContractCode::get_revisions(ton::SmartContractCode::RestrictedWallet)) {
+                           auto r_init_data = to_init_data(rwallet);
+                           if (r_init_data.is_error()) {
+                             continue;
+                           }
+                           auto wallet = ton::RestrictedWallet::create(r_init_data.move_as_ok(), revision);
+                           if (!(wallet->get_address(ton::masterchainId) == address_ ||
+                                 wallet->get_address(ton::basechainId) == address_)) {
+                             continue;
+                           }
+                           wallet_type_ = WalletType::RestrictedWallet;
+                           wallet_revision_ = revision;
+                           set_new_state(wallet->get_state());
+                           break;
+                         }
+                       }));
     return wallet_type_;
   }
 
@@ -877,12 +790,6 @@ class AccountState {
     o_revision = ton::ManualDns::guess_revision(code_hash);
     if (o_revision) {
       wallet_type_ = WalletType::ManualDns;
-      wallet_revision_ = o_revision.value();
-      return wallet_type_;
-    }
-    o_revision = ton::PaymentChannel::guess_revision(code_hash);
-    if (o_revision) {
-      wallet_type_ = WalletType::PaymentChannel;
       wallet_revision_ = o_revision.value();
       return wallet_type_;
     }
@@ -2738,11 +2645,6 @@ td::Result<block::StdAddress> get_account_address(const tonlib_api::dns_initialA
       ->get_address(workchain_id);
 }
 
-td::Result<block::StdAddress> get_account_address(const tonlib_api::pchan_initialAccountState& pchan_state,
-                                                  td::int32 revision, ton::WorkchainId workchain_id) {
-  TRY_RESULT(config, to_pchan_config(pchan_state));
-  return ton::PaymentChannel::create(config, revision)->get_address(workchain_id);
-}
 td::Result<block::StdAddress> get_account_address(const tonlib_api::rwallet_initialAccountState& rwallet_state,
                                                   td::int32 revision, ton::WorkchainId workchain_id) {
   TRY_RESULT(init_data, to_init_data(rwallet_state));
@@ -2769,7 +2671,6 @@ static td::optional<ton::SmartContractCode::Type> get_wallet_type(tonlib_api::In
             return ton::SmartContractCode::HighloadWalletV2;
           },
           [](const tonlib_api::rwallet_initialAccountState&) { return ton::SmartContractCode::RestrictedWallet; },
-          [](const tonlib_api::pchan_initialAccountState&) { return ton::SmartContractCode::PaymentChannel; },
           [](const tonlib_api::dns_initialAccountState&) { return ton::SmartContractCode::ManualDns; }));
 }
 
@@ -4022,8 +3923,6 @@ class GenericCreateSendGrams : public TonlibQueryActor {
   // Should be splitted eventually
   std::vector<ton::ManualDns::Action> dns_actions_;
 
-  bool pchan_action_{false};
-
   bool rwallet_action_{false};
 
   void check(td::Status status) {
@@ -4134,10 +4033,6 @@ class GenericCreateSendGrams : public TonlibQueryActor {
                                                          TRY_RESULT(action, to_action(*from_action));
                                                          actions_.push_back(std::move(action));
                                                        }
-                                                       return td::Status::OK();
-                                                     },
-                                                     [&](tonlib_api::actionPchan& cell) {
-                                                       pchan_action_ = true;
                                                        return td::Status::OK();
                                                      },
                                                      [&](tonlib_api::actionRwallet& cell) {
@@ -4277,122 +4172,6 @@ class GenericCreateSendGrams : public TonlibQueryActor {
     return td::Status::OK();
   }
 
-  td::Status do_pchan_loop(td::Ref<ton::PaymentChannel> pchan, tonlib_api::actionPchan& action) {
-    if (!action.action_) {
-      return TonlibError::EmptyField("action");
-    }
-
-    Query::Raw raw;
-    auto valid_until = source_->get_sync_time();
-    valid_until += query_.timeout_ == 0 ? 60 : query_.timeout_;
-    raw.valid_until = valid_until;
-
-    TRY_RESULT(info, TRY_VM(pchan->get_info()));
-    bool is_alice = false;
-    bool is_bob = false;
-    if (info.config.a_key == private_key_.value().get_public_key().move_as_ok().as_octet_string()) {
-      LOG(ERROR) << "Alice key";
-      is_alice = true;
-    } else if (info.config.b_key == private_key_.value().get_public_key().move_as_ok().as_octet_string()) {
-      LOG(ERROR) << "Bob key";
-      is_bob = true;
-    }
-    if (!is_alice && !is_bob) {
-      return TonlibError::InvalidField("private_key", "invalid for this smartcontract");
-    }
-    auto status = downcast_call2<td::Status>(
-        *action.action_,
-        td::overloaded(
-            [&](tonlib_api::pchan_actionTimeout& timeout) {
-              auto builder = ton::pchan::MsgTimeoutBuilder();
-              if (is_alice) {
-                std::move(builder).with_a_key(&private_key_.value());
-              }
-              if (is_bob) {
-                std::move(builder).with_b_key(&private_key_.value());
-              }
-              raw.message_body = std::move(builder).finalize();
-              return td::Status::OK();
-            },
-            [&](tonlib_api::pchan_actionInit& init) {
-              auto builder = ton::pchan::MsgInitBuilder()
-                                 .inc_A(init.inc_A_)
-                                 .inc_B(init.inc_B_)
-                                 .min_A(init.min_A_)
-                                 .min_B(init.min_B_)
-                                 .channel_id(info.config.channel_id);
-              if (is_alice) {
-                std::move(builder).with_a_key(&private_key_.value());
-              }
-              if (is_bob) {
-                std::move(builder).with_b_key(&private_key_.value());
-              }
-              raw.message_body = std::move(builder).finalize();
-              return td::Status::OK();
-            },
-            [&](tonlib_api::pchan_actionClose& close) {
-              if (!close.promise_) {
-                return TonlibError::EmptyField("promise");
-              }
-              if (close.promise_->signature_.size() != 64) {
-                return TonlibError::InvalidField("promise.signature", "signature must contain 64 bytes");
-              }
-
-              ton::pchan::SignedPromiseBuilder sbuilder;
-              sbuilder.promise_A(close.promise_->promise_A_)
-                  .promise_B(close.promise_->promise_B_)
-                  .channel_id(close.promise_->channel_id_)
-                  .signature(td::SecureString(close.promise_->signature_));
-              if (is_alice && !sbuilder.check_signature(close.promise_->signature_,
-                                                        td::Ed25519::PublicKey(info.config.b_key.copy()))) {
-                return TonlibError::InvalidSignature();
-              }
-              if (is_bob && !sbuilder.check_signature(close.promise_->signature_,
-                                                      td::Ed25519::PublicKey(info.config.a_key.copy()))) {
-                return TonlibError::InvalidSignature();
-              }
-
-              auto signed_promise = sbuilder.finalize();
-              if (signed_promise.is_null()) {
-                return td::Status::Error("Failed to serialize signed promise");
-              }
-              auto builder = ton::pchan::MsgCloseBuilder()
-                                 .extra_A(close.extra_A_)
-                                 .extra_B(close.extra_B_)
-                                 .signed_promise(std::move(signed_promise));
-              if (is_alice) {
-                std::move(builder).with_a_key(&private_key_.value());
-              }
-              if (is_bob) {
-                std::move(builder).with_b_key(&private_key_.value());
-              }
-              raw.message_body = std::move(builder).finalize();
-              return td::Status::OK();
-            }));
-    TRY_STATUS(std::move(status));
-
-    raw.new_state = source_->get_new_state();
-    TRY_RESULT(message, create_ext_message_checked(source_->get_address(), raw.new_state, raw.message_body));
-    raw.message = std::move(message);
-    raw.source = std::move(source_);
-
-    promise_.set_value(td::make_unique<Query>(std::move(raw)));
-    stop();
-    return td::Status::OK();
-  }
-  td::Status do_pchan_loop() {
-    if (!private_key_) {
-      return TonlibError::EmptyField("private_key");
-    }
-
-    auto pchan = ton::PaymentChannel::create(source_->get_smc_state());
-
-    return downcast_call2<td::Status>(
-        *query_.action_, td::overloaded([&](tonlib_api::actionNoop& cell) { return td::Status::OK(); },
-                                        [&](auto& cell) { return td::Status::Error(); },
-                                        [&](tonlib_api::actionPchan& cell) { return do_pchan_loop(pchan, cell); }));
-  }
-
   td::Status do_rwallet_action(td::Ref<ton::RestrictedWallet> rwallet, tonlib_api::actionRwallet& action) {
     if (!action.action_) {
       return TonlibError::EmptyField("action");
@@ -4454,9 +4233,6 @@ class GenericCreateSendGrams : public TonlibQueryActor {
 
     if (source_->get_wallet_type() == AccountState::ManualDns) {
       return do_dns_loop();
-    }
-    if (source_->get_wallet_type() == AccountState::PaymentChannel) {
-      return do_pchan_loop();
     }
     if (rwallet_action_ && source_->get_wallet_type() == AccountState::RestrictedWallet) {
       return do_rwallet_action();
@@ -5564,91 +5340,6 @@ td::Status TonlibClient::do_request(const tonlib_api::dns_resolve& request,
   }
   TRY_RESULT(account_address, get_account_address(request.account_address_->account_address_));
   do_dns_request(name, request.category_, request.ttl_, std::move(block_id), account_address, std::move(promise));
-  return td::Status::OK();
-}
-
-td::Status TonlibClient::do_request(tonlib_api::pchan_signPromise& request,
-                                    td::Promise<object_ptr<tonlib_api::pchan_promise>>&& promise) {
-  if (!request.promise_) {
-    return TonlibError::EmptyField("promise");
-  }
-  if (!request.input_key_) {
-    return TonlibError::EmptyField("input_key");
-  }
-  TRY_RESULT(input_key, from_tonlib(*request.input_key_));
-  make_request(int_api::GetPrivateKey{std::move(input_key)},
-               promise.wrap([promise = std::move(request.promise_)](auto key) mutable {
-                 auto private_key = td::Ed25519::PrivateKey(std::move(key.private_key));
-                 promise->signature_ = ton::pchan::SignedPromiseBuilder()
-                                           .promise_A(promise->promise_A_)
-                                           .promise_B(promise->promise_B_)
-                                           .channel_id(promise->channel_id_)
-                                           .with_key(&private_key)
-                                           .calc_signature()
-                                           .as_slice()
-                                           .str();
-                 return std::move(promise);
-               }));
-  return td::Status::OK();
-}
-td::Status TonlibClient::do_request(tonlib_api::pchan_validatePromise& request,
-                                    td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
-  if (!request.promise_) {
-    return TonlibError::EmptyField("promise");
-  }
-  if (request.promise_->signature_.size() != 64) {
-    return TonlibError::InvalidField("promise.signature", "signature must contain 64 bytes");
-  }
-  TRY_RESULT(key_bytes, get_public_key(request.public_key_));
-  auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
-  bool is_ok = ton::pchan::SignedPromiseBuilder()
-                   .promise_A(request.promise_->promise_A_)
-                   .promise_B(request.promise_->promise_B_)
-                   .channel_id(request.promise_->channel_id_)
-                   .check_signature(request.promise_->signature_, key);
-  if (!is_ok) {
-    return TonlibError::InvalidSignature();
-  }
-  promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
-  return td::Status::OK();
-}
-td::Status TonlibClient::do_request(tonlib_api::pchan_packPromise& request,
-                                    td::Promise<object_ptr<tonlib_api::data>>&& promise) {
-  if (!request.promise_) {
-    return TonlibError::EmptyField("promise");
-  }
-  if (request.promise_->signature_.size() != 64) {
-    return TonlibError::InvalidField("promise.signature", "signature must contain 64 bytes");
-  }
-  promise.set_result([&]() -> td::Result<object_ptr<tonlib_api::data>> {
-    auto signed_promise = ton::pchan::SignedPromiseBuilder()
-                              .promise_A(request.promise_->promise_A_)
-                              .promise_B(request.promise_->promise_B_)
-                              .channel_id(request.promise_->channel_id_)
-                              .signature(td::SecureString(request.promise_->signature_))
-                              .finalize();
-    if (signed_promise.is_null()) {
-      return td::Status::Error("Failed to serialize signed promise");
-    }
-    TRY_RESULT(bytes, to_bytes(std::move(signed_promise)));
-    return tonlib_api::make_object<tonlib_api::data>(td::SecureString(std::move(bytes)));
-  }());
-  return td::Status::OK();
-}
-
-td::Status TonlibClient::do_request(tonlib_api::pchan_unpackPromise& request,
-                                    td::Promise<object_ptr<tonlib_api::pchan_promise>>&& promise) {
-  TRY_RESULT_PREFIX(body, vm::std_boc_deserialize(request.data_), TonlibError::InvalidBagOfCells("data"));
-  ton::pchan::SignedPromise spromise;
-  if (!spromise.unpack(body)) {
-    return TonlibError::InvalidField("data", "Can't unpack as a promise");
-  }
-  if (!spromise.o_signature) {
-    return TonlibError::InvalidField("data", "Promise signature is missing");
-  }
-  promise.set_value(tonlib_api::make_object<tonlib_api::pchan_promise>(
-      spromise.o_signature.value().as_slice().str(), spromise.promise.promise_A, spromise.promise.promise_B,
-      spromise.promise.channel_id));
   return td::Status::OK();
 }
 
