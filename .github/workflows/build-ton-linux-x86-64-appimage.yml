@@ -20,6 +20,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    env:
+      TON_ARCH: x86-64
 
     steps:
     - name: Check out repository

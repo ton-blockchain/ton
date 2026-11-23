@@ -27,8 +27,8 @@ COPY ./ ./
 RUN mkdir build && \
         cd build && \
         cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DTON_USE_JEMALLOC=ON .. && \
-        ninja storage-daemon storage-daemon-cli tonlibjson fift func validator-engine validator-engine-console \
-    generate-random-id dht-server lite-client tolk rldp-http-proxy dht-server proxy-liteserver create-state \
+        ninja tonlibjson fift func validator-engine validator-engine-console \
+    generate-random-id dht-server lite-client tolk dht-server proxy-liteserver create-state \
     blockchain-explorer emulator tonlibjson http-proxy dht-ping-servers dht-resolve
 
 FROM ubuntu:22.04
@@ -40,8 +40,6 @@ RUN apt-get update && \
 
 RUN mkdir -p /var/ton-work/db /var/ton-work/scripts /usr/share/ton/smartcont/auto /usr/lib/fift/
 
-COPY --from=builder /ton/build/storage/storage-daemon/storage-daemon /usr/local/bin/
-COPY --from=builder /ton/build/storage/storage-daemon/storage-daemon-cli /usr/local/bin/
 COPY --from=builder /ton/build/lite-client/lite-client /usr/local/bin/
 COPY --from=builder /ton/build/validator-engine/validator-engine /usr/local/bin/
 COPY --from=builder /ton/build/validator-engine-console/validator-engine-console /usr/local/bin/
@@ -52,7 +50,6 @@ COPY --from=builder /ton/build/utils/proxy-liteserver /usr/local/bin/
 COPY --from=builder /ton/build/dht-server/dht-server /usr/local/bin/
 COPY --from=builder /ton/build/dht/dht-ping-servers /usr/local/bin/
 COPY --from=builder /ton/build/dht/dht-resolve /usr/local/bin/
-COPY --from=builder /ton/build/rldp-http-proxy/rldp-http-proxy /usr/local/bin/
 COPY --from=builder /ton/build/http/http-proxy  /usr/local/bin/
 COPY --from=builder /ton/build/tonlib/libtonlibjson.so /usr/local/bin/
 COPY --from=builder /ton/build/emulator/libemulator.so /usr/local/bin/

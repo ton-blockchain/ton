@@ -44,6 +44,7 @@
 #include "vm/vm.h"
 
 #include "collator-impl.h"
+#include "external-message.hpp"
 #include "fabric.h"
 #include "liteserver.hpp"
 #include "shard.hpp"
@@ -552,9 +553,8 @@ void LiteQuery::continue_getZeroState(BlockIdExt blkid, td::BufferSlice state) {
 }
 
 void LiteQuery::perform_sendMessage(td::BufferSlice data) {
-  LOG(INFO) << "started a sendMessage(<" << data.size() << " bytes>) liteserver query";
   td::actor::send_closure(
-      manager_, &ValidatorManager::new_external_message_query, std::move(data),
+      actor_id(this), &LiteQuery::perform_sendMessage_inner, std::move(data),
       td::PromiseCreator::lambda(
           [Self = actor_id(this), cache = cache_, cache_key = cache_key_](td::Result<td::Unit> res) mutable {
             if (res.is_error()) {
@@ -567,6 +567,18 @@ void LiteQuery::perform_sendMessage(td::BufferSlice data) {
               td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
             }
           }));
+}
+
+td::actor::Task<> LiteQuery::perform_sendMessage_inner(td::BufferSlice data) {
+  LOG(INFO) << "started a sendMessage(<" << data.size() << " bytes>) liteserver query";
+  auto res = co_await td::actor::ask(manager_, &ValidatorManager::new_external_message_query, data.clone()).wrap();
+  if (res.is_error() && res.error().code() == ExtMessageQ::SERIALIZED_MESSAGE_TOO_LARGE_ERRCODE) {
+    LOG(INFO) << "re-serializing external message: " << res.move_as_error();
+    auto root = CO_TRY(vm::std_boc_deserialize(data));
+    data = CO_TRY(vm::std_boc_serialize(root, /* mode = */ 0));
+    res = co_await td::actor::ask(manager_, &ValidatorManager::new_external_message_query, std::move(data)).wrap();
+  }
+  co_return res;
 }
 
 void LiteQuery::get_block_handle_checked(BlockIdExt blkid, td::Promise<ConstBlockHandle> promise) {

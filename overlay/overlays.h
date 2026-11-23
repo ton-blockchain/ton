@@ -19,6 +19,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <vector>
 
 #include "adnl/adnl-node-id.hpp"
@@ -40,6 +41,11 @@ namespace ton {
 namespace overlay {
 
 enum class OverlayType { Public, FixedMemberList, CertificatedMembers };
+
+enum class OverlayChain { master, shard };
+inline constexpr metrics::LabelEnum<OverlayChain, 2> ton_metric_label(OverlayChain) {
+  return {"chain", {{"master", "shard"}}};
+}
 
 class OverlayIdShort {
  public:
@@ -299,11 +305,9 @@ class OverlayMemberCertificate {
 struct OverlayOptions {
   std::string name_ = "";
   bool announce_self_ = true;
-  bool frequent_dht_lookup_ = false;
   td::uint32 local_overlay_member_flags_ = 0;
   td::int32 max_slaves_in_semiprivate_overlay_ = 5;
   td::uint32 max_peers_ = 300;
-  td::uint32 max_neighbours_ = 10;
   td::uint32 nodes_to_send_ = 4;
   td::uint32 propagate_broadcast_to_ = 5;
   td::uint32 default_permanent_members_flags_ = 0;
@@ -311,7 +315,6 @@ struct OverlayOptions {
   bool private_ping_peers_ = false;
   td::uint32 max_pending_peers_ = 100;
 
-  td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
   bool send_twostep_broadcast_ = false;
   bool allow_old_broadcasts_ = true;                                 // non-twostep broadcasts
   std::set<adnl::AdnlNodeIdShort> twostep_intermediate_nodes_ = {};  // if empty - all permanent nodes
@@ -320,9 +323,9 @@ struct OverlayOptions {
     td::uint32 k_ = 30;
     td::uint32 parts_ = 45;
     td::uint32 tree_slots_ = parts_ + 1;
-    td::uint32 validator_eager_limit_ = 1;
+    td::uint32 original_sender_eager_limit_ = 1;
     td::uint32 eager_limit_ = 4;  // 1 incoming, so fanout is practically 3
-    td::uint32 active_neighbours_ = 5;
+    td::uint32 ihave_fanout_ = 5;
     td::uint32 repair_timeout_ms_ = 200;
     td::uint32 max_repair_targets_ = 5;
 
@@ -332,13 +335,39 @@ struct OverlayOptions {
 
   bool enable_plumtree_broadcast_ = false;
   bool is_original_sender_ = false;
-  td::actor::ActorId<adnl::AdnlSenderEx> plumtree_broadcast_sender_ = {};
   PlumtreeFecOptions plumtree_fec_options_;
+
+  std::optional<OverlayChain> overlay_chain_;
 
   td::RateLimiterWindow::Params auth_broadcast_rate_limit_ = {};
   td::RateLimiterWindow::Params auth_broadcast_size_rate_limit_ = {};
   td::RateLimiterWindow::Params unauth_broadcast_rate_limit_ = {};
   td::RateLimiterWindow::Params unauth_broadcast_size_rate_limit_ = {};
+};
+
+struct PlumtreeEagerPeerStats {
+  td::uint64 peers = 0;
+  td::uint64 trees = 0;
+};
+
+struct PublicOverlayMetrics {
+  td::uint64 peers = 0;
+  PlumtreeEagerPeerStats eager_peers;
+
+  PublicOverlayMetrics &operator+=(const PublicOverlayMetrics &other) {
+    peers += other.peers;
+    eager_peers.peers += other.eager_peers.peers;
+    eager_peers.trees += other.eager_peers.trees;
+    return *this;
+  }
+
+  void collect(metrics::Context ctx) const;
+};
+
+struct OverlayMetrics {
+  metrics::TlTrafficBucket broadcasts;
+  std::optional<OverlayChain> public_chain;
+  PublicOverlayMetrics public_overlay;
 };
 
 using PlumtreeFecOptions = OverlayOptions::PlumtreeFecOptions;
@@ -402,7 +431,9 @@ class Overlays : public td::actor::Actor {
   }
 
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                              td::actor::ActorId<adnl::Adnl> adnl,
+                                              td::actor::ActorId<adnl::AdnlSenderEx> quic,
+                                              td::actor::ActorId<dht::Dht> dht,
                                               OverlayManagerBufferLimits buffer_limits = {});
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
@@ -428,11 +459,7 @@ class Overlays : public td::actor::Actor {
 
   virtual void send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                           std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                          td::BufferSlice query) = 0;
-  virtual void send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                              std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
-                              td::BufferSlice query, td::uint64 max_answer_size,
-                              td::actor::ActorId<adnl::AdnlSenderInterface> via) = 0;
+                          td::BufferSlice query, td::uint64 max_answer_size) = 0;
   void send_multiple_messages(std::vector<adnl::AdnlNodeIdShort> dst, adnl::AdnlNodeIdShort src,
                               OverlayIdShort overlay_id, td::BufferSlice object) {
     for (auto &n : dst) {
@@ -442,8 +469,6 @@ class Overlays : public td::actor::Actor {
 
   virtual void send_message(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                             td::BufferSlice object) = 0;
-  virtual void send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                                td::BufferSlice object, td::actor::ActorId<adnl::AdnlSenderInterface> via) = 0;
 
   virtual void send_broadcast(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice object) = 0;
   virtual void send_broadcast_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
@@ -472,7 +497,7 @@ class Overlays : public td::actor::Actor {
   virtual void update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                        std::vector<adnl::AdnlNodeIdShort> nodes,
                                        std::vector<PublicKeyHash> root_public_keys,
-                                       OverlayMemberCertificate certificate) = 0;
+                                       OverlayMemberCertificate certificate, OverlayPrivacyRules rules) = 0;
 
   virtual void get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, td::uint32 max_peers,
                                         td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) = 0;
@@ -484,9 +509,12 @@ class Overlays : public td::actor::Actor {
     co_return {};
   }
 
-  // Merge one overlay's drained inbound broadcast content into the manager's aggregate (the bucket is
-  // non-atomic, so it must be accumulated on the manager thread). `done` is fulfilled after the merge.
-  virtual void absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) = 0;
+  // Merge one overlay's drained counters and topology snapshot on the manager thread.
+  virtual void absorb_metrics(OverlayMetrics delta, td::Promise<td::Unit> done) = 0;
+
+  virtual void update_semiprivate_authorized_nodes(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay,
+                                                   std::vector<adnl::AdnlNodeIdShort> add,
+                                                   std::vector<adnl::AdnlNodeIdShort> remove) = 0;
 };
 
 }  // namespace overlay

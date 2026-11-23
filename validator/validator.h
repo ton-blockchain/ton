@@ -153,6 +153,17 @@ struct ExtMessagePoolOptions : public td::CntObject {
   static td::Result<td::Ref<ExtMessagePoolOptions>> unpack(const ton_api::engine_validator_extMessagePoolConfig& f);
 };
 
+struct RegistryVotingConfig : public td::CntObject {
+  struct Node {
+    td::uint32 roles_add = 0;
+    td::uint32 roles_remove = 0;
+  };
+  std::map<adnl::AdnlNodeIdShort, Node> nodes;
+
+  bool vote_for(adnl::AdnlNodeIdShort adnl_id, td::uint32 roles_add, td::uint32 roles_remove) const;
+  static td::Result<td::Ref<RegistryVotingConfig>> unpack(const ton_api::engine_validator_registryVotingConfig& obj);
+};
+
 struct ValidatorManagerOptions : public td::CntObject {
  public:
   virtual BlockIdExt zero_block_id() const = 0;
@@ -201,6 +212,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual NewConsensusConfig::NoncriticalParams get_noncritical_params(
       ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig::NoncriticalParams& config) const = 0;
   virtual td::Ref<ExtMessagePoolOptions> get_ext_message_pool_options() const = 0;
+  virtual td::Ref<RegistryVotingConfig> get_registry_voting_config() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -240,6 +252,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_db_event_fifo_path(std::string value) = 0;
   virtual void set_noncritical_params_overrides(std::vector<NoncriticalParamsOverride> value) = 0;
   virtual void set_ext_message_pool_options(td::Ref<ExtMessagePoolOptions> value) = 0;
+  virtual void set_registry_voting_config(td::Ref<RegistryVotingConfig> value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                  bool allow_blockchain_init = false, double sync_blocks_before = 3600,
@@ -262,16 +275,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
     }
-    virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-    }
     virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                       td::BufferSlice data, int mode) {
     }
-    virtual void send_broadcast(BlockBroadcast broadcast, int mode) {
-    }
     virtual void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
-    }
-    virtual void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats) {
     }
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<ReceivedBlock> promise) {
@@ -315,11 +322,6 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                         td::Promise<td::Unit> promise) = 0;
   virtual void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) = 0;
-  virtual td::actor::Task<> new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
-                                                BroadcastSource source) {
-    co_return td::Status::Error("not implemented");
-  }
-  virtual void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) = 0;
 
   //virtual void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   virtual void sync_complete(td::Promise<td::Unit> promise) = 0;
@@ -363,12 +365,14 @@ class ValidatorManagerInterface : public td::actor::Actor {
     co_return td::Status::Error("not implemented");
   }
   virtual void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                     td::BufferSlice data) = 0;
-  virtual td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                          td::BufferSlice data, BroadcastSource source) {
+                                                     td::BufferSlice data) {
+  }
+  virtual td::actor::Task<> add_cached_block_data(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
+                                                  BroadcastSource source) {
     co_return td::Unit{};
   }
-  virtual td::actor::Task<> new_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) {
+  virtual td::actor::Task<> got_block_finality(BlockIdExt block_id, Ref<block::BlockSignatureSet> sig_set,
+                                               BroadcastSource source) {
     co_return td::Unit{};
   }
 

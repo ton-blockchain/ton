@@ -10,7 +10,7 @@ Usage: bench.sh [options]
 
   -T TYPE     query | message | saturate | idle            (default query)
   -I NAME     ton | quic-go | quinn                        (default ton)
-  -P NAME     quic | rldp2 | adnl                          (default quic)
+  -P NAME     quic | adnl                                  (default quic)
   -c N        client/generator processes                   (default 8)
   -C N        connections per generator                    (default 1)
   -n N        servers; N > 1 is one-client fan-out         (default 1)
@@ -34,7 +34,7 @@ Environment: BENCH, GO_BENCH, QUINN_BENCH, EXTRA, THREADS (default 1),
 USAGE
 }
 
-BENCH="${BENCH:-cmake-build-relwithdebinfo/bench-rldp}"
+BENCH="${BENCH:-cmake-build-relwithdebinfo/bench-transport}"
 GO_BENCH="${GO_BENCH:-test/net/bench/quicbench-go/quicmsgbench-go}"
 QUINN_BENCH="${QUINN_BENCH:-test/net/bench/quicbench-rs/target/release/quicmsgbench-rs}"
 read -r -a EXTRA_ARGS <<< "${EXTRA:-}"
@@ -92,7 +92,7 @@ done
 
 case "$TYPE" in query|message|saturate|idle) ;; *) echo "unknown workload: $TYPE" >&2; exit 2 ;; esac
 case "$IMPLEMENTATION" in ton|quic-go|quinn) ;; *) echo "unknown implementation: $IMPLEMENTATION" >&2; exit 2 ;; esac
-case "$PROTO" in quic|rldp2|adnl) ;; *) echo "unknown protocol: $PROTO" >&2; exit 2 ;; esac
+case "$PROTO" in quic|adnl) ;; *) echo "unknown protocol: $PROTO" >&2; exit 2 ;; esac
 if [ "$IMPLEMENTATION" != ton ] && [ "$PROTO" != quic ]; then
   echo "$IMPLEMENTATION only implements QUIC" >&2
   exit 2

@@ -18,14 +18,11 @@
 */
 //#include "fec.h"
 //#include "raptorq/Solver.h"
+#include <string>
+
 #include "td/fec/fec.h"
 #include "td/fec/raptorq/Decoder.h"
 #include "td/fec/raptorq/Encoder.h"
-#if USE_LIBRAPTORQ
-#include "LibRaptorQ.h"
-#endif
-#include <string>
-
 #include "td/utils/tests.h"
 td::Slice get_long_string() {
   const size_t max_symbol_size = 200;
@@ -199,32 +196,8 @@ void fec_test(td::Slice data, size_t max_symbol_size) {
   UNREACHABLE();
 }
 
-#if USE_LIBRAPTORQ
-TEST(Fec, SlowRaptorQ) {
-  const size_t max_symbol_size = 200;
-  std::string data = td::rand_string('a', 'z', max_symbol_size * 200);
-  fec_test<td::fec::SlowRaptorQEncoder, td::fec::SlowRaptorQDecoder>(data, max_symbol_size);
-}
-#endif
-
 TEST(Fec, RaptorQFull) {
   const size_t max_symbol_size = 200;
   std::string data = td::rand_string('a', 'z', max_symbol_size * 50000);
   fec_test<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(data, max_symbol_size);
 }
-
-#if USE_LIBRAPTORQ
-TEST(Fec, RaptorQEncoder) {
-  const size_t max_symbol_size = 200;
-  std::string data = td::rand_string('a', 'z', max_symbol_size * 200);
-  auto reference_encoder = td::fec::SlowRaptorQEncoder::create(td::BufferSlice(data), max_symbol_size);
-  auto checked_encoder = td::fec::RaptorQEncoder::create(td::BufferSlice(data), max_symbol_size);
-  reference_encoder->prepare_more_symbols();
-  checked_encoder->prepare_more_symbols();
-  for (td::uint32 i = 0; i < 1000000; i++) {
-    auto reference_symbol = reference_encoder->gen_symbol(i);
-    auto checked_symbol = checked_encoder->gen_symbol(i);
-    ASSERT_EQ(reference_symbol.data.as_slice(), checked_symbol.data.as_slice());
-  }
-}
-#endif

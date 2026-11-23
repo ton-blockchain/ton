@@ -246,13 +246,9 @@ class BroadcastsPlumtree::Impl {
   explicit Impl(PlumtreeFecOptions options, bool is_original_sender)
       : options_(options)
       , is_original_sender_(is_original_sender)
-      , local_eager_limit_(is_original_sender_ ? options_.validator_eager_limit_ : options_.eager_limit_) {
+      , local_eager_limit_(is_original_sender_ ? options_.original_sender_eager_limit_ : options_.eager_limit_) {
     slots_.resize(options_.tree_slots_);
     options_.stats_epoch_duration_ = std::max(options_.stats_epoch_duration_, 1.0);
-  }
-
-  void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
-    sender_ = sender;
   }
 
   void send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
@@ -285,14 +281,16 @@ class BroadcastsPlumtree::Impl {
   td::actor::Task<> process_stats_push(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                        tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg);
   std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> stats_collect_records() const;
+  PlumtreeEagerPeerStats eager_peer_stats() const;
 
   void alarm(OverlayImpl *overlay);
   td::Timestamp next_alarm_at();
   void gc(OverlayImpl *overlay);
   void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
+  bool is_eager_peer(adnl::AdnlNodeIdShort peer) const;
+  std::vector<adnl::AdnlNodeIdShort> get_simple_eager_peers() const;
 
  private:
-  td::actor::ActorId<adnl::AdnlSenderInterface> sender_;
   PlumtreeFecOptions options_;
   bool is_original_sender_ = false;
   td::uint32 local_eager_limit_ = 0;
@@ -618,6 +616,18 @@ void BroadcastsPlumtree::Impl::remove_peer(OverlayImpl *overlay, adnl::AdnlNodeI
   }
 }
 
+bool BroadcastsPlumtree::Impl::is_eager_peer(adnl::AdnlNodeIdShort peer) const {
+  return eager_peer_refcnt_.contains(peer);
+}
+
+std::vector<adnl::AdnlNodeIdShort> BroadcastsPlumtree::Impl::get_simple_eager_peers() const {
+  if (slots_.empty()) {
+    return {};
+  }
+  const auto &eager = slots_[PLUMTREE_SIMPLE_TREE_INDEX].eager;
+  return {eager.begin(), eager.end()};
+}
+
 PlumtreeFecBroadcastState *BroadcastsPlumtree::Impl::get_state(const td::Bits256 &broadcast_id) {
   auto it = broadcasts_.find(broadcast_id);
   return it == broadcasts_.end() ? nullptr : it->second.get();
@@ -788,12 +798,12 @@ void BroadcastsPlumtree::Impl::erase_missing_part(const MissingPartKey &key) {
 
 bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
                                             tl_object_ptr<ton_api::overlay_Broadcast> control) {
-  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
+  if (dst.is_zero() || dst == overlay->local_id()) {
     return false;
   }
   auto wire = serialize_tl_object(control, true);
-  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
-                          overlay->overlay_id(), std::move(wire), sender_);
+  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message, dst, overlay->local_id(),
+                          overlay->overlay_id(), std::move(wire));
   return true;
 }
 
@@ -834,10 +844,10 @@ void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const 
           td::actor::send_closure(overlay_id, &OverlayImpl::receive_plumtree_repair_response, dst, broadcast_id,
                                   part_index, tree_index, std::move(R));
         });
-    td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_query_via, dst, overlay->local_id(),
+    td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_query, dst, overlay->local_id(),
                             overlay->overlay_id(), "plumtree repair", std::move(promise),
                             td::Timestamp::in(PLUMTREE_PENDING_FEEDBACK_TTL), std::move(query),
-                            static_cast<td::uint64>(target.data_size) + PLUMTREE_PAYLOAD_MTU_OVERHEAD, sender_);
+                            static_cast<td::uint64>(target.data_size) + PLUMTREE_PAYLOAD_MTU_OVERHEAD);
   }
 }
 
@@ -845,7 +855,7 @@ td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_fec_payload_for_pe
                                                                                    PlumtreeFecBroadcastState &broadcast,
                                                                                    PlumtreePartState &part,
                                                                                    const adnl::AdnlNodeIdShort &dst) {
-  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
+  if (dst.is_zero() || dst == overlay->local_id()) {
     return td::Status::Error(ErrorCode::notready, "invalid Plumtree FEC payload destination");
   }
   if (!overlay->peer_receives_plumtree_broadcasts(dst)) {
@@ -876,7 +886,7 @@ td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_fec_payload_for_pe
 td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_simple_payload_for_peer(
     OverlayImpl *overlay, PlumtreeSimpleBroadcastState &payload, PlumtreePartState &part,
     const adnl::AdnlNodeIdShort &dst) {
-  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
+  if (dst.is_zero() || dst == overlay->local_id()) {
     return td::Status::Error(ErrorCode::notready, "invalid Plumtree simple payload destination");
   }
   if (!overlay->peer_receives_plumtree_broadcasts(dst)) {
@@ -923,8 +933,8 @@ bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, const td::B
   if (wire.is_error()) {
     return false;
   }
-  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
-                          overlay->overlay_id(), wire.move_as_ok(), sender_);
+  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message, dst, overlay->local_id(),
+                          overlay->overlay_id(), wire.move_as_ok());
   return true;
 }
 
@@ -981,21 +991,17 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, const td::B
     return;
   }
 
-  auto active = overlay->get_plumtree_neighbours(options_.active_neighbours_);
-  active.erase(std::remove_if(active.begin(), active.end(),
-                              [&](const auto &peer) { return peer == overlay->local_id() || peer == from; }),
-               active.end());
-  std::set<adnl::AdnlNodeIdShort> full_sent;
   remove_inactive_eager_peers(overlay, *s);
   trim_eager_to_capacity(overlay, *s);
   for (const auto &peer : s->eager) {
-    if (peer != from && send_payload_to(overlay, broadcast_id, part, peer)) {
-      full_sent.insert(peer);
+    if (peer != from) {
+      send_payload_to(overlay, broadcast_id, part, peer);
     }
   }
 
-  for (const auto &peer : active) {
-    if (peer != from && !full_sent.contains(peer) && !s->eager.contains(peer)) {
+  auto ihave_peers = overlay->get_random_alive_peers(options_.ihave_fanout_);
+  for (const auto &peer : ihave_peers) {
+    if (peer != from && !s->eager.contains(peer)) {
       send_ihave_to(overlay, part, broadcast_id, peer);
     }
   }
@@ -1850,7 +1856,7 @@ void BroadcastsPlumtree::Impl::stats_sync_epoch() {
 }
 
 void BroadcastsPlumtree::Impl::stats_tick(OverlayImpl *overlay) {
-  if (sender_.empty() || options_.tree_slots_ < 2) {
+  if (options_.tree_slots_ < 2) {
     return;
   }
   stats_sync_epoch();
@@ -1868,7 +1874,7 @@ void BroadcastsPlumtree::Impl::stats_tick(OverlayImpl *overlay) {
     stats_epoch_.send_done = true;
     auto src = overlay->local_id().bits256_value();
     auto it = stats_epoch_.store.find(src);
-    if (it != stats_epoch_.store.end()) {
+    if (!is_original_sender_ && it != stats_epoch_.store.end()) {
       stats_forward(overlay, *it->second, adnl::AdnlNodeIdShort::zero());
     }
   }
@@ -1884,6 +1890,14 @@ std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> BroadcastsPlumt
   return records;
 }
 
+PlumtreeEagerPeerStats BroadcastsPlumtree::Impl::eager_peer_stats() const {
+  PlumtreeEagerPeerStats result{.trees = slots_.size()};
+  for (const auto &slot : slots_) {
+    result.peers += slot.eager.size();
+  }
+  return result;
+}
+
 void BroadcastsPlumtree::Impl::stats_forward(OverlayImpl *overlay, const ton_api::overlay_plumtreeStatsRecord &record,
                                              const adnl::AdnlNodeIdShort &from) {
   for (const auto &dst : slots_[PLUMTREE_SIMPLE_TREE_INDEX].eager) {
@@ -1895,7 +1909,7 @@ void BroadcastsPlumtree::Impl::stats_forward(OverlayImpl *overlay, const ton_api
 
 td::actor::Task<> BroadcastsPlumtree::Impl::process_stats_push(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                                                tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg) {
-  if (sender_.empty() || options_.tree_slots_ < 2) {
+  if (options_.tree_slots_ < 2) {
     co_return td::Status::Error(ErrorCode::notready, "Plumtree stats are not enabled");
   }
   if (from.is_zero()) {
@@ -1937,7 +1951,9 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_stats_push(OverlayImpl *over
   if (!inserted) {
     co_return td::Unit{};
   }
-  stats_forward(overlay, *it->second, from);
+  if (!is_original_sender_) {
+    stats_forward(overlay, *it->second, from);
+  }
   co_return td::Unit{};
 }
 
@@ -1962,7 +1978,7 @@ void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
 td::Timestamp BroadcastsPlumtree::Impl::next_alarm_at() {
   auto *missing = oldest_missing_part();
   auto at = missing ? missing->repair_at : td::Timestamp::never();
-  if (!sender_.empty() && options_.tree_slots_ >= 2) {
+  if (options_.tree_slots_ >= 2) {
     if (!stats_epoch_.snapshot_done) {
       at.relax(stats_epoch_.snapshot_at);
     } else if (!stats_epoch_.send_done) {
@@ -2015,10 +2031,6 @@ BroadcastsPlumtree::BroadcastsPlumtree(PlumtreeFecOptions options, bool is_origi
 }
 
 BroadcastsPlumtree::~BroadcastsPlumtree() = default;
-
-void BroadcastsPlumtree::init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
-  impl_->init_sender(sender);
-}
 
 void BroadcastsPlumtree::send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
   impl_->send_fec(overlay, send_as, flags, std::move(data));
@@ -2098,6 +2110,10 @@ std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> BroadcastsPlumt
   return impl_->stats_collect_records();
 }
 
+PlumtreeEagerPeerStats BroadcastsPlumtree::eager_peer_stats() const {
+  return impl_->eager_peer_stats();
+}
+
 void BroadcastsPlumtree::alarm(OverlayImpl *overlay) {
   impl_->alarm(overlay);
 }
@@ -2112,6 +2128,14 @@ void BroadcastsPlumtree::gc(OverlayImpl *overlay) {
 
 void BroadcastsPlumtree::remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer) {
   impl_->remove_peer(overlay, peer);
+}
+
+bool BroadcastsPlumtree::is_eager_peer(adnl::AdnlNodeIdShort peer) const {
+  return impl_->is_eager_peer(peer);
+}
+
+std::vector<adnl::AdnlNodeIdShort> BroadcastsPlumtree::get_simple_eager_peers() const {
+  return impl_->get_simple_eager_peers();
 }
 
 }  // namespace overlay

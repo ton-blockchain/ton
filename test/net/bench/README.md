@@ -1,6 +1,6 @@
 # Transport benchmarks
 
-One suite that measures TON's transports (QUIC, ADNL, RLDP2) and two reference stacks (quic-go,
+One suite that measures TON's transports (QUIC and ADNL) and two reference stacks (quic-go,
 quinn) on identical workloads: gossip-shaped paced messages (IHAVE fan-out, fan-in), query/response
 (bulk), idle connections, and saturation ceilings. Separate server and client processes, readiness
 probes, warm-up, fixed measurement windows, exporters scraped on both sides.
@@ -10,7 +10,7 @@ probes, warm-up, fixed measurement windows, exporters scraped on both sides.
 ```sh
 # jemalloc is worth ~40% here and TON_USE_JEMALLOC defaults off, so it must be on the configure line
 cmake -B cmake-build-relwithdebinfo -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTON_USE_JEMALLOC=ON
-ninja -C cmake-build-relwithdebinfo bench-rldp bench-adnl-quic-message
+ninja -C cmake-build-relwithdebinfo bench-transport bench-adnl-quic-message
 (cd test/net/bench/quicbench-go && go build -o quicmsgbench-go .)
 cargo build --release --locked --manifest-path test/net/bench/quicbench-rs/Cargo.toml
 
@@ -27,7 +27,7 @@ Pinned numbers from the reference Linux host: [RESULTS.md](RESULTS.md).
 
 Harness regression tests (no network traffic): `python3 test/net/bench/test_bench.py`.
 Include the localhost malformed-response regression with
-`TON_BENCH=cmake-build-relwithdebinfo/bench-rldp python3 test/net/bench/test_bench.py`.
+`TON_BENCH=cmake-build-relwithdebinfo/bench-transport python3 test/net/bench/test_bench.py`.
 Native compile/tests: `(cd test/net/bench/quicbench-go && go test ./...)` and
 `cargo test --locked --manifest-path test/net/bench/quicbench-rs/Cargo.toml`.
 

@@ -34,28 +34,66 @@ if (ZLIB_FOUND)
 endif()
 
 if (MSVC)
-  set(ZLIB_PROJECT_DIR ${ZLIB_SOURCE_DIR}/contrib/vstudio/vc14)
-  set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/lib/zlibstat.lib)
-  set(ZLIB_INCLUDE_DIR ${ZLIB_SOURCE_DIR})
-  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/lib)
-  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/obj)
-  set(ZLIB_MSVC_OUT_DIR "${ZLIB_BINARY_DIR}/lib/")
-  set(ZLIB_MSVC_INT_DIR "${ZLIB_BINARY_DIR}/obj/")
-  if (NOT EXISTS "${ZLIB_LIBRARY}")
+  # zlib 1.4 removed the hand-maintained Visual Studio projects.
+  set(ZLIB_BUILD_DIR ${ZLIB_BINARY_DIR}/cmake)
+  set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/lib/libzs.lib)
+  set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR}/include)
+  set(ZLIB_MSVC_CMAKE_ARGS)
+  if (CMAKE_GENERATOR)
+    list(APPEND ZLIB_MSVC_CMAKE_ARGS -G "${CMAKE_GENERATOR}")
+  endif()
+  if (CMAKE_GENERATOR_PLATFORM)
+    list(APPEND ZLIB_MSVC_CMAKE_ARGS -A "${CMAKE_GENERATOR_PLATFORM}")
+  endif()
+  if (CMAKE_GENERATOR_TOOLSET)
+    list(APPEND ZLIB_MSVC_CMAKE_ARGS -T "${CMAKE_GENERATOR_TOOLSET}")
+  endif()
+  if (CMAKE_MSVC_RUNTIME_LIBRARY)
+    list(APPEND ZLIB_MSVC_CMAKE_ARGS "-DCMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY}")
+  endif()
+  set(ZLIB_CONFIGURE_COMMAND ${CMAKE_COMMAND}
+    -S ${ZLIB_SOURCE_DIR}
+    -B ${ZLIB_BUILD_DIR}
+    ${ZLIB_MSVC_CMAKE_ARGS}
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_INSTALL_PREFIX=${ZLIB_BINARY_DIR}
+    -DCMAKE_INSTALL_LIBDIR=lib
+    -DZLIB_BUILD_SHARED=OFF
+    -DZLIB_BUILD_STATIC=ON
+    -DZLIB_BUILD_TESTING=OFF
+  )
+  set(ZLIB_BUILD_COMMAND ${CMAKE_COMMAND} --build ${ZLIB_BUILD_DIR} --config Release --target zlibstatic)
+  set(ZLIB_INSTALL_COMMAND ${CMAKE_COMMAND} --install ${ZLIB_BUILD_DIR} --config Release)
+  if (NOT EXISTS "${ZLIB_LIBRARY}" OR NOT EXISTS "${ZLIB_INCLUDE_DIR}/zlib.h")
     execute_process(
-      COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
-      WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
+      COMMAND ${ZLIB_CONFIGURE_COMMAND}
+      RESULT_VARIABLE ZLIB_CONFIG_RESULT
+    )
+    if (NOT ZLIB_CONFIG_RESULT EQUAL 0)
+      message(FATAL_ERROR "Zlib configuration failed with code ${ZLIB_CONFIG_RESULT}")
+    endif()
+    execute_process(
+      COMMAND ${ZLIB_BUILD_COMMAND}
       RESULT_VARIABLE ZLIB_BUILD_RESULT
     )
     if (NOT ZLIB_BUILD_RESULT EQUAL 0)
       message(FATAL_ERROR "Zlib build failed with code ${ZLIB_BUILD_RESULT}")
     endif()
+    execute_process(
+      COMMAND ${ZLIB_INSTALL_COMMAND}
+      RESULT_VARIABLE ZLIB_INSTALL_RESULT
+    )
+    if (NOT ZLIB_INSTALL_RESULT EQUAL 0)
+      message(FATAL_ERROR "Zlib installation failed with code ${ZLIB_INSTALL_RESULT}")
+    endif()
   endif()
   add_custom_command(
-    WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
-    COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
+    COMMAND ${ZLIB_CONFIGURE_COMMAND}
+    COMMAND ${ZLIB_BUILD_COMMAND}
+    COMMAND ${ZLIB_INSTALL_COMMAND}
     COMMENT "Build zlib (MSVC)"
-    DEPENDS ${ZLIB_SOURCE_DIR}
+    DEPENDS ${ZLIB_SOURCE_DIR} ${CMAKE_CURRENT_LIST_FILE}
     OUTPUT ${ZLIB_LIBRARY}
   )
 else()

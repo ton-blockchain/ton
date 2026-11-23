@@ -116,7 +116,6 @@ std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<bloc
       identities.push_back({
           .adnl_id = adnl_id,
           .short_id = key_hash,
-          .suffix_db = !identities.empty() || config.use_new_db_names(),
       });
     }
   }
@@ -131,7 +130,6 @@ std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<bloc
         identities.push_back({
             .adnl_id = collator_id,
             .is_collator = true,
-            .suffix_db = !identities.empty() || config.use_new_db_names(),
         });
       }
     }
@@ -172,9 +170,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
 
   std::vector<GroupIdentity> identities;
   for (auto &identity : identities_for(ctx, validator_set, config, shard)) {
-    if (identity.is_validator() || config.enable_block_sync() || config.observers_in_private_overlay()) {
-      identities.push_back(identity);
-    }
+    identities.push_back(identity);
   }
 
   return {
@@ -201,7 +197,6 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .config = info.config,
       .session_id = info.session_id,
       .overlays = ctx.deps.overlays,
-      .adnl_sender = ctx.deps.quic,
       .db_root = ctx.deps.db_root,
       .all_overlay_nodes = info.overlay_members,
       .all_current_validators = info.all_current_validators,
