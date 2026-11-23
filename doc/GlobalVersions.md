@@ -333,6 +333,7 @@ __Enabled in mainnet on 2026-07-23__
 - Total bits/cells in outgoing messages of a transaction are now limited to `5242880`/`20480` (configured in `ConfigParam 43`).
 
 ## Version 16
+__Enabled in mainnet on 2026-10-22__
 
 ### Transaction changes
 - Fixed not being able to unfreeze accounts with non-zero fixed prefix length.
@@ -355,6 +356,7 @@ __Enabled in mainnet on 2026-07-23__
 - New format for proofs in collated data.
 
 ## Version 17
+__Enabled in mainnet on 2026-11-04__
 
 ### Other changes
 - Masterchain validators check global balance of grams in the blockchain.
