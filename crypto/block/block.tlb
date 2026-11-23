@@ -149,6 +149,9 @@ _ fixed_prefix_length:(Maybe (## 5)) special:(Maybe TickTock)
 _ fixed_prefix_length:(Maybe (## 5)) special:(Maybe TickTock)
   code:(Maybe ^Cell) data:(Maybe ^Cell)
   library:(HashmapE 256 SimpleLib) = StateInitWithLibs;
+_ fixed_prefix_length:(Maybe (## 5)) special:(Maybe TickTock)
+  code:(Maybe ^Cell) data:(Maybe ^Cell)
+  library:BoolFalse = StateInitNullLibs;
 
 simple_lib$_ public:Bool root:^Cell = SimpleLib;
 
@@ -163,6 +166,17 @@ message$_ {X:Type} info:CommonMsgInfoRelaxed
 _ init:(Maybe (Either StateInit ^StateInit)) = EitherStateInit;
 
 _ (Message Any) = MessageAny;
+
+// MessageRelaxedLite is used for validating tlb structure without expensive validation of EC dict and libs in StateInit
+int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+  src:MsgAddress dest:MsgAddressInt
+  value_grams:Grams value_other:(Maybe ^Cell) extra_flags:(VarUInteger 16) fwd_fee:Grams
+  created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxedLite;
+ext_out_msg_info$11 src:MsgAddress dest:MsgAddressExt
+  created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxedLite;
+message$_ {X: Type} info:CommonMsgInfoRelaxedLite
+  init:(Maybe (Either StateInit ^StateInit))
+  body:(Either X ^X) = MessageRelaxedLite X;
 
 
 _ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;

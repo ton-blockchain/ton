@@ -885,6 +885,7 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
     };
   }
   auto cs = vm::load_cell_slice(in_msg);
+  auto cs0 = cs;
   int tag = gen::t_CommonMsgInfo.get_tag(cs);
   switch (tag) {
     case gen::CommonMsgInfo::int_msg_info: {
@@ -953,10 +954,11 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
         return false;
       }
       // compute forwarding fees for this external message
-      vm::CellStorageStat sstat;                                     // for message size
-      auto cell_info = sstat.compute_used_storage(cs).move_as_ok();  // message body
-      sstat.bits -= cs.size();                                       // bits in the root cells are free
-      sstat.cells--;                                                 // the root cell itself is not counted as a cell
+      vm::CellStorageStat sstat;                                      // for message size
+      auto cell_info = sstat.compute_used_storage(cs0).move_as_ok();  // message body
+      ext_msg_size = StorageUsedFull{.cells = sstat.cells, .bits = sstat.bits, .refs = sstat.refs};
+      sstat.bits -= cs0.size();  // bits in the root cells are free
+      sstat.cells--;             // the root cell itself is not counted as a cell
       LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
       if (sstat.bits > cfg->size_limits.max_msg_bits || sstat.cells > cfg->size_limits.max_msg_cells) {
         LOG(DEBUG) << "inbound external message too large, invalid";
@@ -992,21 +994,22 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       return false;
   }
   // init:(Maybe (Either StateInit ^StateInit))
+  const auto& t_StateInit =
+      cfg->global_version >= 18 && in_msg_extern ? (const tlb::TLB&)gen::t_StateInitNullLibs : gen::t_StateInitWithLibs;
   switch ((int)cs.prefetch_ulong(2)) {
     case 2: {  // (just$1 (left$0 _:StateInit ))
       Ref<vm::CellSlice> state_init;
       vm::CellBuilder cb;
       if (!(cs.advance(2) && block::gen::t_StateInit.fetch_to(cs, state_init) &&
             cb.append_cellslice_bool(std::move(state_init)) && cb.finalize_to(in_msg_state) &&
-            block::gen::t_StateInitWithLibs.validate_ref(in_msg_state))) {
+            t_StateInit.validate_ref(in_msg_state))) {
         LOG(DEBUG) << "cannot parse StateInit in inbound message";
         return false;
       }
       break;
     }
     case 3: {  // (just$1 (right$1 _:^StateInit ))
-      if (!(cs.advance(2) && cs.fetch_ref_to(in_msg_state) &&
-            block::gen::t_StateInitWithLibs.validate_ref(in_msg_state))) {
+      if (!(cs.advance(2) && cs.fetch_ref_to(in_msg_state) && t_StateInit.validate_ref(in_msg_state))) {
         LOG(DEBUG) << "cannot parse ^StateInit in inbound message";
         return false;
       }
@@ -2077,6 +2080,11 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
 
 static constexpr int ERRCODE_FAIL_ACTION_PHASE = -666;
 
+struct Transaction::SendMsgCtx {
+  bool stat_inited = false;
+  vm::CellStorageStat stat;
+};
+
 /**
  * Prepares the action phase of a transaction.
  *
@@ -2166,33 +2174,38 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   ap.spec_actions = ap.skipped_actions = 0;
   for (int i = n - 1; i >= 0; --i) {
     ap.result_arg = n - 1 - i;
-    if (!block::gen::t_OutListNode.validate_ref(ap.action_list[i])) {
-      if (cfg.message_skip_enabled) {
-        // try to read mode from action_send_msg even if out_msg scheme is violated
-        // action should at least contain 40 bits: 32bit tag and 8 bit mode
-        // if (mode & 2), that is ignore error mode, skip action even for invalid message
-        // if there is no (mode & 2) but (mode & 16) presents - enable bounce if possible
-        bool special = true;
-        auto cs = load_cell_slice_special(ap.action_list[i], special);
-        if (!special) {
-          if ((cs.size() >= 40) && ((int)cs.fetch_ulong(32) == 0x0ec3c86d)) {
-            int mode = (int)cs.fetch_ulong(8);
-            if (mode & 2) {
-              ap.skipped_actions++;
-              ap.action_list[i] = {};
-              continue;
-            } else if ((mode & 16) && cfg.bounce_on_fail_enabled) {
-              ap.bounce = true;
-            }
+    if (cfg.global_version >= 18) {
+      vm::CellSlice cs = load_cell_slice(ap.action_list[i]);
+      if (cs.size_refs() >= 1 && cs.size() >= 32) {
+        continue;
+      }
+    } else if (gen::t_OutListNode.validate_ref(ap.action_list[i])) {
+      continue;
+    } else if (cfg.message_skip_enabled) {
+      // try to read mode from action_send_msg even if out_msg scheme is violated
+      // action should at least contain 40 bits: 32bit tag and 8 bit mode
+      // if (mode & 2), that is ignore error mode, skip action even for invalid message
+      // if there is no (mode & 2) but (mode & 16) presents - enable bounce if possible
+      bool special = true;
+      auto cs = load_cell_slice_special(ap.action_list[i], special);
+      if (!special) {
+        if ((cs.size() >= 40) && ((int)cs.fetch_ulong(32) == 0x0ec3c86d)) {
+          int mode = (int)cs.fetch_ulong(8);
+          if (mode & 2) {
+            ap.skipped_actions++;
+            ap.action_list[i] = {};
+            continue;
+          } else if ((mode & 16) && cfg.bounce_on_fail_enabled) {
+            ap.bounce = true;
           }
         }
       }
-      ap.result_code = 34;  // action #i invalid or unsupported
-      ap.action_list_invalid = true;
-      LOG(DEBUG) << "invalid action " << ap.result_arg << " found while preprocessing action list: error code "
-                 << ap.result_code;
-      return true;
     }
+    ap.result_code = 34;  // action #i invalid or unsupported
+    ap.action_list_invalid = true;
+    LOG(DEBUG) << "invalid action " << ap.result_arg << " found while preprocessing action list: error code "
+               << ap.result_code;
+    return true;
   }
   ap.valid = true;
   for (int i = n - 1; i >= 0; --i) {
@@ -2202,29 +2215,32 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     ap.result_arg = n - 1 - i;
     vm::CellSlice cs = load_cell_slice(ap.action_list[i]);
     FAIL_UNLESS(cs.fetch_ref().not_null());
-    int tag = block::gen::t_OutAction.get_tag(cs);
-    FAIL_UNLESS(tag >= 0);
+    int tag = block::gen::t_OutAction.check_tag(cs);
     int err_code = 34;
     ap.need_bounce_on_fail = false;
     switch (tag) {
       case block::gen::OutAction::action_set_code:
         err_code = try_action_set_code(cs, ap, cfg);
         break;
-      case block::gen::OutAction::action_send_msg:
-        err_code = try_action_send_msg(cs, ap, cfg);
-        if (err_code == -2) {
-          err_code = try_action_send_msg(cs, ap, cfg, 1);
-          if (err_code == -2) {
-            err_code = try_action_send_msg(cs, ap, cfg, 2);
+      case block::gen::OutAction::action_send_msg: {
+        SendMsgCtx ctx;
+        for (int redoing = 0; redoing <= 2; ++redoing) {
+          err_code = try_action_send_msg(cs, ap, cfg, redoing, ctx);
+          if (err_code != -2) {
+            break;
           }
         }
         break;
+      }
       case block::gen::OutAction::action_reserve_currency:
         err_code = try_action_reserve_currency(cs, ap, cfg);
         break;
       case block::gen::OutAction::action_change_library:
         err_code = try_action_change_library(cs, ap, cfg);
         break;
+      default:
+        LOG(DEBUG) << "invalid action " << ap.result_arg << " found while preprocessing action list: error code "
+                   << err_code;
     }
     if (err_code == -666) {
       return false;
@@ -2318,7 +2334,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
  */
 int Transaction::try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg) {
   block::gen::OutAction::Record_action_set_code rec;
-  if (!tlb::unpack_exact(cs, rec)) {
+  if (!gen::t_OutAction.validate_exact(cs) || !tlb::unpack_exact(cs, rec)) {
     return -1;
   }
   ap.new_code = std::move(rec.new_code);
@@ -2343,7 +2359,7 @@ int Transaction::try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const A
  */
 int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg) {
   block::gen::OutAction::Record_action_change_library rec;
-  if (!tlb::unpack_exact(cs, rec)) {
+  if (!gen::t_OutAction.validate_exact(cs) || !tlb::unpack_exact(cs, rec)) {
     return -1;
   }
   // mode: +0 = remove library, +1 = add private library, +2 = add public library, +16 - bounce on fail
@@ -2659,14 +2675,14 @@ bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const A
  * @param cs0 The cell slice containing the action data serialized as action_send_msg TLB-scheme.
  * @param ap The action phase.
  * @param cfg The action phase configuration.
+ * @param ctx Common data for different attempts of try_action_send_msg.
  * @param redoing The index of the attempt, starting from 0. On later attempts tries to move message body and StateInit to separate cells.
  *
  * @returns 0 if the message is successfully sent or if the error may be ignored, error code otherwise.
  *          Returns -2 if the action should be attempted again.
  */
 int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, const ActionPhaseConfig& cfg,
-                                     int redoing) {
-  block::gen::OutAction::Record_action_send_msg act_rec;
+                                     int redoing, SendMsgCtx& ctx) {
   // mode:
   // +128 = attach all remaining balance
   // +64 = attach all remaining balance of the inbound message
@@ -2675,14 +2691,13 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   // +2 = skip if message cannot be sent
   // +16 = bounce if action fails
   vm::CellSlice cs{cs0};
-  if (!tlb::unpack_exact(cs, act_rec)) {
-    return -1;
-  }
-  if ((act_rec.mode & 16) && cfg.bounce_on_fail_enabled) {
-    act_rec.mode &= ~16;
+  int mode;
+  FAIL_UNLESS_ERRCODE(cs.skip_first(32) && cs.fetch_uint_to(8, mode), -1);
+  if ((mode & 16) && cfg.bounce_on_fail_enabled) {
+    mode &= ~16;
     ap.need_bounce_on_fail = true;
   }
-  bool skip_invalid = (act_rec.mode & 2);
+  bool skip_invalid = (mode & 2);
   auto check_skip_invalid = [&](int error_code) -> int {
     if (skip_invalid) {
       if (cfg.message_skip_enabled) {
@@ -2692,16 +2707,23 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     }
     return error_code;
   };
-  if ((act_rec.mode & ~0xe3) || (act_rec.mode & 0xc0) == 0xc0) {
+  Ref<vm::Cell> out_msg = cs.fetch_ref();
+  FAIL_UNLESS_ERRCODE(out_msg.not_null() && cs.empty_ext(), check_skip_invalid(-1));
+  if ((mode & ~0xe3) || (mode & 0xc0) == 0xc0) {
     return cfg.global_version >= 13 ? check_skip_invalid(-1) : -1;
   }
-  // try to parse suggested message in act_rec.out_msg
+  // try to parse suggested message in out_msg
   td::RefInt256 fwd_fee, ihr_fee;
   block::gen::MessageRelaxed::Record msg;
-  if (!tlb::type_unpack_cell(act_rec.out_msg, block::gen::t_MessageRelaxed_Any, msg)) {
-    return -1;
+  if (cfg.global_version >= 18 && !gen::MessageRelaxedLite{gen::t_Anything}.validate_ref(out_msg)) {
+    LOG(DEBUG) << "failed to validate Message";
+    return check_skip_invalid(-1);
   }
-  if (!block::tlb::validate_message_relaxed_libs(act_rec.out_msg)) {
+  if (!tlb::type_unpack_cell(out_msg, block::gen::t_MessageRelaxed_Any, msg)) {
+    LOG(DEBUG) << "failed to unpack Message";
+    return cfg.global_version >= 18 ? check_skip_invalid(-1) : -1;
+  }
+  if (!block::tlb::validate_message_relaxed_libs(out_msg, /* allow_libs = */ cfg.global_version < 18)) {
     LOG(DEBUG) << "outbound message has invalid libs in StateInit";
     return cfg.global_version >= 13 ? check_skip_invalid(-1) : -1;
   }
@@ -2746,9 +2768,11 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     // ext_out_msg_info$11 constructor of CommonMsgInfoRelaxed
     block::gen::CommonMsgInfoRelaxed::Record_ext_out_msg_info erec;
     if (!tlb::csr_unpack(msg.info, erec)) {
+      LOG(DEBUG) << "failed to unpack ext_out_msg_info";
       return -1;
     }
-    if (act_rec.mode & ~3) {
+    if (mode & ~3) {
+      LOG(DEBUG) << "invalid mode " << mode << " for an external message";
       return -1;  // invalid mode for an external message
     }
     info.src = std::move(erec.src);
@@ -2760,7 +2784,13 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     fwd_fee = ihr_fee = td::zero_refint();
   } else {
     // int_msg_info$0 constructor
-    if (!tlb::csr_unpack(msg.info, info) || !block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
+    if (!tlb::csr_unpack(msg.info, info)) {
+      LOG(DEBUG) << "failed to unpack int_msg_info";
+      return cfg.global_version >= 18 ? check_skip_invalid(-1) : -1;
+    }
+    if (cfg.global_version < 18 && !block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
+      // In version 18 it is checked below, in CurrencyCollation::unpack and validate_normalize_extra_currencies
+      LOG(DEBUG) << "failed to validate currency collection in a message";
       return -1;
     }
     if (cfg.disable_custom_fess) {
@@ -2769,6 +2799,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       fwd_fee = tlb::t_Grams.as_integer(info.fwd_fee);
       ihr_fee = cfg.global_version >= 12 ? td::zero_refint() : tlb::t_Grams.as_integer(info.extra_flags);
       if (fwd_fee.is_null() || ihr_fee.is_null()) {
+        LOG(DEBUG) << "invalid fwd/ihr fee in a message";
         return -1;
       }
     }
@@ -2802,17 +2833,17 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     LOG(DEBUG) << "invalid destination address in a proposed outbound message";
     return check_skip_invalid(36);  // invalid destination address
   }
-  if (!ext_msg && cfg.extra_currency_v2) {
+  if (!ext_msg && cfg.extra_currency_v2) {  // extra_currency_v2 is always true in version >= 10
     CurrencyCollection value;
     if (!value.unpack(info.value)) {
       LOG(DEBUG) << "invalid value:ExtraCurrencies in a proposed outbound message";
-      return check_skip_invalid(37);  // invalid value:CurrencyCollection
+      return check_skip_invalid(cfg.global_version >= 18 ? -1 : 37);  // invalid value:CurrencyCollection
     }
-    if (!CurrencyCollection::remove_zero_extra_currencies(value.extra, cfg.size_limits.max_msg_extra_currencies)) {
-      LOG(DEBUG) << "invalid value:ExtraCurrencies in a proposed outbound message: too many currencies (max "
-                 << cfg.size_limits.max_msg_extra_currencies << ")";
-      // Dict should be valid, since it was checked in t_OutListNode.validate_ref, so error here means limit exceeded
-      return check_skip_invalid(44);  // invalid value:CurrencyCollection : too many extra currencies
+    if (auto S = CurrencyCollection::validate_normalize_extra_currencies(value.extra,
+                                                                         cfg.size_limits.max_msg_extra_currencies);
+        S.is_error()) {
+      LOG(DEBUG) << "invalid value:ExtraCurrencies in a proposed outbound message: " << S;
+      return check_skip_invalid(44);  // invalid value:CurrencyCollection : too many extra currencies or invalid dict
     }
     info.value = value.pack();
   }
@@ -2821,12 +2852,13 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   const MsgPrices& msg_prices = cfg.fetch_msg_prices(to_mc || account.is_masterchain());
   // If action fails, account is required to pay fine_per_cell for every visited cell
   // Number of visited cells is limited depending on available funds
-  unsigned max_cells = cfg.size_limits.max_msg_cells;
+  td::uint64 max_cells = cfg.size_limits.max_msg_cells;
+  td::uint64 max_bits = cfg.size_limits.max_msg_bits;
   td::uint64 fine_per_cell = 0;
   if (cfg.action_fine_enabled && !account.is_special) {
     fine_per_cell = (msg_prices.cell_price >> 16) / 4;
     td::RefInt256 funds = ap.remaining_balance.grams;
-    if (!ext_msg && !(act_rec.mode & 0x80) && !(act_rec.mode & 1)) {
+    if (!ext_msg && !(mode & 0x80) && !(mode & 1)) {
       if (!block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
         LOG(DEBUG) << "invalid value:CurrencyCollection in proposed outbound message";
         return check_skip_invalid(37);
@@ -2835,7 +2867,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       FAIL_UNLESS_ERRCODE(value.unpack(info.value), ERRCODE_FAIL_ACTION_PHASE);
       FAIL_UNLESS_ERRCODE(value.grams.not_null(), ERRCODE_FAIL_ACTION_PHASE);
       td::RefInt256 new_funds = value.grams;
-      if (act_rec.mode & 0x40) {
+      if (mode & 0x40) {
         if (msg_balance_remaining.is_valid()) {
           new_funds += msg_balance_remaining.grams;
         }
@@ -2852,27 +2884,50 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       funds = std::min(funds, new_funds);
     }
     if (funds->cmp(max_cells * fine_per_cell) < 0) {
-      max_cells = static_cast<unsigned>((funds / td::make_refint(fine_per_cell))->to_long());
+      max_cells = (funds / td::make_refint(fine_per_cell))->to_long();
+    }
+  }
+  if (cfg.global_version >= 18) {
+    if (cfg.size_limits.max_total_msg_cells >= ap.tot_msg_cells_all) {
+      max_cells = std::min<td::uint64>(max_cells, cfg.size_limits.max_total_msg_cells - ap.tot_msg_cells_all);
+    } else {
+      LOG(DEBUG) << "total msg cells too big, invalid";
+      return check_skip_invalid(40);
+    }
+    if (cfg.size_limits.max_total_msg_bits >= ap.tot_msg_bits_all) {
+      max_bits = std::min<td::uint64>(max_bits, cfg.size_limits.max_total_msg_bits - ap.tot_msg_bits_all);
+    } else {
+      LOG(DEBUG) << "total msg bits too big, invalid";
+      return check_skip_invalid(40);
     }
   }
   // compute size of message
-  vm::CellStorageStat sstat(max_cells);  // for message size
+  if (!ctx.stat_inited) {
+    ctx.stat_inited = true;
+    ctx.stat =
+        vm::CellStorageStat{max_cells, cfg.global_version >= 18 ? max_bits : std::numeric_limits<td::uint64>::max()};
+  }
   // preliminary storage estimation of the resulting message
   unsigned max_merkle_depth = 0;
   auto add_used_storage = [&](const auto& x, unsigned skip_root_count) -> td::Status {
     if (x.not_null()) {
-      TRY_RESULT(res, sstat.add_used_storage(x, true, skip_root_count));
+      TRY_RESULT(res, ctx.stat.add_used_storage(x, true, skip_root_count));
       max_merkle_depth = std::max(max_merkle_depth, res.max_merkle_depth);
     }
     return td::Status::OK();
   };
+  // We reuse CellStorageStat from previous attempts. Next attempts only add new cells (body and StateInit)
+  // without modifying old cells (except for root, which is not counted here).
   add_used_storage(msg.init, 3);  // message init
   add_used_storage(msg.body, 3);  // message body (the root cell itself is not counted)
   if (!ext_msg && !cfg.extra_currency_v2) {
     add_used_storage(info.value->prefetch_ref(), 0);
   }
-  td::uint64 fine =
-      cfg.action_fine_enabled && !account.is_special ? fine_per_cell * std::min<td::uint64>(max_cells, sstat.cells) : 0;
+  ap.tot_msg_cells_all += ctx.stat.cells;
+  ap.tot_msg_bits_all += ctx.stat.bits;
+  td::uint64 fine = cfg.action_fine_enabled && !account.is_special
+                        ? fine_per_cell * std::min<td::uint64>(max_cells, ctx.stat.cells)
+                        : 0;
   auto collect_fine = [&] {
     td::uint64 actual_fine = fine;
     if (ap.remaining_balance.grams->cmp(actual_fine) < 0) {
@@ -2881,12 +2936,12 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     ap.action_fine += actual_fine;
     ap.remaining_balance.grams -= actual_fine;
   };
-  if (sstat.cells > max_cells && max_cells < cfg.size_limits.max_msg_cells) {
+  if (ctx.stat.cells > max_cells && max_cells < cfg.size_limits.max_msg_cells) {
     LOG(DEBUG) << "not enough funds to process a message (max_cells=" << max_cells << ")";
     collect_fine();
     return check_skip_invalid(40);
   }
-  if (sstat.bits > cfg.size_limits.max_msg_bits || sstat.cells > max_cells) {
+  if (ctx.stat.bits > max_bits || ctx.stat.cells > max_cells) {
     LOG(DEBUG) << "message too large, invalid";
     collect_fine();
     return check_skip_invalid(40);
@@ -2896,10 +2951,10 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     collect_fine();
     return check_skip_invalid(40);
   }
-  LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
+  LOG(DEBUG) << "storage paid for a message: " << ctx.stat.cells << " cells, " << ctx.stat.bits << " bits";
 
   // compute forwarding fees
-  auto fees_c = msg_prices.compute_fwd_ihr_fees(sstat.cells, sstat.bits, info.ihr_disabled);
+  auto fees_c = msg_prices.compute_fwd_ihr_fees(ctx.stat.cells, ctx.stat.bits, info.ihr_disabled);
   LOG(DEBUG) << "computed fwd fees = " << fees_c.first << " + " << fees_c.second;
 
   if (account.is_special) {
@@ -2937,22 +2992,22 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     FAIL_UNLESS_ERRCODE(req.unpack(info.value), ERRCODE_FAIL_ACTION_PHASE);
     FAIL_UNLESS_ERRCODE(req.grams.not_null(), ERRCODE_FAIL_ACTION_PHASE);
 
-    if (act_rec.mode & 0x80) {
+    if (mode & 0x80) {
       // attach all remaining balance to this message
       if (cfg.extra_currency_v2) {
         req.grams = ap.remaining_balance.grams;
       } else {
         req = ap.remaining_balance;
       }
-      act_rec.mode &= ~1;  // pay fees from attached value
-    } else if (act_rec.mode & 0x40) {
+      mode &= ~1;  // pay fees from attached value
+    } else if (mode & 0x40) {
       // attach all remaining balance of the inbound message (in addition to the original value)
       if (cfg.extra_currency_v2) {
         req.grams += msg_balance_remaining.grams;
       } else {
         req += msg_balance_remaining;
       }
-      if (!(act_rec.mode & 1)) {
+      if (!(mode & 1)) {
         req -= ap.action_fine;
         if (compute_phase) {
           req -= compute_phase->gas_fees;
@@ -2969,7 +3024,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     // compute req_grams + fees
     td::RefInt256 req_grams_brutto = req.grams;
     fees_total = fwd_fee + ihr_fee;
-    if (act_rec.mode & 1) {
+    if (mode & 1) {
       // we are going to pay the fees
       req_grams_brutto += fees_total;
     } else if (req.grams < fees_total) {
@@ -3031,14 +3086,16 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
         collect_fine();
         return check_skip_invalid(39);
       }
+      ap.tot_msg_cells_all -= ctx.stat.cells;
+      ap.tot_msg_bits_all -= ctx.stat.bits;
       return -2;
     }
 
     new_msg_bits = cb.size();
     new_msg = cb.finalize();
-    if (cfg.global_version >= 15) {
-      if (ap.tot_msg_bits + sstat.bits + new_msg_bits > cfg.size_limits.max_total_msg_bits ||
-          ap.tot_msg_cells + sstat.cells + 1 > cfg.size_limits.max_total_msg_cells) {
+    if (cfg.global_version >= 15 && cfg.global_version < 18) {
+      if (ap.tot_msg_bits + ctx.stat.bits + new_msg_bits > cfg.size_limits.max_total_msg_bits ||
+          ap.tot_msg_cells + ctx.stat.cells + 1 > cfg.size_limits.max_total_msg_cells) {
         LOG(DEBUG) << "total message size too large, invalid";
         collect_fine();
         return check_skip_invalid(47);
@@ -3046,7 +3103,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     }
 
     // clear msg_balance_remaining if it has been used
-    if (act_rec.mode & 0xc0) {
+    if (mode & 0xc0) {
       if (cfg.extra_currency_v2) {
         msg_balance_remaining.grams = td::zero_refint();
       } else {
@@ -3083,14 +3140,16 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
         collect_fine();
         return check_skip_invalid(39);
       }
+      ap.tot_msg_cells_all -= ctx.stat.cells;
+      ap.tot_msg_bits_all -= ctx.stat.bits;
       return -2;
     }
 
     new_msg_bits = cb.size();
     new_msg = cb.finalize();
-    if (cfg.global_version >= 15) {
-      if (ap.tot_msg_bits + sstat.bits + new_msg_bits > cfg.size_limits.max_total_msg_bits ||
-          ap.tot_msg_cells + sstat.cells + 1 > cfg.size_limits.max_total_msg_cells) {
+    if (cfg.global_version >= 15 && cfg.global_version < 18) {
+      if (ap.tot_msg_bits + ctx.stat.bits + new_msg_bits > cfg.size_limits.max_total_msg_bits ||
+          ap.tot_msg_cells + ctx.stat.cells + 1 > cfg.size_limits.max_total_msg_cells) {
         LOG(DEBUG) << "total message size too large, invalid";
         collect_fine();
         return check_skip_invalid(47);
@@ -3132,7 +3191,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   ap.total_action_fees += fees_collected;
   ap.total_fwd_fees += fees_total;
 
-  if ((act_rec.mode & 0xa0) == 0xa0) {
+  if ((mode & 0xa0) == 0xa0) {
     if (cfg.extra_currency_v2) {
       FAIL_UNLESS_ERRCODE(ap.remaining_balance.grams->sgn() == 0, ERRCODE_FAIL_ACTION_PHASE);
       ap.acc_delete_req = ap.reserved_balance.grams->sgn() == 0;
@@ -3142,8 +3201,8 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     }
   }
 
-  ap.tot_msg_bits += sstat.bits + new_msg_bits;
-  ap.tot_msg_cells += sstat.cells + 1;
+  ap.tot_msg_bits += ctx.stat.bits + new_msg_bits;
+  ap.tot_msg_cells += ctx.stat.cells + 1;
   if (cfg.global_version >= 15) {
     ap.fail_action_fine += fine;
   }
@@ -3174,13 +3233,13 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
   }
   int mode = rec.mode;
   LOG(INFO) << "in try_action_reserve_currency(" << mode << ")";
+  if (cfg.extra_currency_v2 && rec.currency->have_refs()) {
+    LOG(DEBUG) << "cannot reserve extra currencies";
+    return -1;
+  }
   CurrencyCollection reserve, newc;
   if (!reserve.validate_unpack(std::move(rec.currency))) {
     LOG(DEBUG) << "cannot parse currency field in action_reserve_currency";
-    return -1;
-  }
-  if (cfg.extra_currency_v2 && reserve.has_extra()) {
-    LOG(DEBUG) << "cannot reserve extra currencies";
     return -1;
   }
   LOG(DEBUG) << "action_reserve_currency: mode=" << mode << ", reserve=" << reserve.to_str()
@@ -3645,13 +3704,14 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     return false;
   }
 
-  bool storage_refs_changed = false;
-  if (old_storage_for_stat.is_null() || new_storage_for_stat->size_refs() != old_storage_for_stat->size_refs()) {
-    storage_refs_changed = true;
+  bool recompute_storage_stat = false;
+  if (old_storage_for_stat.is_null() || new_storage_for_stat->size_refs() != old_storage_for_stat->size_refs() ||
+      account.storage_used.cells == 0) {
+    recompute_storage_stat = true;
   } else {
     for (unsigned i = 0; i < new_storage_for_stat->size_refs(); i++) {
       if (new_storage_for_stat->prefetch_ref(i)->get_hash() != old_storage_for_stat->prefetch_ref(i)->get_hash()) {
-        storage_refs_changed = true;
+        recompute_storage_stat = true;
         break;
       }
     }
@@ -3662,7 +3722,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     new_storage_used = StorageUsed{.cells = 0, .bits = 0};
     new_account_storage_stat = {};
     new_storage_dict_hash = {};
-  } else if (storage_refs_changed ||
+  } else if (recompute_storage_stat ||
              (store_storage_dict_hash && !account.storage_dict_hash && account.storage_used.cells > 25)) {
     TD_PERF_COUNTER(transaction_storage_stat_b);
     td::Timer timer;

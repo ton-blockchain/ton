@@ -364,3 +364,7 @@ __Enabled in mainnet on 2026-07-23__
 
 ### Transaction changes
 - Storage stats are not calculated for governance contracts. `StorageUsed` is set to zero.
+- Limits for total bits/cells in outgoing messages of a transaction now includes failed actions if their size was calculated.
+  - Root cell is not counted.
+- Libraries are not allowed in `StateInit` of messages.
+- Changed action phase exit code for invalid messages in certain cases.

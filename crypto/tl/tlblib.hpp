@@ -303,6 +303,10 @@ struct TLB_Complex : TLB {
   bool validate_exact(int* ops, const vm::CellSlice& cs, bool weak = false) const override {
     return validate_by_skip_exact(ops, cs, weak);
   }
+  bool validate_exact(const vm::CellSlice& cs, bool weak = false) const {
+    int ops = default_validate_max_cells;
+    return validate_exact(&ops, cs, weak);
+  }
   bool extract(vm::CellSlice& cs) const override {
     return extract_by_skip(cs);
   }
