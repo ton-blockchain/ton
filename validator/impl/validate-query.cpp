@@ -6732,7 +6732,7 @@ bool ValidateQuery::check_special_message(Ref<vm::Cell> in_msg_root, const block
   REJECT_UNLESS(dest_prefix.is_valid());  // we have checked this for all InMsgDescr
   auto cur_prefix = block::interpolate_addr(src_prefix, dest_prefix, env.cur_addr);
   auto next_prefix = block::interpolate_addr(src_prefix, dest_prefix, env.next_addr);
-  if (cur_prefix != dest_prefix || next_prefix != dest_prefix) {
+  if (cur_prefix != dest_prefix || next_prefix != dest_prefix || env.cur_addr != 96 || env.next_addr != 96) {
     return reject_query("special message with hash "s + msg_hash.to_hex() +
                         " has not been routed to its final destination");
   }

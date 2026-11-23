@@ -70,6 +70,7 @@ class BroadcastFec : public td::ListNode {
 
   td::Status add_part(td::uint32 seqno, td::BufferSlice data, td::BufferSlice serialized_fec_part_short,
                       td::BufferSlice serialized_fec_part) {
+    TRY_STATUS(fatal_error_.clone());
     if (decoder_) {
       td::fec::Symbol s;
       s.id = seqno;
@@ -89,7 +90,10 @@ class BroadcastFec : public td::ListNode {
     }
     TRY_RESULT(D, decoder_->try_decode(true));
     if (sha256_bits256(D.data.as_slice()) != data_hash_) {
-      return td::Status::Error(ErrorCode::protoviolation, "bad hash");
+      ready_ = true;
+      decoder_ = nullptr;
+      fatal_error_ = td::Status::Error(ErrorCode::protoviolation, "bad hash");
+      return fatal_error_.clone();
     }
     encoder_ = std::move(D.encoder);
     CHECK(encoder_ != nullptr);
@@ -100,6 +104,7 @@ class BroadcastFec : public td::ListNode {
   }
 
   td::Result<td::BufferSlice> get_part(td::uint32 seqno) {
+    TRY_STATUS(fatal_error_.clone());
     if (!ready_ || encoder_ == nullptr) {
       return td::Status::Error(ErrorCode::notready, "encoder not ready");
     }
@@ -165,6 +170,7 @@ class BroadcastFec : public td::ListNode {
   fec::FecType fec_type_;
 
   bool ready_ = false;
+  td::Status fatal_error_ = td::Status::OK();
   bool is_checked_ = false;
   std::unique_ptr<td::fec::Decoder> decoder_;
   std::unique_ptr<td::fec::Encoder> encoder_;
@@ -503,6 +509,7 @@ td::Status BroadcastsFec::process_broadcast(OverlayImpl *overlay, adnl::AdnlNode
     return td::Status::Error(ErrorCode::notready, "short part of unknown broadcast");
   }
   auto &bcast = *it->second;
+  TRY_STATUS(bcast.fatal_error_.clone());
   if (!bcast.ready_) {
     return td::Status::Error(ErrorCode::protoviolation, "short part of not finished broadcast");
   }

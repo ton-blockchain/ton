@@ -154,6 +154,9 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     if (last_window_.has_value() && window_start < last_window_->start_slot) {
       co_return td::Status::Error(PSTRING() << "Too old slot " << window_start << " < " << last_window_->start_slot);
     }
+    if (banned_slots_.contains(window_start)) {
+      co_return td::Status::Error(PSTRING() << "Invalid signature was previously received for slot " << window_start);
+    }
 
     // Once collator agrees to pleaseCollatePrepare, it must accept the following pleaseCollate, even if conditions for
     // pleaseCollatePrepare are no longer met.
@@ -184,6 +187,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     auto to_sign =
         create_serialize_tl_object<consensus::tl::delegationToSign>(window_start, bus.local_adnl_id.bits256_value());
     if (!leader.check_signature(bus.session_id, to_sign, delegation_signature)) {
+      banned_slots_.insert(window_start);
       co_return td::Status::Error(ErrorCode::protoviolation, "Invalid delegation signature");
     }
 
@@ -284,6 +288,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
 
   td::actor::SharedFuture<PublicKey> own_key_;
   std::set<td::uint32> prepared_delegations_;
+  std::set<td::uint32> banned_slots_;
   std::map<td::uint32, td::BufferSlice> delegation_signatures_;
   std::optional<Window> last_window_;
   std::optional<td::uint32> producing_window_start_slot_;

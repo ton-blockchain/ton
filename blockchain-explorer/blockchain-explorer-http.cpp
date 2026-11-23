@@ -308,41 +308,46 @@ HttpAnswer& HttpAnswer::operator<<(TransactionCell trans_c) {
         << "<tr><th>lt</th><td>" << trans.lt << "</td></tr>\n"
         << "<tr><th>time</th><td>" << trans.now << " (" << time_to_human(trans.now) << ")</td></tr>\n"
         << "<tr><th>out messages</th><td>";
-  vm::Dictionary dict{trans.r1.out_msgs, 15};
-  for (td::int32 i = 0; i < trans.outmsg_cnt; i++) {
-    auto out_msg = dict.lookup_ref(td::BitArray<15>{i});
-    *this << " <a href=\"" << MessageLink{out_msg} << "\">" << i << "</a>";
-  }
-  *this << "</td></tr>\n"
-        << "<tr><th>in message</th><td>";
-  auto in_msg = trans.r1.in_msg->prefetch_ref();
-  if (in_msg.is_null()) {
-    *this << "NONE";
-  } else {
-    *this << "<a href=\"" << MessageLink{in_msg} << "\">" << in_msg->get_hash() << "</a>";
-  }
-  *this << "</td></tr>\n"
-        << "<tr><th>prev transaction</th><td>";
+  try {
+    vm::Dictionary dict{trans.r1.out_msgs, 15};
+    for (td::int32 i = 0; i < trans.outmsg_cnt; i++) {
+      auto out_msg = dict.lookup_ref(td::BitArray<15>{i});
+      *this << " <a href=\"" << MessageLink{out_msg} << "\">" << i << "</a>";
+    }
+    *this << "</td></tr>\n"
+          << "<tr><th>in message</th><td>";
+    auto in_msg = trans.r1.in_msg->prefetch_ref();
+    if (in_msg.is_null()) {
+      *this << "NONE";
+    } else {
+      *this << "<a href=\"" << MessageLink{in_msg} << "\">" << in_msg->get_hash() << "</a>";
+    }
+    *this << "</td></tr>\n"
+          << "<tr><th>prev transaction</th><td>";
 
-  auto prev_lt = trans.prev_trans_lt;
-  auto prev_hash = trans.prev_trans_hash;
-  if (prev_lt > 0) {
-    *this << "<a href=\"" << TransactionLink{trans_c.addr, prev_lt, prev_hash} << "\">lt=" << prev_lt
-          << " hash=" << prev_hash.to_hex() << "</a>";
-  } else {
-    *this << "NONE";
-  }
-  *this << "</td></tr></table></div>\n";
-  if (in_msg.not_null()) {
-    *this << "<hr />" << MessageCell{in_msg};
-  }
-  for (int x = 0; x < trans.outmsg_cnt && x < 100; x++) {
-    auto out_msg = dict.lookup_ref(td::BitArray<15>{x});
-    *this << "<hr />" << MessageCell{out_msg};
-  }
-  *this << "<hr />";
+    auto prev_lt = trans.prev_trans_lt;
+    auto prev_hash = trans.prev_trans_hash;
+    if (prev_lt > 0) {
+      *this << "<a href=\"" << TransactionLink{trans_c.addr, prev_lt, prev_hash} << "\">lt=" << prev_lt
+            << " hash=" << prev_hash.to_hex() << "</a>";
+    } else {
+      *this << "NONE";
+    }
+    *this << "</td></tr></table></div>\n";
+    if (in_msg.not_null()) {
+      *this << "<hr />" << MessageCell{in_msg};
+    }
+    for (int x = 0; x < trans.outmsg_cnt && x < 100; x++) {
+      auto out_msg = dict.lookup_ref(td::BitArray<15>{x});
+      *this << "<hr />" << MessageCell{out_msg};
+    }
+    *this << "<hr />";
 
-  return *this << RawData<block::gen::Transaction>{trans_c.root} << "</div>";
+    return *this << RawData<block::gen::Transaction>{trans_c.root} << "</div>";
+  } catch (vm::VmError& err) {
+    abort(PSTRING() << "error while traversing transaction : " << err.get_msg());
+    return *this;
+  }
 }
 
 HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {

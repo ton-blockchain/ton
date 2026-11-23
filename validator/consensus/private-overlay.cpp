@@ -259,7 +259,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
         co_return td::Status::Error("Precheck failed: Delegation collator key does not match the broadcast source");
       }
       if (signature_checked) {
-        CO_TRY(check_delegation(*parsed_extra.delegation, expected_leader.get_using(bus), parsed_extra.slot, bus)
+        CO_TRY(check_delegation_from(src, *parsed_extra.delegation, expected_leader, parsed_extra.slot)
                    .trace("Precheck failed"));
       }
     } else {
@@ -340,6 +340,33 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   PublicKeyHash local_broadcast_src_;
 
   std::mt19937 gossip_rng_ = td::Random::fast_gen();
+
+  std::map<PublicKeyHash, td::Timestamp> bad_signature_bans_;
+
+  bool is_banned(PublicKeyHash src) {
+    auto it = bad_signature_bans_.find(src);
+    if (it == bad_signature_bans_.end()) {
+      return false;
+    }
+    if (it->second.is_in_past()) {
+      bad_signature_bans_.erase(it);
+      return false;
+    }
+    return true;
+  }
+
+  td::Status check_delegation_from(PublicKeyHash src, const Delegation& delegation, PeerValidatorId leader_id,
+                                   td::uint32 slot) {
+    if (is_banned(src)) {
+      return td::Status::Error("src is temporarily banned");
+    }
+    auto& bus = *owning_bus();
+    auto S = check_delegation(delegation, leader_id.get_using(bus), slot, bus);
+    if (S.is_error()) {
+      bad_signature_bans_[src] = td::Timestamp::in(bus.config.noncritical_params.bad_signature_ban_duration);
+    }
+    return S;
+  }
 };
 
 }  // namespace

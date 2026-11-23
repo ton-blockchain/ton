@@ -750,14 +750,8 @@ td::actor::Task<> FullNodeImpl::get_next_blocks_loop() {
     td::actor::create_actor<DownloadNextBlocks>(PSTRING() << "downloadnextblocks" << handle_->id().id, handle_,
                                                 query_sender, 1, validator_manager_, std::move(promise))
         .release();
+    // DownloadNextBlocks calls query_sender->query_finished()
     auto R = co_await std::move(task).wrap();
-    // Do not penalize peer when it does not have next blocks if the last block is new enough
-    if (R.is_error() && R.error().code() == ErrorCode::notready && handle_->inited_unix_time() &&
-        handle_->unix_time() >= (UnixTime)td::Clocks::system() - 5) {
-      query_sender->query_finished(td::Status::OK());
-    } else {
-      query_sender->query_finished(R.as_status());
-    }
     if (R.is_error()) {
       auto S = R.move_as_error();
       if (S.code() != ErrorCode::notready && S.code() != ErrorCode::timeout) {

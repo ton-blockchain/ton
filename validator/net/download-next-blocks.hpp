@@ -39,6 +39,7 @@ class DownloadNextBlocks : public td::actor::Actor {
   td::actor::Task<> process_block(tl_object_ptr<ton_api::tonNode_DataFull> obj);
 
  private:
+  BlockHandle initial_handle_;
   BlockHandle handle_;
   BlockIdExt start_prev_id_;
 
