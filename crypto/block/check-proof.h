@@ -108,6 +108,7 @@ struct BlockTransactionList {
   td::Bits256 start_addr;
   bool reverse_mode;
   int req_count;
+  bool incomplete = true;  // liteserver's claim; if false, the proof must show the end of the block
 
   struct Info {
     ton::BlockIdExt blkid;
