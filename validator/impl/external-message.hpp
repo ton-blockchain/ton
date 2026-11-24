@@ -56,9 +56,11 @@ class ExtMessageQ : public ExtMessage {
   ton::WorkchainId wc() const override {
     return wc_;
   }
-
   ton::StdSmcAddress addr() const override {
     return addr_;
+  }
+  const td::BufferSlice& data() const override {
+    return data_;
   }
 
   ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull shard, ton::WorkchainId wc,
@@ -84,9 +86,9 @@ class ExtMessageQ : public ExtMessage {
                                                                UnixTime utime, bool with_vm_log);
   };
   static td::Status run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,
-                                           td::Ref<vm::Cell> msg_root, ExecutionConfig& exec_config);
-  static td::Status run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,
-                                           td::Ref<vm::Cell> msg_root, const block::ConfigInfo& config);
+                                           td::Ref<ExtMessage> msg, ExecutionConfig& exec_config);
+
+  static constexpr int SERIALIZED_MESSAGE_TOO_LARGE_ERRCODE = -790;
 };
 
 td::Result<td::Bits256> get_ext_in_msg_hash_norm(td::Ref<vm::Cell> ext_in_msg_cell);

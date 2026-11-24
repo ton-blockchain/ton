@@ -81,10 +81,6 @@ void HttpHeader::store_http(td::ChainBufferWriter &output) {
   output.append("\r\n");
 }
 
-tl_object_ptr<ton_api::http_header> HttpHeader::store_tl() {
-  return create_tl_object<ton_api::http_header>(name, value);
-}
-
 td::Result<std::unique_ptr<HttpRequest>> HttpRequest::parse(std::unique_ptr<HttpRequest> request, std::string &cur_line,
                                                             bool &exit_loop, td::ChainBufferReader &input) {
   exit_loop = false;
@@ -241,20 +237,6 @@ void HttpRequest::store_http(td::ChainBufferWriter &output) {
     HttpHeader{"Connection", "Close"}.store_http(output);
   }
   output.append(td::Slice("\r\n", 2));
-}
-
-tl_object_ptr<ton_api::http_request> HttpRequest::store_tl(td::Bits256 req_id) {
-  std::vector<tl_object_ptr<ton_api::http_header>> headers;
-  headers.reserve(options_.size());
-  for (auto &h : options_) {
-    headers.push_back(h.store_tl());
-  }
-  if (keep_alive_) {
-    headers.push_back(HttpHeader{"Connection", "Keep-Alive"}.store_tl());
-  } else {
-    headers.push_back(HttpHeader{"Connection", "Close"}.store_tl());
-  }
-  return create_tl_object<ton_api::http_request>(req_id, method_, url_, proto_version_, std::move(headers));
 }
 
 td::Status HttpPayload::parse(td::ChainBufferReader &input) {
@@ -569,147 +551,6 @@ bool HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, Htt
   return wrote;
 }
 
-tl_object_ptr<ton_api::http_payloadPart> HttpPayload::store_tl(size_t max_size) {
-  auto b = ready_bytes();
-  if (b > max_size) {
-    b = max_size;
-  }
-  max_size = b;
-  td::BufferSlice x{b};
-  auto S = x.as_slice();
-  auto obj = create_tl_object<ton_api::http_payloadPart>(std::move(x),
-                                                         std::vector<tl_object_ptr<ton_api::http_header>>(), false);
-
-  slice_gc();
-  while (chunks_.size() > 0 && max_size > 0) {
-    auto cur_state = state_.load(std::memory_order_consume);
-    auto s = get_slice(max_size);
-    if (s.size() == 0) {
-      if (cur_state != ParseState::reading_trailer && cur_state != ParseState::completed) {
-        LOG(INFO) << "state not trailer/completed";
-        obj->data_.truncate(obj->data_.size() - S.size());
-        return obj;
-      } else {
-        break;
-      }
-    }
-    CHECK(s.size() <= max_size);
-    S.copy_from(s);
-    S.remove_prefix(s.size());
-    max_size -= s.size();
-  }
-  obj->data_.truncate(obj->data_.size() - S.size());
-  auto cur_state = state_.load(std::memory_order_consume);
-  if (chunks_.size() != 0 || (cur_state != ParseState::reading_trailer && cur_state != ParseState::completed)) {
-    return obj;
-  }
-  if (!written_zero_chunk_) {
-    written_zero_chunk_ = true;
-  }
-
-  LOG(INFO) << "data completed";
-
-  while (max_size > 0) {
-    cur_state = state_.load(std::memory_order_consume);
-    HttpHeader h = get_header();
-    if (h.empty()) {
-      if (cur_state != ParseState::completed) {
-        LOG(INFO) << "state not completed";
-        return obj;
-      } else {
-        break;
-      }
-    }
-    auto s = h.size();
-    obj->trailer_.push_back(h.store_tl());
-    if (max_size <= s) {
-      return obj;
-    }
-    max_size -= s;
-  }
-
-  written_trailer_ = true;
-  obj->last_ = true;
-  return obj;
-}
-
-/*tl_object_ptr<ton_api::http_payloadPart> HttpPayload::store_tl(size_t max_size) {
-  auto obj = create_tl_object<ton_api::http_payloadPart>(std::vector<td::BufferSlice>(),
-                                                         std::vector<tl_object_ptr<ton_api::http_header>>(), false);
-  if (type_ == PayloadType::pt_empty) {
-    return obj;
-  }
-  size_t sum = 0;
-  while (chunks_.size() > 0) {
-    auto &p = chunks_.front();
-    size_t s = p.size();
-    bool m = true;
-    if (chunks_.size() == 1) {
-      s -= last_chunk_free_;
-      m = false;
-    }
-    sum += s;
-
-    if (m) {
-      obj->data_.push_back(std::move(p));
-    } else {
-      auto B = p.clone();
-      B.truncate(s);
-      obj->data_.push_back(std::move(B));
-      p.confirm_read(s);
-    }
-    CHECK(ready_bytes_ >= s);
-    ready_bytes_ -= s;
-    if (!m) {
-      return obj;
-    }
-    chunks_.pop_front();
-    if (sum > max_size) {
-      return obj;
-    }
-  }
-  if (state_ != ParseState::reading_trailer && state_ != ParseState::completed) {
-    return obj;
-  }
-  if (!written_zero_chunk_) {
-    written_zero_chunk_ = true;
-  }
-  while (true) {
-    if (trailer_.size() == 0) {
-      break;
-    }
-    auto &p = trailer_.front();
-    sum += p.name.size() + p.value.size() + 2;
-    ready_bytes_ -= p.name.size() + p.value.size() + 2;
-    obj->trailer_.push_back(p.store_tl());
-    trailer_.pop_front();
-    if (sum > max_size) {
-      return obj;
-    }
-  }
-  if (state_ != ParseState::completed) {
-    return obj;
-  }
-  obj->last_ = true;
-  return obj;
-}
-
-tl_object_ptr<ton_api::http_PayloadInfo> HttpPayload::store_info(size_t max_size) {
-  if (type_ == PayloadType::pt_empty) {
-    return create_tl_object<ton_api::http_payloadInfo>(create_tl_object<ton_api::http_payloadEmpty>());
-  }
-  if (!parse_completed()) {
-    return create_tl_object<ton_api::http_payloadSizeUnknown>();
-  }
-  if (ready_bytes_ > max_size) {
-    return create_tl_object<ton_api::http_payloadBig>(ready_bytes_);
-  }
-  auto obj = store_tl(max_size);
-  CHECK(obj->last_);
-  return create_tl_object<ton_api::http_payloadInfo>(
-      create_tl_object<ton_api::http_payload>(std::move(obj->data_), std::move(obj->trailer_)));
-}*/
-
 void HttpPayload::add_callback(std::unique_ptr<HttpPayload::Callback> callback) {
   const std::lock_guard<std::mutex> lock{mutex_};
   callbacks_.push_back(std::move(callback));
@@ -864,20 +705,6 @@ void HttpResponse::store_http(td::ChainBufferWriter &output) {
     }
   }
   output.append(td::Slice("\r\n", 2));
-}
-
-tl_object_ptr<ton_api::http_response> HttpResponse::store_tl() {
-  std::vector<tl_object_ptr<ton_api::http_header>> headers;
-  headers.reserve(options_.size());
-  for (auto &h : options_) {
-    headers.push_back(h.store_tl());
-  }
-  if (keep_alive_) {
-    headers.push_back(HttpHeader{"Connection", "Keep-Alive"}.store_tl());
-  } else {
-    headers.push_back(HttpHeader{"Connection", "Close"}.store_tl());
-  }
-  return create_tl_object<ton_api::http_response>(proto_version_, code_, reason_, std::move(headers), false);
 }
 
 td::Status HttpHeader::basic_check() {

@@ -38,7 +38,6 @@
 #include "dht/dht.h"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
-#include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/port/FileFd.h"
@@ -80,9 +79,9 @@ struct Config {
     ton::PublicKey key;
     td::IPAddress addr;
   };
-  struct FastSyncOverlayClient {
-    FastSyncOverlayClient() = default;
-    FastSyncOverlayClient(ton::adnl::AdnlNodeIdShort id, td::int32 slot) : id(id), slot(slot) {
+  struct ProtectedOverlayClient {
+    ProtectedOverlayClient() = default;
+    ProtectedOverlayClient(ton::adnl::AdnlNodeIdShort id, td::int32 slot) : id(id), slot(slot) {
     }
     ton::adnl::AdnlNodeIdShort id;
     td::int32 slot;
@@ -105,12 +104,12 @@ struct Config {
   std::map<td::int32, Control> controls;
   std::set<ton::PublicKeyHash> gc;
   std::vector<ton::ShardIdFull> shards_to_monitor;
-  std::vector<FastSyncOverlayClient> fast_sync_overlay_clients;
+  std::vector<ProtectedOverlayClient> protected_overlay_clients;
   ton::tl_object_ptr<ton::ton_api::engine_validator_extMessagePoolConfig> ext_message_pool_config;
 
   bool state_serializer_enabled = true;
   std::vector<std::pair<ton::adnl::AdnlNodeIdShort, ton::overlay::OverlayMemberCertificate>>
-      fast_sync_member_certificates;
+      protected_overlay_member_certificates;
 
   void decref(ton::PublicKeyHash key);
   void incref(ton::PublicKeyHash key) {
@@ -167,7 +166,6 @@ class ValidatorEngine : public td::actor::Actor {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring_;
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> adnl_network_manager_;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl_;
-  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_;
   std::map<ton::PublicKeyHash, td::actor::ActorOwn<ton::dht::Dht>> dht_nodes_;
   ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
@@ -202,6 +200,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::tl_object_ptr<ton::ton_api::engine_validator_collatorsList> collators_list_;
   ton::tl_object_ptr<ton::ton_api::engine_validator_shardBlockVerifierConfig> shard_block_verifier_config_;
   ton::tl_object_ptr<ton::ton_api::consensus_noncriticalParamsOverrideList> noncritical_params_overrides_;
+  ton::tl_object_ptr<ton::ton_api::engine_validator_registryVotingConfig> registry_voting_config_;
 
   std::set<ton::PublicKeyHash> running_gc_;
 
@@ -210,14 +209,14 @@ class ValidatorEngine : public td::actor::Actor {
   td::Ref<ton::validator::MasterchainState> state_;
   td::Ref<block::ValidatorSet> validator_set_, validator_set_prev_, validator_set_next_;
   std::set<ton::adnl::AdnlNodeIdShort> all_validator_adnl_ids_;
-  td::Timestamp issue_fast_sync_overlay_certificates_at_ = td::Timestamp::now();
+  td::Timestamp issue_protected_overlay_certificates_at_ = td::Timestamp::now();
   td::Timestamp issue_shard_overlay_certificates_at_ = td::Timestamp::now();
-  bool fast_sync_member_certificates_write_scheduled_ = false;
-  td::Timestamp fast_sync_member_certificates_write_at_ = td::Timestamp::never();
+  bool protected_overlay_member_certificates_write_scheduled_ = false;
+  td::Timestamp protected_overlay_member_certificates_write_at_ = td::Timestamp::never();
   std::set<ton::adnl::AdnlNodeIdShort> auto_sign_adnls_;
   bool accept_shard_overlay_certificates_from_any_validator_ = false;
   std::set<ton::adnl::AdnlNodeIdShort> accept_shard_overlay_certificates_from_;
-  std::map<ton::adnl::AdnlNodeIdShort, size_t> registered_fast_sync_certificate_callback_;
+  std::map<ton::adnl::AdnlNodeIdShort, size_t> registered_protected_overlay_certificate_callback_;
 
   td::Promise<ton::PublicKey> get_key_promise(td::MultiPromise::InitGuard &ig);
   void got_key(ton::PublicKey key);
@@ -225,8 +224,8 @@ class ValidatorEngine : public td::actor::Actor {
   void got_state(td::Ref<ton::validator::MasterchainState> state);
 
   void write_config(td::Promise<td::Unit> promise);
-  void schedule_fast_sync_member_certificates_write();
-  void finish_fast_sync_member_certificate_import(td::Promise<td::Unit> promise, bool defer_write);
+  void schedule_protected_overlay_member_certificates_write();
+  void finish_protected_overlay_member_certificate_import(td::Promise<td::Unit> promise, bool defer_write);
 
   std::map<td::uint32, ton::adnl::AdnlAddressList> addr_lists_;
   std::map<td::uint32, ton::adnl::AdnlAddressList> prio_addr_lists_;
@@ -281,11 +280,15 @@ class ValidatorEngine : public td::actor::Actor {
   ton::validator::fullnode::FullNodeOptions full_node_options_ = {.config_ = {},
                                                                   .public_broadcast_speed_multiplier_ = 3.33,
                                                                   .private_broadcast_speed_multiplier_ = 3.33,
-                                                                  .fast_sync_broadcast_speed_multiplier_ = 3.33,
+                                                                  .protected_broadcast_speed_multiplier_ = 3.33,
                                                                   .initial_sync_delay_ = 60.0};
 
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
-  ton::quic::QuicServer::Options quic_options_ = {};
+  // Production QUIC configuration = the struct defaults (quic-server.h, quic-flood-guard.h — the
+  // latter carries the per-field rationale). CLI flags (--quic-flood-control) override on top;
+  // effective flood limits are logged at startup.
+  ton::quic::QuicServer::Options quic_options_;
+  ton::quic::FloodLimits quic_flood_limits_;
 
  public:
   static constexpr td::uint8 max_cat() {
@@ -392,8 +395,8 @@ class ValidatorEngine : public td::actor::Actor {
   void set_broadcast_speed_multiplier_private(double value) {
     full_node_options_.private_broadcast_speed_multiplier_ = value;
   }
-  void set_broadcast_speed_multiplier_fast_sync(double value) {
-    full_node_options_.fast_sync_broadcast_speed_multiplier_ = value;
+  void set_broadcast_speed_multiplier_protected(double value) {
+    full_node_options_.protected_broadcast_speed_multiplier_ = value;
   }
   void set_permanent_celldb(bool value) {
     permanent_celldb_ = value;
@@ -419,6 +422,12 @@ class ValidatorEngine : public td::actor::Actor {
   void set_initial_sync_delay(double value) {
     full_node_options_.initial_sync_delay_ = value;
   }
+  void enable_public_rebroadcast() {
+    full_node_options_.public_rebroadcast_enabled_ = true;
+  }
+  void set_public_rebroadcast_fanout(td::uint32 fanout) {
+    full_node_options_.public_rebroadcast_fanout_ = fanout;
+  }
   void with_full_node_options(std::function<void(ton::validator::fullnode::FullNodeOptions &)> f) {
     f(full_node_options_);
   }
@@ -437,6 +446,9 @@ class ValidatorEngine : public td::actor::Actor {
   void set_quic_options(ton::quic::QuicServer::Options options) {
     quic_options_ = std::move(options);
   }
+  void set_quic_flood_control(std::optional<size_t> flood_control) {
+    quic_flood_limits_.max_conns_per_ip = flood_control;  // nullopt = --quic-flood-control -1 (disabled)
+  }
 
   void start_up() override;
   ValidatorEngine() {
@@ -449,6 +461,7 @@ class ValidatorEngine : public td::actor::Actor {
   void load_config(td::Promise<td::Unit> promise);
   void set_shard_check_function();
   void load_collators_list();
+  void load_registry_voting_config();
   void load_shard_block_verifier_config();
   void load_noncritical_params_overrides();
 
@@ -464,8 +477,8 @@ class ValidatorEngine : public td::actor::Actor {
   void add_dht(ton::PublicKeyHash id);
   void started_dht();
 
-  void start_rldp();
-  void started_rldp();
+  void start_quic();
+  void started_quic();
 
   void start_overlays();
   void started_overlays();
@@ -528,23 +541,23 @@ class ValidatorEngine : public td::actor::Actor {
   void try_del_quic_addr(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
                          std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
 
-  void register_fast_sync_certificate_callback(ton::adnl::AdnlNodeIdShort adnl_id);
-  void unregister_fast_sync_certificate_callback(ton::adnl::AdnlNodeIdShort adnl_id);
-  void received_fast_sync_certificate(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
-                                      td::BufferSlice data);
+  void register_protected_overlay_certificate_callback(ton::adnl::AdnlNodeIdShort adnl_id);
+  void unregister_protected_overlay_certificate_callback(ton::adnl::AdnlNodeIdShort adnl_id);
+  void received_protected_overlay_certificate(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
+                                              td::BufferSlice data);
   void register_shard_overlay_certificate_callback();
   void received_shard_overlay_certificate(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
                                           td::BufferSlice data);
-  void try_import_fast_sync_member_certificate(ton::adnl::AdnlNodeIdShort id,
-                                               ton::overlay::OverlayMemberCertificate certificate,
-                                               td::Promise<td::Unit> promise, bool defer_write);
+  void try_import_protected_overlay_member_certificate(ton::adnl::AdnlNodeIdShort id,
+                                                       ton::overlay::OverlayMemberCertificate certificate,
+                                                       td::Promise<td::Unit> promise, bool defer_write);
   void try_import_shard_overlay_certificate(ton::adnl::AdnlNodeIdShort src, ton::ShardIdFull shard,
                                             ton::PublicKeyHash signed_key, td::int32 expire_at,
                                             std::shared_ptr<ton::overlay::Certificate> certificate,
                                             td::Promise<td::Unit> promise);
 
-  void issue_fast_sync_overlay_certificates();
-  void issue_fast_sync_overlay_certificate(ton::PublicKeyHash issue_by, ton::adnl::AdnlNodeIdShort issue_to,
+  void issue_protected_overlay_certificates();
+  void issue_protected_overlay_certificate(ton::PublicKeyHash issue_by, ton::adnl::AdnlNodeIdShort issue_to,
                                            td::uint32 flags, td::int32 slot, td::int32 expire_at,
                                            td::Promise<ton::overlay::OverlayMemberCertificate> promise);
   void issue_shard_overlay_certificates();
@@ -559,6 +572,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   std::string collators_list_file() const {
     return db_root_ + "/collators-list.json";
+  }
+  std::string registry_voting_config_file() const {
+    return db_root_ + "/registry-voting-config.json";
   }
   std::string shard_block_verifier_config_file() const {
     return db_root_ + "/shard-block-verifier-config.json";
@@ -693,19 +709,24 @@ class ValidatorEngine : public td::actor::Actor {
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_signOverlayMemberCertificate &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_importFastSyncMemberCertificate &query, td::BufferSlice data,
-                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_importProtectedOverlayMemberCertificate &query,
+                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                         td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getCollatorOptionsJson &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getAdnlStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_addFastSyncClient &query, td::BufferSlice data,
+  void run_control_query(ton::ton_api::engine_validator_addProtectedOverlayClient &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_delFastSyncClient &query, td::BufferSlice data,
+  void run_control_query(ton::ton_api::engine_validator_delProtectedOverlayClient &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_setShardBlockVerifierConfig &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showShardBlockVerifierConfig &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setRegistryVotingConfig &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_showRegistryVotingConfig &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides &query,
                          td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

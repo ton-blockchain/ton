@@ -49,6 +49,7 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
     }
 
     bool on_load(const LoadedCell& loaded_cell) const;
+    bool is_loaded() const;
     NodePtr create_child(unsigned ref_id, td::Ref<Cell> cell) const;
     CellUsageTree* find_from_trees(td::Span<CellUsageTree*> trees) const;
     bool mark_path(CellUsageTree* master_tree) const;

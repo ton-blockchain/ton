@@ -36,7 +36,6 @@
 #include "common/refint.h"
 #include "lite-client/ext-client.h"
 #include "smc-envelope/ManualDns.h"
-#include "smc-envelope/PaymentChannel.h"
 #include "td/actor/actor.h"
 #include "td/actor/common.h"
 #include "td/utils/OptionParser.h"
@@ -256,7 +255,6 @@ class TonlibCli : public td::actor::Actor {
                        workchain_id_ = 0;
                      }
                    }
-                   load_channnels();
                    td::TerminalIO::out() << "Tonlib is inited\n";
                    if (options_.one_shot) {
                      td::actor::send_closure(actor_id(this), &TonlibCli::parse_line, td::BufferSlice(options_.cmd));
@@ -297,25 +295,6 @@ class TonlibCli : public td::actor::Actor {
     td::TerminalIO::out() << "\t<dns_cmd> = set <name> <category> <data> | delete.name <name> | delete.all\n";
     td::TerminalIO::out() << "\t<data> = DELETED | EMPTY | TEXT:<text> | NEXT:<smc-address> | SMC:<smc-address> | "
                              "ADNL:<adnl-address> | STORAGE:<bag-id>\n";
-  }
-
-  void pchan_help() {
-    td::TerminalIO::out() << "pchan help\n";
-    td::TerminalIO::out() << "pchan create <alice_public_key> <alice_address> <bob_public_key> <bob_address> "
-                             "<init_timeout> <close_timeout> [<channel_id>]\n";
-    td::TerminalIO::out() << "pchan list\n";
-    td::TerminalIO::out() << "pchan delete <pchan_id>\n";
-
-    td::TerminalIO::out() << "pchan getstate <pchan_id>\n";
-    td::TerminalIO::out() << "pchan promise make <pchan_id> <key_id> (A|B) <promise_A> <promise_B>\n";
-    td::TerminalIO::out() << "pchan promise check <pchan id> (A|B) <promise_A> <promise_B> <signature>\n";
-    td::TerminalIO::out() << "pchan promise pack <channel_id> <promise_A> <promise_B> <signature>\n";
-    td::TerminalIO::out() << "pchan promise unpack <packed_promise>\n";
-    td::TerminalIO::out() << "pchan cmd <pchan_id> <pchan_cmd>\n";
-    td::TerminalIO::out() << "\tfor simplicity we assume that alice_key is same as wallet key alice uses\n";
-    td::TerminalIO::out() << "\t<pchan_cmd> = init <key_id> <A> <B> <min_A> <min_B>\n";
-    td::TerminalIO::out() << "\t            | close <key_id> promise [<extra_A>]\n";
-    td::TerminalIO::out() << "\t            | timeout <key_id>\n";
   }
 
   void rwallet_help() {
@@ -382,7 +361,6 @@ class TonlibCli : public td::actor::Actor {
       td::TerminalIO::out() << "getaddress <key_id>\tget address of wallet with requested key\n";
 
       dns_help();
-      pchan_help();
       rwallet_help();
 
       td::TerminalIO::out()
@@ -491,8 +469,6 @@ class TonlibCli : public td::actor::Actor {
       import_key_raw(parser.read_word(), std::move(cmd_promise));
     } else if (cmd == "dns") {
       run_dns_cmd(parser, std::move(cmd_promise));
-    } else if (cmd == "pchan") {
-      run_pchan_cmd(parser, std::move(cmd_promise));
     } else if (cmd == "rwallet") {
       run_rwallet_cmd(parser, std::move(cmd_promise));
     } else if (cmd == "gethistory") {
@@ -579,362 +555,6 @@ class TonlibCli : public td::actor::Actor {
     }
 
     promise.set_error(td::Status::Error("Unknown command"));
-  }
-
-  void run_pchan_cmd(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    auto cmd = parser.read_word();
-    if (cmd == "help") {
-      pchan_help();
-      return promise.set_value(td::Unit());
-    }
-    if (cmd == "create") {
-      return pchan_create(parser, std::move(promise));
-    }
-    if (cmd == "list") {
-      return pchan_list(std::move(promise));
-    }
-    if (cmd == "delete") {
-      return pchan_delete(parser, std::move(promise));
-    }
-    if (cmd == "promise") {
-      return pchan_promise(parser, std::move(promise));
-    }
-    if (cmd == "getstate") {
-      return pchan_getstate(parser, std::move(promise));
-    }
-    if (cmd == "cmd") {
-      TRY_RESULT_PROMISE(promise, pchan_id, to_pchan_id(parser.read_word()));
-      auto subcmd = parser.read_word();
-      if (subcmd == "init") {
-        return pchan_init(pchan_id, parser, std::move(promise));
-      }
-      if (subcmd == "close") {
-        return pchan_close(pchan_id, parser, std::move(promise));
-      }
-      if (subcmd == "timeout") {
-        return pchan_timeout(pchan_id, parser, std::move(promise));
-      }
-    }
-
-    promise.set_error(td::Status::Error("Unknown command"));
-  }
-
-  struct Channel {
-    std::string alice_public_key;
-    std::string alice_address;
-    td::optional<int> alice_id;
-
-    std::string bob_public_key;
-    std::string bob_address;
-    td::optional<int> bob_id;
-    td::int32 init_timeout{0};
-    td::int32 close_timeout{0};
-    td::int64 channel_id;
-
-    std::string address;
-
-    td::Status parse(td::ConstParser& parser, bool gen_channel_id = false) {
-      alice_public_key = parser.read_word().str();
-      alice_address = parser.read_word().str();
-      bob_public_key = parser.read_word().str();
-      bob_address = parser.read_word().str();
-      TRY_RESULT_ASSIGN(init_timeout, td::to_integer_safe<td::int32>(parser.read_word()));
-      TRY_RESULT_ASSIGN(close_timeout, td::to_integer_safe<td::int32>(parser.read_word()));
-      if (parser.status().is_error()) {
-        return parser.status().clone();
-      }
-
-      auto channel_id_str = parser.read_word();
-      if (channel_id_str.empty()) {
-        if (gen_channel_id) {
-          channel_id = static_cast<td::int64>(td::Random::secure_uint64());
-        } else {
-          return td::Status::Error("Empty channel id");
-        }
-      } else {
-        TRY_RESULT_ASSIGN(channel_id, td::to_integer_safe<td::int64>(channel_id_str));
-      }
-      return td::Status::OK();
-    }
-    void store(td::StringBuilder& sb) {
-      sb << alice_public_key << " " << alice_address << " " << bob_public_key << " " << bob_address << " "
-         << init_timeout << " " << close_timeout << " " << channel_id;
-    }
-
-    friend td::StringBuilder& operator<<(td::StringBuilder& sb, const Channel& channel) {
-      sb << "\n\t" << td::tag("a_key", channel.alice_public_key) << td::tag("a_addr", channel.alice_address);
-      sb << "\n\t" << td::tag("b_key", channel.bob_public_key) << td::tag("b_addr", channel.bob_address);
-      if (channel.alice_id) {
-        sb << "\n\t" << td::tag("alice_id", channel.alice_id.value());
-      }
-      if (channel.bob_id) {
-        sb << "\n\t" << td::tag("b_id", channel.bob_id.value());
-      }
-      sb << "\n\t" << td::tag("init timeout", channel.init_timeout) << td::tag("close timeout", channel.close_timeout);
-      sb << "\n\t" << td::tag("channel id", channel.channel_id);
-      sb << "\n\t" << td::tag("addr", channel.address);
-      return sb;
-    }
-
-    auto to_address() {
-      return make_object<tonlib_api::accountAddress>(address);
-    }
-    auto to_init_state() {
-      return make_object<tonlib_api::pchan_initialAccountState>(make_object<tonlib_api::pchan_config>(
-          alice_public_key, make_object<tonlib_api::accountAddress>(alice_address), bob_public_key,
-          make_object<tonlib_api::accountAddress>(bob_address), init_timeout, close_timeout, channel_id));
-    }
-  };
-  void store_channels() {
-    td::SecureString buf(10000);
-    td::StringBuilder sb(buf.as_mutable_slice());
-    for (auto& it : channels_) {
-      it.second.store(sb);
-      sb << "\n";
-    }
-    LOG_IF(FATAL, sb.is_error()) << "StringBuilder overflow";
-    td::atomic_write_file(channel_db_path(), sb.as_cslice());
-  }
-
-  void load_channnels() {
-    auto r_db = td::read_file_secure(channel_db_path());
-    if (r_db.is_error()) {
-      return;
-    }
-    auto db = r_db.move_as_ok();
-    td::ConstParser parser(db.as_slice());
-    while (true) {
-      auto line = td::trim(parser.read_till_nofail('\n'));
-      parser.skip_nofail('\n');
-      if (line.empty()) {
-        break;
-      }
-      td::ConstParser line_parser(line);
-      do_pchan_create(line_parser, false).ensure();
-    }
-  }
-
-  std::map<td::int32, Channel> channels_;
-  td::int32 next_channel_id_{0};
-
-  td::Result<td::int32> to_pchan_id(td::Slice pchan_id_str) {
-    TRY_RESULT(pchan_id, td::to_integer_safe<td::int32>(pchan_id_str));
-    auto it = channels_.find(pchan_id);
-    if (it == channels_.end()) {
-      return td::Status::Error("Unknown channle id");
-    }
-    return pchan_id;
-  }
-
-  td::Status do_pchan_create(td::ConstParser& parser, bool gen_channel_id) {
-    Channel channel;
-    TRY_STATUS(channel.parse(parser, gen_channel_id));
-    TRY_RESULT(addr, sync_send_query(make_object<tonlib_api::getAccountAddress>(channel.to_init_state(), -1, 0)));
-    channel.address = addr->account_address_;
-
-    auto find_id = [&](td::Slice public_key, td::Slice address) -> td::optional<td::int32> {
-      auto r_addr = to_account_address(public_key);
-      if (r_addr.is_error()) {
-        return {};
-      }
-      auto addr = r_addr.move_as_ok().address->account_address_;
-      if (address != addr) {
-        return {};
-      }
-      for (td::int32 i = 0; i < static_cast<td::int32>(keys_.size()); i++) {
-        if (keys_[i].public_key == public_key) {
-          return i;
-        }
-      }
-      return {};
-    };
-    channel.alice_id = find_id(channel.alice_public_key, channel.alice_address);
-    channel.bob_id = find_id(channel.bob_public_key, channel.bob_address);
-    channels_[next_channel_id_++] = std::move(channel);
-    return td::Status::OK();
-  }
-  void pchan_getstate(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE_PREFIX(promise, pchan_id, to_pchan_id(parser.read_word()), "pchan_id");
-    auto& chan = channels_[pchan_id];
-    get_state(chan.address, std::move(promise));
-  }
-  void pchan_promise(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    auto cmd = parser.read_word();
-    if (cmd == "make") {
-      return pchan_promise_make(parser, std::move(promise));
-    }
-    if (cmd == "check") {
-      return pchan_promise_check(parser, std::move(promise));
-    }
-    if (cmd == "pack") {
-      return pchan_promise_pack(parser, std::move(promise));
-    }
-    if (cmd == "unpack") {
-      return pchan_promise_unpack(parser, std::move(promise));
-    }
-    promise.set_error(td::Status::Error("Unknown command"));
-  }
-
-  void pchan_promise_make2(tonlib_api::object_ptr<tonlib_api::pchan_promise> ans, td::Promise<td::Unit> promise) {
-    td::TerminalIO::out() << "Signature (base64url):" << td::base64url_encode(ans->signature_) << "\n";
-    send_query(make_object<tonlib_api::pchan_packPromise>(std::move(ans)), promise.wrap([](auto&& ans) {
-      td::TerminalIO::out() << "Promise (base64url): " << td::base64url_encode(ans->bytes_) << "\n";
-      return td::Unit();
-    }));
-  }
-
-  void pchan_promise_make(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE_PREFIX(promise, pchan_id, to_pchan_id(parser.read_word()), "pchan_id");
-    td::Slice a_or_b = parser.read_word();
-    bool is_a;
-    if (a_or_b == "A") {
-      is_a = true;
-    } else if (a_or_b == "B") {
-      is_a = false;
-    } else {
-      promise.set_error(td::Status::Error("(A|B) expected"));
-      return;
-    }
-    TRY_RESULT_PROMISE_PREFIX(promise, promise_A, parse_grams(parser.read_word()), "A");
-    TRY_RESULT_PROMISE_PREFIX(promise, promise_B, parse_grams(parser.read_word()), "B");
-
-    auto& chan = channels_[pchan_id];
-    Address addr;
-    if (is_a) {
-      TRY_RESULT_PROMISE_PREFIX_ASSIGN(promise, addr, to_account_address(chan.alice_public_key, true),
-                                       "Don't have Alice's key");
-    } else {
-      TRY_RESULT_PROMISE_PREFIX_ASSIGN(promise, addr, to_account_address(chan.bob_public_key, true),
-                                       "Don't have Bob's key");
-    }
-
-    send_query(make_object<tonlib_api::pchan_signPromise>(
-                   addr.input_key(),
-                   make_object<tonlib_api::pchan_promise>("", promise_A.nano, promise_B.nano, chan.channel_id)),
-               promise.send_closure(actor_id(this), &TonlibCli::pchan_promise_make2));
-  }
-  void pchan_promise_check(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE_PREFIX(promise, pchan_id, to_pchan_id(parser.read_word()), "pchan_id");
-    td::Slice a_or_b = parser.read_word();
-    bool is_a;
-    if (a_or_b == "A") {
-      is_a = true;
-    } else if (a_or_b == "B") {
-      is_a = false;
-    } else {
-      promise.set_error(td::Status::Error("(A|B) expected"));
-      return;
-    }
-    TRY_RESULT_PROMISE_PREFIX(promise, promise_A, parse_grams(parser.read_word()), "promise_A");
-    TRY_RESULT_PROMISE_PREFIX(promise, promise_B, parse_grams(parser.read_word()), "promise_B");
-
-    auto& chan = channels_[pchan_id];
-    std::string public_key = is_a ? chan.alice_public_key : chan.bob_public_key;
-
-    TRY_RESULT_PROMISE_PREFIX(promise, signature, td::base64url_decode(parser.read_word()), "signature");
-    send_query(make_object<tonlib_api::pchan_validatePromise>(
-                   public_key, make_object<tonlib_api::pchan_promise>(std::move(signature), promise_A.nano,
-                                                                      promise_B.nano, chan.channel_id)),
-               promise.wrap([](auto&& ans) {
-                 td::TerminalIO::out() << "signature is OK\n";
-                 return td::Unit();
-               }));
-  }
-  void pchan_promise_pack(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE_PREFIX(promise, channel_id, td::to_integer_safe<td::int64>(parser.read_word()), "pchan_id");
-    TRY_RESULT_PROMISE_PREFIX(promise, promise_A, parse_grams(parser.read_word()), "promise_A");
-    TRY_RESULT_PROMISE_PREFIX(promise, promise_B, parse_grams(parser.read_word()), "promise_B");
-    TRY_RESULT_PROMISE_PREFIX(promise, signature, base64url_decode(parser.read_word()), "signature");
-    send_query(make_object<tonlib_api::pchan_packPromise>(make_object<tonlib_api::pchan_promise>(
-                   std::move(signature), promise_A.nano, promise_B.nano, channel_id)),
-               promise.wrap([](auto packed) {
-                 td::TerminalIO::out() << "packed promise: " << base64url_encode(packed->bytes_.as_slice()) << "\n";
-                 return td::Unit();
-               }));
-  }
-  void pchan_promise_unpack(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE_PREFIX(promise, packed_promise, base64url_decode(parser.read_word()), "promise");
-    send_query(make_object<tonlib_api::pchan_unpackPromise>(td::SecureString(packed_promise)),
-               promise.wrap([](auto unpacked) {
-                 td::TerminalIO::out() << "unpacked promise:\n"
-                                       << "promise_A: " << Grams{static_cast<td::uint64>(unpacked->promise_A_)} << "\n"
-                                       << "promise_B: " << Grams{static_cast<td::uint64>(unpacked->promise_B_)} << "\n"
-                                       << "channel_id: " << unpacked->channel_id_ << "\n"
-                                       << "signature: " << td::base64url_encode(unpacked->signature_) << "\n";
-                 return td::Unit();
-               }));
-  }
-
-  void pchan_create(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_STATUS_PROMISE(promise, do_pchan_create(parser, true));
-    td::TerminalIO::out() << "Channel #" << next_channel_id_ - 1 << channels_[next_channel_id_ - 1] << "\n";
-    store_channels();
-    promise.set_value(td::Unit());
-  }
-  void pchan_list(td::Promise<td::Unit> promise) {
-    for (auto& it : channels_) {
-      td::TerminalIO::out() << "Channel #" << it.first << it.second << "\n";
-    }
-    promise.set_value(td::Unit());
-  }
-  void pchan_delete(td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    promise.set_error(td::Status::Error("TODO"));
-  }
-
-  void pchan_init_2(Address addr, td::int32 pchan_id, td::int64 value,
-                    tonlib_api::object_ptr<tonlib_api::query_info> query, td::Promise<td::Unit> promise) {
-    std::vector<tonlib_api::object_ptr<tonlib_api::msg_message>> messages;
-    messages.push_back(make_object<tonlib_api::msg_message>(
-        channels_[pchan_id].to_address(), "", value, std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>>{},
-        make_object<tonlib_api::msg_dataRaw>(query->body_, query->init_state_), -1));
-    auto action = make_object<tonlib_api::actionMsg>(std::move(messages), true);
-    send_query(
-        make_object<tonlib_api::createQuery>(addr.input_key(), std::move(addr.address), 60, std::move(action), nullptr),
-        promise.send_closure(actor_id(this), &TonlibCli::transfer2, false));
-  }
-
-  void pchan_init(td::int32 pchan_id, td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE_PREFIX(promise, addr, to_account_address(parser.read_word(), true), "key_id");
-    TRY_RESULT_PROMISE_PREFIX(promise, A, parse_grams(parser.read_word()), "A");
-    TRY_RESULT_PROMISE_PREFIX(promise, B, parse_grams(parser.read_word()), "B");
-    TRY_RESULT_PROMISE_PREFIX(promise, min_A, parse_grams(parser.read_word()), "min_A");
-    TRY_RESULT_PROMISE_PREFIX(promise, min_B, parse_grams(parser.read_word()), "min_B");
-
-    auto action = make_object<tonlib_api::actionPchan>(
-        make_object<tonlib_api::pchan_actionInit>(A.nano, B.nano, min_A.nano, min_B.nano));
-
-    auto value = A.nano + B.nano;
-    send_query(make_object<tonlib_api::createQuery>(addr.input_key(), channels_[pchan_id].to_address(), 60,
-                                                    std::move(action), channels_[pchan_id].to_init_state()),
-               promise.send_closure(actor_id(this), &TonlibCli::pchan_init_2, std::move(addr), pchan_id, value));
-    return;
-  }
-
-  void pchan_close2(td::int32 pchan_id, Address addr, tonlib_api::object_ptr<tonlib_api::pchan_promise> pchan_promise,
-                    td::Promise<td::Unit> promise) {
-    auto action = make_object<tonlib_api::actionPchan>(
-        make_object<tonlib_api::pchan_actionClose>(0, 0, std::move(pchan_promise)));
-    //send_query(make_object<tonlib_api::createQuery>(addr.input_key(), channels_[pchan_id].to_address(), 60,
-    //std::move(action), channels_[pchan_id].to_init_state()),
-    //promise.send_closure(actor_id(this), &TonlibCli::pchan_init_2, std::move(addr), pchan_id, 1000000000));
-    send_query(make_object<tonlib_api::createQuery>(addr.input_key(), channels_[pchan_id].to_address(), 60,
-                                                    std::move(action), channels_[pchan_id].to_init_state()),
-               promise.send_closure(actor_id(this), &TonlibCli::transfer2, false));
-  }
-
-  void pchan_close(td::int32 pchan_id, td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE_PREFIX(promise, addr, to_account_address(parser.read_word(), true), "key_id");
-    TRY_RESULT_PROMISE_PREFIX(promise, packed_promise, base64url_decode(parser.read_word()), "promise");
-    send_query(make_object<tonlib_api::pchan_unpackPromise>(td::SecureString(packed_promise)),
-               promise.send_closure(actor_id(this), &TonlibCli::pchan_close2, pchan_id, std::move(addr)));
-  }
-
-  void pchan_timeout(td::int32 pchan_id, td::ConstParser& parser, td::Promise<td::Unit> promise) {
-    TRY_RESULT_PROMISE_PREFIX(promise, addr, to_account_address(parser.read_word(), true), "key_id");
-    auto action = make_object<tonlib_api::actionPchan>(make_object<tonlib_api::pchan_actionTimeout>());
-    send_query(make_object<tonlib_api::createQuery>(addr.input_key(), channels_[pchan_id].to_address(), 60,
-                                                    std::move(action), channels_[pchan_id].to_init_state()),
-               promise.send_closure(actor_id(this), &TonlibCli::pchan_init_2, std::move(addr), pchan_id, 1000000000));
   }
 
   void run_dns_cmd(td::ConstParser& parser, td::Promise<td::Unit> promise) {
@@ -1572,9 +1192,6 @@ class TonlibCli : public td::actor::Actor {
 
   std::string key_db_path() {
     return options_.key_dir + TD_DIR_SLASH + "key_db";
-  }
-  std::string channel_db_path() {
-    return options_.key_dir + TD_DIR_SLASH + "channel_db";
   }
 
   td::Result<size_t> to_key_i(td::Slice key) {

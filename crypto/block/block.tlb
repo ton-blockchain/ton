@@ -149,6 +149,9 @@ _ fixed_prefix_length:(Maybe (## 5)) special:(Maybe TickTock)
 _ fixed_prefix_length:(Maybe (## 5)) special:(Maybe TickTock)
   code:(Maybe ^Cell) data:(Maybe ^Cell)
   library:(HashmapE 256 SimpleLib) = StateInitWithLibs;
+_ fixed_prefix_length:(Maybe (## 5)) special:(Maybe TickTock)
+  code:(Maybe ^Cell) data:(Maybe ^Cell)
+  library:BoolFalse = StateInitNullLibs;
 
 simple_lib$_ public:Bool root:^Cell = SimpleLib;
 
@@ -163,6 +166,17 @@ message$_ {X:Type} info:CommonMsgInfoRelaxed
 _ init:(Maybe (Either StateInit ^StateInit)) = EitherStateInit;
 
 _ (Message Any) = MessageAny;
+
+// MessageRelaxedLite is used for validating tlb structure without expensive validation of EC dict and libs in StateInit
+int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+  src:MsgAddress dest:MsgAddressInt
+  value_grams:Grams value_other:(Maybe ^Cell) extra_flags:(VarUInteger 16) fwd_fee:Grams
+  created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxedLite;
+ext_out_msg_info$11 src:MsgAddress dest:MsgAddressExt
+  created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxedLite;
+message$_ {X: Type} info:CommonMsgInfoRelaxedLite
+  init:(Maybe (Either StateInit ^StateInit))
+  body:(Either X ^X) = MessageRelaxedLite X;
 
 
 _ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
@@ -980,48 +994,55 @@ cap_name#ff name:Text = SmcCapability;
 dns_storage_address#7473 bag_id:bits256 = DNSRecord;
 
 //
-// PAYMENT CHANNELS
+// VALIDATOR REGISTRY (old types)
 //
-
-chan_config$_  init_timeout:uint32 close_timeout:uint32 a_key:bits256 b_key:bits256
-  a_addr:^MsgAddressInt b_addr:^MsgAddressInt channel_id:uint64 min_A_extra:Grams = ChanConfig;
-
-chan_state_init$000  signed_A:Bool signed_B:Bool min_A:Grams min_B:Grams expire_at:uint32 A:Grams B:Grams = ChanState;
-chan_state_close$001 signed_A:Bool signed_B:Bool promise_A:Grams promise_B:Grams expire_at:uint32 A:Grams B:Grams = ChanState;
-chan_state_payout$010 A:Grams B:Grams = ChanState;
-
-chan_promise$_ channel_id:uint64 promise_A:Grams promise_B:Grams = ChanPromise;
-chan_signed_promise#_ sig:(Maybe ^bits512) promise:ChanPromise = ChanSignedPromise;
-
-chan_msg_init#27317822 inc_A:Grams inc_B:Grams min_A:Grams min_B:Grams channel_id:uint64 = ChanMsg;
-chan_msg_close#f28ae183 extra_A:Grams extra_B:Grams promise:ChanSignedPromise  = ChanMsg;
-chan_msg_timeout#43278a28 = ChanMsg;
-chan_msg_payout#37fe7810 = ChanMsg;
-
-chan_signed_msg$_ sig_A:(Maybe ^bits512) sig_B:(Maybe ^bits512) msg:ChanMsg = ChanSignedMsg;
-
-chan_op_cmd#912838d1 msg:ChanSignedMsg = ChanOp;
-
-
-chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
-
-//
-// VALIDATOR REGISTRY
-//
-val_registry_config#3601163e contract_address:bits256 max_collators_per_validator:uint32 new_code_hash:(Maybe uint256) = ValRegistryConfig;
+val_registry_config_old#3601163e contract_address:bits256 max_collators_per_validator:uint32 new_code_hash:(Maybe bits256) = ValRegistryConfig;
 
 _ x:(## 1) = BitsPow2 0;
 _ {n:#} l:(BitsPow2 n) r:(BitsPow2 n) = BitsPow2 (n + 1);
 val_registry_shard_set$_ n:(#<= 8) mask:(BitsPow2 n) = ValRegistryShardSet;
 
-val_registry_storage#9bc722a8 registry:(HashmapE 256 ValRegistryValidator) last_cleanup_key_block_seqno:uint32 = ValRegistryStorage;
+val_registry_storage_old#9bc722a8 registry:(HashmapE 256 ValRegistryValidator) last_cleanup_key_block_seqno:uint32 = ValRegistryStorageOld;
 val_registry_validator#57766eec allow_update_at:uint32 entry:(Maybe ^ValRegistryEntry) = ValRegistryValidator;
 val_registry_entry#eae0b274 collators:(HashmapE 256 ValRegistryCollator) monitoring_shards:ValRegistryShardSet = ValRegistryEntry;
 val_registry_collator#10364494 monitoring_shards:ValRegistryShardSet = ValRegistryCollator;
 
-val_registry_message_request#cdb9d286 signature:(512 * Bit) request:ValRegistryRequest = ValRegistryMessageRequest;
+val_registry_message_request#cdb9d286 signature:(512 * Bit) request:ValRegistryRequestOld = ValRegistryMessageRequest;
 val_registry_request_update#fbd82b02 last_key_block_seqno:uint32 val_set:uint8 val_idx:uint16 valid_until:uint32
-    new_entry:(Maybe ^ValRegistryEntry) = ValRegistryRequest;
+    new_entry:(Maybe ^ValRegistryEntry) = ValRegistryRequestOld;
 
 val_registry_message_cleanup#32b85a9b = ValRegistryMessageCleanup;
+
+//
+// VALIDATOR REGISTRY
+//
+val_registry_config#3601163f contract_address:bits256 new_code_hash:(Maybe bits256)
+    roles:(HashmapE 5 ValRegistryRoleConfig) voting_timeout:uint32 voting_price:Grams
+    node_update_period:(## 32) { node_update_period >= 2 } = ValRegistryConfig;
+
+val_registry_role_config#e19f2d29
+    threshold_add:(## 16) { threshold_add >= 1 } { threshold_add <= 10000 }
+    threshold_remove:(## 16) { threshold_remove >= 1 } { threshold_remove <= 10000 }
+    max_nodes:uint32 = ValRegistryRoleConfig;
+
+val_registry_storage#9bc722a9
+    nodes:(HashmapE 256 ValRegistryNode)
+    votings:(HashmapE 320 ValRegistryVoting)  // Key: adnl_id, roles_add, roles_remove
+    votings_gc:(HashmapE 352 Unit)  // Key: ends_at, adnl_id, roles_add, roles_remove
+    extra:^ValRegistryStorageExtra
+    last_validator_set_update_seqno:uint32
+    = ValRegistryStorage;
+val_registry_storage_extra#c0c74297 nodes_count_by_role:(HashmapE 5 uint32)
+    current_validator_sets:^Cell = ValRegistryStorageExtra;
+val_registry_node#ac83c7be roles:uint32 is_validator:uint32 allow_update_adnl_node_at:uint32 adnl_node:(Maybe ^Cell) = ValRegistryNode;
+val_registry_voting#fb84df63 ends_at:uint32 created_lt:uint64 voted_weight:uint64 required_weight:uint64 is_reverse:Bool
+    votes:^Cell validator_set:^ValidatorSet = ValRegistryVoting;
+
+val_registry_message_new_voting#3b02088d adnl_id:bits256 roles_add:uint32 roles_remove:uint32 = ValRegistryMessageNewVoting;
 val_registry_message_update_code#34bdaa6c new_code:^Cell = ValRegistryMessageUpdateCode;
+val_registry_message_gc_votings#6065837c nonce:uint64 = ValRegistryMessageGcVotings;
+val_registry_message_update_validator_set#5cf70d63 nonce:uint64 = ValRegistryMessageUpdateValidatorSet;
+val_registry_message_signed_request#17bbf84f signature:bits512 request:^ValRegistryRequest = ValRegistryMessageSignedRequest;
+val_registry_request_vote#fcfffd3b adnl_id:bits256 roles_add:uint32 roles_remove:uint32 validator_idx:uint16
+    created_lt:uint64 valid_until:uint32 = ValRegistryRequest;
+val_registry_request_update_adnl_node#dbcf8cf8 adnl_id_full:bits256 valid_until:uint32 new_adnl_node:(Maybe ^Cell) = ValRegistryRequest;

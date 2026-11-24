@@ -39,8 +39,7 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<block::ValidatorSet> validator_set,
-                                   td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
-                                   int finality_broadcast_mode, bool send_shard_block_desc, bool apply,
+                                   td::Ref<block::BlockSignatureSet> signatures, bool apply,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
@@ -49,9 +48,6 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , signatures_(std::move(signatures))
     , is_fake_(false)
     , is_fork_(false)
-    , block_broadcast_mode_(block_broadcast_mode)
-    , finality_broadcast_mode_(finality_broadcast_mode)
-    , send_shard_block_desc_(send_shard_block_desc)
     , apply_(apply)
     , manager_(manager)
     , promise_(std::move(promise))
@@ -230,17 +226,12 @@ bool AcceptBlockQuery::create_new_proof() {
     return fatal_error("cannot create proof");
   }
   auto proof = r_proof.move_as_ok();
-  proof_roots_.push_back(proof);
   // 6. extract some information from state update
   state_old_hash_ = upd_cs.prefetch_ref(0)->get_hash(0).bits();
   state_hash_ = upd_cs.prefetch_ref(1)->get_hash(0).bits();
   lt_ = info.end_lt;
   created_at_ = info.gen_utime;
-  if (!is_masterchain()) {
-    mc_blkid_.id = BlockId{masterchainId, shardIdAll, mcref.seq_no};
-    mc_blkid_.root_hash = mcref.root_hash;
-    mc_blkid_.file_hash = mcref.file_hash;
-  } else if (!is_key_block_) {
+  if (is_masterchain() && !is_key_block_) {
     block::gen::McBlockExtra::Record mc_extra;
     if (!(extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) &&
           !mc_extra.key_block)) {
@@ -263,6 +254,7 @@ bool AcceptBlockQuery::create_new_proof() {
       return false;
     }
   }
+  Ref<vm::Cell> signatures_cell;
   if (signatures_->is_final()) {
     // 8. serialize signatures
     if (!is_fake_) {
@@ -273,7 +265,7 @@ bool AcceptBlockQuery::create_new_proof() {
             r_sign_cell.move_as_error_prefix("cannot serialize BlockSignatures for the newly-accepted block: "));
         return false;
       }
-      signatures_cell_ = r_sign_cell.move_as_ok();
+      signatures_cell = r_sign_cell.move_as_ok();
     } else {  // FAKE
       vm::CellBuilder cb2;
       if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
@@ -284,7 +276,7 @@ bool AcceptBlockQuery::create_new_proof() {
             && cb2.store_long_bool(0, 32)  // sig_count:uint32
             && cb2.store_long_bool(0, 64)  // sig_weight:uint32
             && cb2.store_bool_bool(false)  // (HashmapE 16 CryptoSignaturePair)
-            && cb2.finalize_to(signatures_cell_))) {
+            && cb2.finalize_to(signatures_cell))) {
         return fatal_error("cannot serialize fake BlockSignatures for the newly-accepted block");
       }
     }
@@ -297,7 +289,7 @@ bool AcceptBlockQuery::create_new_proof() {
           && block::tlb::t_BlockIdExt.pack(cb, id_)  // proof_for:BlockIdExt
           && cb.store_ref_bool(std::move(proof))     // proof:^Cell
           && cb.store_bool_bool(true)                // signatures:(Maybe
-          && cb.store_ref_bool(signatures_cell_)     //   ^BlockSignatures)
+          && cb.store_ref_bool(signatures_cell)      //   ^BlockSignatures)
           && cb.finalize_to(bs_cell))) {
       return fatal_error("cannot serialize BlockProof for the newly-accepted block");
     }
@@ -417,8 +409,7 @@ void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
       handle_->inited_merge_before() && handle_->inited_prev() && handle_->inited_logical_time() &&
       handle_->inited_state_root_hash() &&
       (is_masterchain() ? handle_->inited_proof() && handle_->is_applied() && handle_->inited_is_key_block()
-                        : handle_->inited_proof_link()) &&
-      block_broadcast_mode_ == 0 && finality_broadcast_mode_ == 0) {
+                        : handle_->inited_proof_link())) {
     finish_query();
     return;
   }
@@ -479,7 +470,6 @@ void AcceptBlockQuery::written_block_info() {
     fatal_error("cannot generate proof for block "s + id_.to_str());
     return;
   }
-  send_broadcasts();
   if (!apply_) {
     written_state({});
     return;
@@ -516,7 +506,6 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
     return;
   }
 
-  //handle_->set_masterchain_block(prev_[0]);
   handle_->set_split(before_split_);
   handle_->set_state_root_hash(state_hash_);
   handle_->set_logical_time(lt_);
@@ -536,321 +525,15 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
 
 void AcceptBlockQuery::written_block_proof() {
   VLOG(validator, DEBUG) << "written_block_proof()";
-  if (!signatures_->is_final()) {
+  if (!is_masterchain()) {
     written_block_next();
     return;
   }
-  if (!is_masterchain()) {
-    td::actor::send_closure(manager_, &ValidatorManager::get_top_masterchain_state_block,
-                            [SelfId = actor_id(this)](td::Result<std::pair<td::Ref<MasterchainState>, BlockIdExt>> R) {
-                              check_send_error(SelfId, R) ||
-                                  td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_last_mc_block,
-                                                               R.move_as_ok());
-                            });
-    return;
-  }
   CHECK(prev_.size() == 1);
-
   td::actor::send_closure(
       manager_, &ValidatorManager::set_next_block, prev_[0], id_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
         check_send_error(SelfId, R) || td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_block_next);
       });
-}
-
-void AcceptBlockQuery::got_last_mc_block(std::pair<td::Ref<MasterchainState>, BlockIdExt> last) {
-  VLOG(validator, DEBUG) << "got_last_mc_block(): " << last.second;
-  last_mc_state_ = Ref<MasterchainStateQ>(std::move(last.first));
-  last_mc_id_ = std::move(last.second);
-  CHECK(last_mc_state_.not_null());
-  if (last_mc_id_.id.seqno < mc_blkid_.id.seqno) {
-    VLOG(validator, DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_
-                           << ", trying to obtain it";
-    td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout_,
-                                  false, [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
-                                    check_send_error(SelfId, R) ||
-                                        td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_mc_state,
-                                                                     R.move_as_ok());
-                                  });
-    return;
-  } else if (last_mc_id_.id.seqno > mc_blkid_.id.seqno) {
-    if (!last_mc_state_->check_old_mc_block_id(mc_blkid_)) {
-      fatal_error("shardchain block refers to masterchain block "s + mc_blkid_.to_str() +
-                  " which is not a antecessor of last masterchain block " + last_mc_id_.to_str());
-      return;
-    }
-  } else if (last_mc_id_ != mc_blkid_) {
-    fatal_error("shardchain block refers to masterchain block "s + mc_blkid_.to_str() +
-                " distinct from last masterchain block " + last_mc_id_.to_str() + " of the same height");
-    return;
-  }
-  find_known_ancestors();
-}
-
-void AcceptBlockQuery::got_mc_state(Ref<ShardState> res) {
-  VLOG(validator, DEBUG) << "got_mc_state()";
-  auto new_state = Ref<MasterchainStateQ>(std::move(res));
-  CHECK(new_state.not_null());
-  if (!new_state->check_old_mc_block_id(last_mc_id_)) {
-    fatal_error("shardchain block refers to masterchain block "s + mc_blkid_.to_str() +
-                " which is not a successor of last masterchain block " + last_mc_id_.to_str());
-    return;
-  }
-  last_mc_id_ = mc_blkid_;
-  last_mc_state_ = std::move(new_state);
-  find_known_ancestors();
-}
-
-void AcceptBlockQuery::find_known_ancestors() {
-  VLOG(validator, DEBUG) << "find_known_ancestors()";
-  prev_mc_blkid_ = mc_blkid_;
-  auto config = last_mc_state_->get_config();
-  CHECK(config);
-  auto shard = ton::ShardIdFull(id_);
-  auto ancestor = config->get_shard_hash(shard, false);
-  if (ancestor.is_null()) {
-    ancestor = config->get_shard_hash(ton::shard_child(shard, true));
-    auto ancestor2 = config->get_shard_hash(ton::shard_child(shard, false));
-    if (ancestor.is_null() || ancestor2.is_null()) {
-      VLOG(validator, WARNING) << " cannot retrieve information about shard " + shard.to_str() +
-                                      " from masterchain block " + last_mc_id_.to_str() +
-                                      ", skipping ShardTopBlockDescr creation";
-      if (last_mc_id_.id.seqno <= mc_blkid_.id.seqno) {
-        fatal_error(" cannot retrieve information about shard "s + shard.to_str() + " from masterchain block " +
-                    last_mc_id_.to_str());
-        return;
-      }
-      written_block_next();
-      return;
-    }
-    VLOG(validator, DEBUG) << "found two ancestors: " << ancestor->blk_ << " and " << ancestor2->blk_;
-    ancestors_seqno_ = std::max(ancestor->blk_.id.seqno, ancestor2->blk_.id.seqno);
-    ancestors_.emplace_back(std::move(ancestor));
-    ancestors_.emplace_back(std::move(ancestor2));
-  } else if (ancestor->shard() == shard) {
-    VLOG(validator, DEBUG) << "found one regular ancestor " << ancestor->blk_;
-    ancestors_seqno_ = ancestor->seqno();
-    ancestors_.emplace_back(std::move(ancestor));
-  } else if (ton::shard_is_parent(ancestor->shard(), shard)) {
-    VLOG(validator, DEBUG) << "found one parent ancestor " << ancestor->blk_;
-    ancestors_seqno_ = ancestor->seqno();
-    ancestors_.emplace_back(std::move(ancestor));
-    ancestors_split_ = true;
-  } else {
-    VLOG(validator, WARNING) << " cannot retrieve information about shard " + shard.to_str() +
-                                    " from masterchain block " + last_mc_id_.to_str() +
-                                    ", skipping ShardTopBlockDescr creation";
-    if (last_mc_id_.id.seqno <= mc_blkid_.id.seqno || ancestor->seqno() <= id_.id.seqno) {
-      fatal_error(" cannot retrieve information about shard "s + shard.to_str() + " from masterchain block " +
-                  last_mc_id_.to_str());
-      return;
-    }
-    written_block_next();
-    return;
-  }
-  if (ancestors_seqno_ >= id_.id.seqno) {
-    VLOG(validator, WARNING) << "skipping ShardTopBlockDescr creation for " << id_ << " because a newer block "
-                             << ancestors_.at(0)->blk_ << " is already present in masterchain block " << last_mc_id_;
-    written_block_next();
-    return;
-  }
-  if (id_.id.seqno > ancestors_seqno_ + 8) {
-    fatal_error("cannot accept shardchain block "s + id_.to_str() +
-                " because it requires including a chain of more than eight new shardchain blocks");
-    return;
-  }
-  if (id_.id.seqno == ancestors_seqno_ + 1) {
-    create_topshard_blk_descr();
-    return;
-  }
-  CHECK(prev_.size() == 1);
-  require_proof_link(prev_[0]);
-}
-
-void AcceptBlockQuery::require_proof_link(BlockIdExt id) {
-  VLOG(validator, DEBUG) << "require_proof_link(" << id << ")";
-  CHECK(ton::ShardIdFull(id) == ton::ShardIdFull(id_));
-  CHECK(id.id.seqno == id_.id.seqno - 1 - proof_links_.size());
-  td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_proof_link_short, id, timeout_,
-                                [SelfId = actor_id(this), id](td::Result<Ref<ProofLink>> R) {
-                                  check_send_error(SelfId, R) ||
-                                      td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_proof_link, id,
-                                                                   R.move_as_ok());
-                                });
-}
-
-bool AcceptBlockQuery::unpack_proof_link(BlockIdExt id, Ref<ProofLink> proof_link) {
-  auto res0 = vm::std_boc_deserialize(proof_link->data());
-  if (res0.is_error()) {
-    return fatal_error("cannot deserialize proof link for "s + id.to_str() + ": " + res0.move_as_error().to_string());
-  }
-  Ref<vm::Cell> proof_root = res0.move_as_ok();
-  block::gen::BlockProof::Record proof;
-  BlockIdExt proof_blk_id;
-  if (!(tlb::unpack_cell(proof_root, proof) &&
-        block::tlb::t_BlockIdExt.unpack(proof.proof_for.write(), proof_blk_id))) {
-    return false;
-  }
-  if (proof_blk_id != id) {
-    return fatal_error("block proof link is for another block: expected "s + id.to_str() + ", found " +
-                       proof_blk_id.to_str());
-  }
-  auto r_virt_root = vm::MerkleProof::virtualize(proof.root);
-  if (r_virt_root.is_error()) {
-    return fatal_error("block proof link for block "s + id.to_str() +
-                       " does not contain a valid Merkle proof for the block header");
-  }
-  auto virt_root = r_virt_root.move_as_ok();
-  RootHash virt_hash{virt_root->get_hash().bits()};
-  if (virt_hash != id.root_hash) {
-    return fatal_error("block proof link for block "s + id.to_str() +
-                       " contains a Merkle proof with incorrect root hash: expected " + id.root_hash.to_hex() +
-                       ", found " + virt_hash.to_hex());
-  }
-  bool after_split;
-  BlockIdExt mc_blkid;
-  auto res = block::unpack_block_prev_blk_try(virt_root, id, link_prev_, mc_blkid, after_split);
-  if (res.is_error()) {
-    return fatal_error("error in block header in proof link for "s + id.to_str() + ": " +
-                       res.move_as_error().to_string());
-  }
-  if (mc_blkid.id.seqno > prev_mc_blkid_.id.seqno) {
-    return fatal_error("previous shardchain block "s + id.to_str() + " refers to a newer masterchain block " +
-                       mc_blkid.id.to_str() + " than that referred to by the next one: " + prev_mc_blkid_.id.to_str());
-  } else if (mc_blkid.id.seqno < prev_mc_blkid_.id.seqno) {
-    if (!last_mc_state_->check_old_mc_block_id(mc_blkid)) {
-      return fatal_error(
-          "previous shardchain block "s + id.to_str() + " refers to masterchain block " + mc_blkid.id.to_str() +
-          " which is not an ancestor of that referred to by the next one: " + prev_mc_blkid_.id.to_str());
-    }
-    prev_mc_blkid_ = mc_blkid;
-  } else if (mc_blkid != prev_mc_blkid_) {
-    return fatal_error("previous shardchain block "s + id.to_str() + " refers to masterchain block " +
-                       mc_blkid.id.to_str() +
-                       " with the same height as, but distinct from that referred to by the next shardchain block: " +
-                       prev_mc_blkid_.id.to_str());
-  }
-  try {
-    block::gen::Block::Record block;
-    block::gen::BlockExtra::Record extra;
-    if (!(tlb::unpack_cell(virt_root, block) && block::gen::t_ValueFlow.force_validate_ref(block.value_flow))) {
-      return fatal_error("block proof link for block "s + id.to_str() + " does not contain value flow information");
-    }
-    /* TEMP (uncomment later)
-    if (!tlb::unpack_cell(std::move(block.extra), extra)) {
-      return fatal_error("block proof link for block "s + id.to_str() + " does not contain BlockExtra information");
-    }
-    */
-  } catch (vm::VmError& err) {
-    return fatal_error("error unpacking proof link for block "s + id.to_str() + " : " + err.get_msg());
-  } catch (vm::VmVirtError& err) {
-    return fatal_error("virtualization error unpacking proof link for block "s + id.to_str() + " : " + err.get_msg());
-  }
-  proof_roots_.push_back(std::move(proof.root));
-  return true;
-}
-
-void AcceptBlockQuery::got_proof_link(BlockIdExt id, Ref<ProofLink> proof) {
-  VLOG(validator, DEBUG) << "got_proof_link(" << id << ")";
-  CHECK(proof.not_null());
-  proof_links_.push_back(proof);
-  if (!unpack_proof_link(id, std::move(proof))) {
-    fatal_error("cannot unpack proof link for "s + id.to_str());
-    return;
-  }
-  if (id.id.seqno == ancestors_seqno_ + 1) {
-    // first link in chain
-    if (ancestors_.size() != link_prev_.size() || ancestors_[0]->blk_ != link_prev_[0] ||
-        (ancestors_.size() == 2 && ancestors_[1]->blk_ != link_prev_[1])) {
-      fatal_error("invalid first link at block "s + id.to_str() + " for shardchain block " + id_.to_str(),
-                  ErrorCode::cancelled);
-      return;
-    }
-    create_topshard_blk_descr();
-  } else {
-    CHECK(id.id.seqno > ancestors_seqno_);
-    // intermediate link
-    if (link_prev_.size() != 1 || ton::ShardIdFull(link_prev_[0].id) != ton::ShardIdFull(id_) ||
-        link_prev_[0].id.seqno + 1 != id.id.seqno) {
-      fatal_error("invalid intermediate link at block "s + id.to_str() + " for shardchain block " + id_.to_str(),
-                  ErrorCode::cancelled);
-      return;
-    }
-    require_proof_link(link_prev_[0]);
-  }
-}
-
-bool AcceptBlockQuery::create_top_shard_block_description() {
-  VLOG(validator, DEBUG) << "create_top_shard_block_description()";
-  CHECK(proof_roots_.size() == proof_links_.size() + 1);
-  int n = (int)proof_roots_.size();
-  CHECK(n <= 8);
-  Ref<vm::Cell> root;
-  for (int i = n - 1; i > 0; i--) {
-    vm::CellBuilder cb;
-    if (!(cb.store_ref_bool(proof_roots_[i]) && (root.is_null() || cb.store_ref_bool(root)) && cb.finalize_to(root))) {
-      return fatal_error("error serializing ProofChain");
-    }
-  }
-  vm::CellBuilder cb;
-  Ref<vm::Cell> td_cell;
-  if (!(cb.store_long_bool(0xd5, 8)                // top_block_descr#d5
-        && block::tlb::t_BlockIdExt.pack(cb, id_)  // proof_for:BlockIdExt
-        && cb.store_bool_bool(true)                // signatures:(Maybe
-        && cb.store_ref_bool(signatures_cell_)     //   ^BlockSignatures)
-        && cb.store_long_bool(n, 8)                // len:(## 8)
-        && n <= 8                                  // { len <= 8 }
-        && cb.store_ref_bool(proof_roots_[0])      // chain:(ProofChain len)
-        && (root.is_null() || cb.store_ref_bool(std::move(root))) && cb.finalize_to(td_cell))) {
-    return fatal_error("cannot serialize ShardTopBlockDescription for the newly-accepted block "s + id_.to_str());
-  }
-  if (!block::gen::t_TopBlockDescr.validate_ref(td_cell)) {
-    FLOG(WARNING) {
-      sb << "just created ShardTopBlockDescription is invalid: ";
-      block::gen::t_TopBlockDescr.print_ref(sb, td_cell);
-      vm::load_cell_slice(td_cell).print_rec(sb);
-    };
-    return fatal_error("just created ShardTopBlockDescription for "s + id_.to_str() + " is invalid");
-  }
-  auto res = vm::std_boc_serialize(td_cell, 0);
-  if (res.is_error()) {
-    return fatal_error("cannot serialize a ShardTopBlockDescription object for "s + id_.to_str() + ": " +
-                       res.move_as_error().to_string());
-  }
-  top_block_descr_data_ = res.move_as_ok();
-  VLOG(validator, DEBUG) << "create_top_shard_block_description() : end";
-  return true;
-}
-
-void AcceptBlockQuery::create_topshard_blk_descr() {
-  VLOG(validator, DEBUG) << "create_topshard_blk_descr()";
-  // generate top shard block description
-  if (!create_top_shard_block_description()) {
-    fatal_error("cannot generate top shard block description for "s + id_.to_str());
-    return;
-  }
-  CHECK(!top_block_descr_data_.empty());
-  td::actor::create_actor<ValidateShardTopBlockDescr>(
-      "topshardfetchchk", std::move(top_block_descr_data_), last_mc_id_, BlockHandle{}, last_mc_state_, manager_,
-      timeout_, is_fake_,
-      [SelfId = actor_id(this)](td::Result<Ref<ShardTopBlockDescription>> R) {
-        td::actor::send_closure_later(SelfId, &AcceptBlockQuery::top_block_descr_validated, std::move(R));
-      })
-      .release();
-}
-
-void AcceptBlockQuery::top_block_descr_validated(td::Result<Ref<ShardTopBlockDescription>> R) {
-  VLOG(validator, DEBUG) << "top_block_descr_validated()";
-  if (R.is_error()) {
-    VLOG(validator, WARNING) << "error validating newly-created ShardTopBlockDescr for " << id_ << ": "
-                             << R.move_as_error().to_string();
-  } else {
-    top_block_descr_ = R.move_as_ok();
-    CHECK(top_block_descr_.not_null());
-    if (send_shard_block_desc_) {
-      td::actor::send_closure_later(manager_, &ValidatorManager::send_top_shard_block_description, top_block_descr_);
-    }
-  }
-  written_block_next();
 }
 
 void AcceptBlockQuery::written_block_next() {
@@ -879,40 +562,6 @@ void AcceptBlockQuery::written_block_info_2() {
 
 void AcceptBlockQuery::applied() {
   finish_query();
-}
-
-void AcceptBlockQuery::send_broadcasts() {
-  if (block_broadcast_mode_ == 0 && finality_broadcast_mode_ == 0) {
-    return;
-  }
-  VLOG(validator, DEBUG) << "send_broadcasts block_mode=" << block_broadcast_mode_
-                         << " finality_mode=" << finality_broadcast_mode_;
-  if (finality_broadcast_mode_ != 0) {
-    td::actor::send_closure_later(manager_, &ValidatorManager::send_block_finality_broadcast,
-                                  BlockFinalityBroadcast{id_, signatures_}, finality_broadcast_mode_);
-  }
-
-  if (block_broadcast_mode_ == 0) {
-    return;
-  }
-
-  BlockBroadcast b;
-  b.data = data_->data();
-  b.block_id = id_;
-  b.sig_set = signatures_;
-  if (is_masterchain()) {
-    b.proof = proof_->data();
-  } else {
-    b.proof = proof_link_->data();
-  }
-
-  // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), block_broadcast_mode_);
-
-  // Do this for shard blocks later:
-  // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,
-  //                         validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-  //                         std::move(b.data), block_broadcast_mode_);
 }
 
 }  // namespace validator

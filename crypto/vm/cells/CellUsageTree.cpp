@@ -35,6 +35,13 @@ bool CellUsageTree::NodePtr::on_load(const Cell::LoadedCell& loaded_cell) const 
   tree->on_load(node_id_, loaded_cell);
   return true;
 }
+bool CellUsageTree::NodePtr::is_loaded() const {
+  auto tree = tree_weak_.lock();
+  if (!tree) {
+    return true;
+  }
+  return tree->is_loaded(node_id_);
+}
 
 CellUsageTree::NodePtr CellUsageTree::NodePtr::create_child(unsigned ref_id, Ref<Cell> cell) const {
   auto tree = tree_weak_.lock();

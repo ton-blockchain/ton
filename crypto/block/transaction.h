@@ -246,6 +246,7 @@ struct ActionPhase {
   std::vector<Ref<vm::Cell>> out_msgs;
   ton::LogicalTime end_lt;
   unsigned long long tot_msg_bits{0}, tot_msg_cells{0};
+  unsigned long long tot_msg_bits_all{0}, tot_msg_cells_all{0};  // includes failed messages
   td::RefInt256 action_fine;
   td::RefInt256 fail_action_fine = td::zero_refint();  // Collected if action phase fails
   bool need_bounce_on_fail = false;
@@ -378,6 +379,7 @@ struct Transaction {
   bool was_created{false};
   bool bounce_enabled{false};
   bool in_msg_extern{false};
+  td::optional<StorageUsedFull> ext_msg_size;  // includes root cell
   gen::CommonMsgInfo::Record_int_msg_info in_msg_info;
   td::RefInt256 in_msg_extra_flags = td::zero_refint();
   bool new_bounce_format{false};
@@ -457,11 +459,13 @@ struct Transaction {
   void extract_out_msgs(std::vector<LtCellRef>& list);
 
  private:
+  struct SendMsgCtx;
   Ref<vm::Tuple> prepare_vm_c7(const ComputePhaseConfig& cfg) const;
   bool prepare_rand_seed(td::BitArray<256>& rand_seed, const ComputePhaseConfig& cfg) const;
   int try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
   int try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
-  int try_action_send_msg(const vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg, int redoing = 0);
+  int try_action_send_msg(const vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg, int redoing,
+                          SendMsgCtx& ctx);
   int try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
   bool check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const;
   bool check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg, bool* is_mc = nullptr,

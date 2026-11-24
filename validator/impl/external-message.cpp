@@ -32,6 +32,10 @@ namespace ton {
 namespace validator {
 using td::Ref;
 
+static td::uint64 serialized_message_size_limit(const block::StorageUsedFull& s) {
+  return (s.bits / 8 + 3 * s.cells + 3 * s.refs + 22) * 4 / 3;
+}
+
 ExtMessageQ::ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull addr_prefix,
                          ton::WorkchainId wc, ton::StdSmcAddress addr, Hash hash, Hash hash_norm)
     : root_(std::move(root))
@@ -172,13 +176,7 @@ td::Result<std::unique_ptr<ExtMessageQ::ExecutionConfig>> ExtMessageQ::Execution
 }
 
 td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,
-                                               td::Ref<vm::Cell> msg_root, const block::ConfigInfo& config) {
-  TRY_RESULT(exec_config, ExecutionConfig::create(config, wc, utime, /* with_vm_log = */ true));
-  return run_message_on_account(wc, acc, utime, lt, std::move(msg_root), *exec_config);
-}
-
-td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,
-                                               td::Ref<vm::Cell> msg_root, ExecutionConfig& exec_config) {
+                                               td::Ref<ExtMessage> msg, ExecutionConfig& exec_config) {
   // Same as Collator::impl_create_ordinary_transaction, but only up to prepare_compute_phase
   using namespace std::literals::string_literals;
   if (acc->last_trans_end_lt_ >= lt && acc->transactions.empty()) {
@@ -186,10 +184,19 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc, block::Accou
                                              << ":" << acc->addr.to_hex() << " is too large");
   }
   std::unique_ptr<block::transaction::Transaction> trans = std::make_unique<block::transaction::Transaction>(
-      *acc, block::transaction::Transaction::tr_ord, lt + 1, utime, msg_root);
+      *acc, block::transaction::Transaction::tr_ord, lt + 1, utime, msg->root_cell());
   if (!trans->unpack_input_msg(false, &exec_config.action_phase_cfg)) {
     return td::Status::Error(-701, "inbound external message rejected by account "s + acc->addr.to_hex() +
                                        " before smart-contract execution");
+  }
+  CHECK(trans->ext_msg_size);
+  td::uint64 size_limit = serialized_message_size_limit(trans->ext_msg_size.value());
+  if (msg->data().size() > size_limit) {
+    return td::Status::Error(
+        SERIALIZED_MESSAGE_TOO_LARGE_ERRCODE,
+        PSTRING() << "serialized message is too large: limit=" << size_limit
+                  << " (cells=" << trans->ext_msg_size.value().cells << ", bits=" << trans->ext_msg_size.value().bits
+                  << ", refs=" << trans->ext_msg_size.value().refs << "), size=" << msg->data().size());
   }
   if (!trans->prepare_storage_phase(exec_config.storage_phase_cfg, true, true)) {
     return td::Status::Error(

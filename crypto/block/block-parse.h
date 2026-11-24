@@ -1181,7 +1181,7 @@ extern const Aug_ShardFees aug_ShardFees;
 
 // Validate dict of libraries in message: used when sending and receiving message
 bool validate_message_libs(const td::Ref<vm::Cell>& cell);
-bool validate_message_relaxed_libs(const td::Ref<vm::Cell>& cell);
+bool validate_message_relaxed_libs(const td::Ref<vm::Cell>& cell, bool allow_libs);
 
 }  // namespace tlb
 }  // namespace block

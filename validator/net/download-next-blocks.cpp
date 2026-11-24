@@ -35,7 +35,8 @@ namespace fullnode {
 DownloadNextBlocks::DownloadNextBlocks(BlockHandle handle, QuerySender query_sender, td::uint32 priority,
                                        td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                        td::Promise<BlockHandle> promise)
-    : handle_(handle)
+    : initial_handle_(handle)
+    , handle_(handle)
     , start_prev_id_(handle->id())
     , query_sender_(std::move(query_sender))
     , priority_(priority)
@@ -46,6 +47,15 @@ DownloadNextBlocks::DownloadNextBlocks(BlockHandle handle, QuerySender query_sen
 void DownloadNextBlocks::start_up() {
   [](DownloadNextBlocks *self) -> td::actor::Task<> {
     auto R = co_await self->run().start().wrap();
+    auto query_status = R.as_status();
+    // Do not penalize peer when it does not have next blocks if the last block is new enough
+    if (query_status.is_error() && query_status.code() == ErrorCode::notready &&
+        self->initial_handle_->inited_unix_time() &&
+        self->initial_handle_->unix_time() >= (UnixTime)td::Clocks::system() - 5) {
+      query_status = td::Status::OK();
+    }
+    self->query_sender_->query_finished(std::move(query_status));
+
     td::StringBuilder sb;
     if (self->success_local_) {
       sb << "loaded next block after " << self->start_prev_id_.id << " from db";
@@ -152,6 +162,9 @@ td::actor::Task<> DownloadNextBlocks::process_block(tl_object_ptr<ton_api::tonNo
         CO_TRY(extract_prev_blocks_from_proof(compressed_v2->proof_.as_slice(), id).trace("extract prev blocks"));
     if (prev_blocks != std::vector{handle_->id()}) {
       co_return td::Status::Error(ErrorCode::protoviolation, "prev block id mismatch");
+    }
+    if (handle_->inited_next() && handle_->one_next(true) != id) {
+      co_return td::Status::Error(ErrorCode::protoviolation, "next block id mismatch");
     }
     auto prev_state = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::wait_block_state, handle_,
                                               priority_, td::Timestamp::in(5.0), true)

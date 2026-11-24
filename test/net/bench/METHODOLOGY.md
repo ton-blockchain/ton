@@ -11,18 +11,18 @@ today's runnable tests and the intended scale suite; the status column is normat
 
 | workload | exact shape | implementations / transports | status |
 | --- | --- | --- | --- |
-| `idle-small` | 32 established application-idle peer sessions -> one server | all QUIC implementations; TON ADNL/RLDP2 | maintained |
+| `idle-small` | 32 established application-idle peer sessions -> one server | all QUIC implementations; TON ADNL | maintained |
 | `idle-scale` | 1K, 10K and optionally 100K established application-idle sessions -> one server | all QUIC drivers available; TON large-scale validation pending | available |
-| `ihave-1x20` | one sender -> 20 neighbours; one 240-byte IHAVE each, 20 sends/event | all QUIC implementations; TON ADNL/RLDP2 | maintained |
-| `ihave-40x20` | one sender -> 20 neighbours; 40 IHAVEs each immediately, 800 sends/event at 6,000 sends/s | all QUIC implementations; TON ADNL/RLDP2 | maintained |
-| `fanin` | several independent neighbours -> one server; default 8 x 1,000 messages/s | all QUIC implementations; TON ADNL/RLDP2 | maintained |
-| `sat-1x1` | ceiling probe: one connection, offered 1M msg/s in bursts of 100 | all QUIC implementations; TON ADNL/RLDP2 | maintained |
-| `sat-20x400` | ceiling probe: 20-way fan-out, offered 1M msg/s in bursts of 400 | all QUIC implementations; TON ADNL/RLDP2 | maintained |
-| `bulk-common` | two clients -> one server; 7,680-byte request and 1,024-byte answer | all QUIC implementations; TON ADNL/RLDP2 | maintained |
-| `bulk-large` | two clients -> one server; 64-byte request and 256 KiB answer | all QUIC implementations; TON RLDP2 | maintained |
-| `mixed-scale` | 100K idle sessions plus 20 active neighbours running both IHAVE shapes | QUIC, ADNL, RLDP2 | planned |
+| `ihave-1x20` | one sender -> 20 neighbours; one 240-byte IHAVE each, 20 sends/event | all QUIC implementations; TON ADNL | maintained |
+| `ihave-40x20` | one sender -> 20 neighbours; 40 IHAVEs each immediately, 800 sends/event at 6,000 sends/s | all QUIC implementations; TON ADNL | maintained |
+| `fanin` | several independent neighbours -> one server; default 8 x 1,000 messages/s | all QUIC implementations; TON ADNL | maintained |
+| `sat-1x1` | ceiling probe: one connection, offered 1M msg/s in bursts of 100 | all QUIC implementations; TON ADNL | maintained |
+| `sat-20x400` | ceiling probe: 20-way fan-out, offered 1M msg/s in bursts of 400 | all QUIC implementations; TON ADNL | maintained |
+| `bulk-common` | two clients -> one server; 7,680-byte request and 1,024-byte answer | all QUIC implementations; TON ADNL | maintained |
+| `bulk-large` | two clients -> one server; 64-byte request and 256 KiB answer | all QUIC implementations | maintained |
+| `mixed-scale` | 100K idle sessions plus 20 active neighbours running both IHAVE shapes | QUIC and ADNL | planned |
 
-QUIC has connections, while ADNL and RLDP2 retain different peer/session objects. Cross-transport
+QUIC and ADNL retain different peer/session objects. Cross-transport
 scale results therefore use the common term **established peer session** and also report each
 transport's native gauge. For QUIC, `idle-scale=100K` specifically means 100K live,
 application-ready QUIC connections; TON peer authentication and the native test certificate are
@@ -31,13 +31,13 @@ not equivalent identity schemes.
 ## Implemented transport suite
 
 `bench.sh` starts separate server and client/generator processes and measures one workload.
-`-I ton|quic-go|quinn` selects the implementation and `-P quic|adnl|rldp2` selects the wire
+`-I ton|quic-go|quinn` selects the implementation and `-P quic|adnl` selects the wire
 transport. Native implementations support only `-P quic`. `suite.sh` runs the maintained matrix
 with TON and any built native drivers; set `IMPLEMENTATIONS` to override.
 
 ```sh
 cmake -B cmake-build-relwithdebinfo -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTON_USE_JEMALLOC=ON
-ninja -C cmake-build-relwithdebinfo bench-rldp
+ninja -C cmake-build-relwithdebinfo bench-transport
 
 test/net/bench/suite.sh
 PROTOCOLS="quic adnl" DURATION=60 test/net/bench/suite.sh
@@ -79,7 +79,7 @@ test/net/bench/bench.sh -T message -P adnl -c 8 -s 240 -m 1000
 # Near-limit raw ADNL request; its query response envelope is 1 KiB.
 test/net/bench/bench.sh -T query -P adnl -c 2 -i 2 -s 7680 -r 1024
 
-# Large reliable download; run the same shape with -P rldp2.
+# Large reliable download over QUIC.
 test/net/bench/bench.sh -T query -P quic -c 2 -i 2 -s 64 -r 262144
 
 # Establish 64 peer sessions, then stop application traffic.
@@ -177,7 +177,7 @@ multi-session generators, but has no `CONNECT_RATE` pacing or corresponding setu
 Admission limits need explicit treatment. The benchmark's `--no-admission-limits` lifts QUIC's
 per-address admission limits without changing its production 4,096-stream credit. ADNL still
 rejects more than 60 recently seen peer identities from one
-source IP. A 100K ADNL/RLDP2 generator therefore needs either realistic source-address diversity or
+source IP. A 100K ADNL generator therefore needs either realistic source-address diversity or
 a narrowly scoped benchmark-only override. Admission-limit testing remains a separate workload;
 the chosen mode must be recorded with every scale result.
 

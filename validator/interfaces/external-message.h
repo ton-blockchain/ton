@@ -38,6 +38,7 @@ class ExtMessage : public td::CntObject {
   virtual Hash hash_norm() const = 0;
   virtual ton::WorkchainId wc() const = 0;
   virtual ton::StdSmcAddress addr() const = 0;
+  virtual const td::BufferSlice& data() const = 0;
 };
 
 }  // namespace validator

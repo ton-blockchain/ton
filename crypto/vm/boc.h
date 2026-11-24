@@ -130,7 +130,7 @@ class NewCellStorageStat {
   Stat stat_;
   td::HashSet<std::pair<Cell::Hash, unsigned>> proof_seen_;  // hash, merkle_depth
   Stat proof_stat_;
-  td::HashSet<Ref<Cell>, RefCellHash> mu_left_seen_;  // Compare actual Cell objects, not hashes
+  td::HashSet<Ref<Cell>, RefCellHash> mu_left_seen_[Cell::max_level + 1];  // Compare actual Cell objects, not hashes
   MerkleUpdateLeftStat* merkle_update_left_stat_ = nullptr;
   const NewCellStorageStat* parent_{nullptr};
 
@@ -140,19 +140,22 @@ class NewCellStorageStat {
 struct CellStorageStat {
   unsigned long long cells;
   unsigned long long bits;
+  unsigned long long refs;
   struct CellInfo {
     td::uint32 max_merkle_depth = 0;
   };
   td::HashMap<vm::Cell::Hash, CellInfo> seen;
-  CellStorageStat() : cells(0), bits(0) {
+  CellStorageStat() : cells(0), bits(0), refs(0) {
   }
-  explicit CellStorageStat(unsigned long long limit_cells) : cells(0), bits(0), limit_cells(limit_cells) {
+  explicit CellStorageStat(unsigned long long limit_cells,
+                           unsigned long long limit_bits = std::numeric_limits<unsigned long long>::max())
+      : cells(0), bits(0), refs(0), limit_cells(limit_cells), limit_bits(limit_bits) {
   }
   void clear_seen() {
     seen.clear();
   }
   void clear() {
-    cells = bits = 0;
+    cells = bits = refs = 0;
     clear_limit();
     clear_seen();
   }
