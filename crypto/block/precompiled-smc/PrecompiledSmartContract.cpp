@@ -57,7 +57,7 @@ Result PrecompiledSmartContract::run(td::Ref<vm::CellSlice> my_address, ton::Uni
     result = std::move(r);
   }
 
-  if (result.exit_code != 0 && result.exit_code != 1) {
+  if (result.committed) {
     // see VmState::try_commit()
     if (c4_.is_null() || c4_->get_depth() > max_data_depth || c4_->get_level() != 0 || c5_.is_null() ||
         c5_->get_depth() > max_data_depth || c5_->get_level() != 0) {

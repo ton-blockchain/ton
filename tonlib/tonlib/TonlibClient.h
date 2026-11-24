@@ -352,14 +352,6 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::dns_resolve& request,
                         td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
 
-  td::Status do_request(tonlib_api::pchan_signPromise& request,
-                        td::Promise<object_ptr<tonlib_api::pchan_promise>>&& promise);
-  td::Status do_request(tonlib_api::pchan_validatePromise& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
-
-  td::Status do_request(tonlib_api::pchan_packPromise& request, td::Promise<object_ptr<tonlib_api::data>>&& promise);
-  td::Status do_request(tonlib_api::pchan_unpackPromise& request,
-                        td::Promise<object_ptr<tonlib_api::pchan_promise>>&& promise);
-
   void process_new_libraries(
       td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResult>> r_libraries);
   void perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::SmartContract::Args args,

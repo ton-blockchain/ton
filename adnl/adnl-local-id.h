@@ -52,9 +52,10 @@ class AdnlLocalId : public td::actor::Actor {
 
   void decrypt_message(td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void deliver(AdnlNodeIdShort src, td::BufferSlice data);
+  void deliver_ex(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::Unit> promise);
   void deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void receive(td::IPAddress addr, td::BufferSlice data);
-  td::actor::Task<> receive_coro(td::IPAddress addr, td::BufferSlice data);
+  void receive_decrypted(td::IPAddress addr, td::Result<td::BufferSlice> data, size_t data_size);
 
   void subscribe(std::string prefix, std::unique_ptr<AdnlPeerTable::Callback> callback);
   void unsubscribe(std::string prefix);
@@ -92,6 +93,8 @@ class AdnlLocalId : public td::actor::Actor {
   }
 
  private:
+  td::Status process_decrypted_packet(td::IPAddress addr, td::Result<td::BufferSlice> result, size_t data_size);
+
   td::actor::ActorId<AdnlPeerTable> peer_table_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<dht::Dht> dht_node_;

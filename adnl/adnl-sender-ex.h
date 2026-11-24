@@ -82,7 +82,7 @@ class PeersMtuGuard {
  public:
   PeersMtuGuard() = default;
   PeersMtuGuard(td::actor::ActorId<AdnlSenderEx> sender, AdnlNodeIdShort local_id,
-                std::vector<AdnlNodeIdShort> peer_ids, td::uint64 mtu, bool trusted = false)
+                std::vector<AdnlNodeIdShort> peer_ids, td::uint64 mtu, bool trusted)
       : sender_(std::move(sender)), local_id_(local_id), peer_ids_(std::move(peer_ids)), mtu_(mtu), trusted_(trusted) {
     for (const AdnlNodeIdShort peer_id : peer_ids_) {
       td::actor::send_closure(sender_, &AdnlSenderEx::add_peer_mtu, local_id_, peer_id, mtu_, trusted_);

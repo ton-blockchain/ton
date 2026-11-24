@@ -84,6 +84,9 @@ class ActorInfoCreator {
   ActorInfoCreator(ActorInfoCreator &&other) = delete;
   ActorInfoCreator &operator=(ActorInfoCreator &&other) = delete;
   void clear() {
+    // An undelivered message can keep its own actor alive: a suspended coroutine holds a reference to
+    // the actor it resumes on. Drop the messages first, or such an actor would outlive the pool.
+    pool_.for_each([](auto &actor_info) { actor_info.mailbox().clear(); });
     pool_.for_each([](auto &actor_info) { actor_info.dec_ref(); });
   }
   ~ActorInfoCreator() {

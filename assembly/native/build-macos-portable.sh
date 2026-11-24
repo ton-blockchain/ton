@@ -69,16 +69,16 @@ cmake -GNinja .. \
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
 if [ "$with_tests" = true ]; then
-  ninja storage-daemon storage-daemon-cli blockchain-explorer   \
+  ninja blockchain-explorer \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
-  http-proxy rldp-http-proxy create-state create-hardfork tlbc emulator proxy-liteserver all-tests
+  http-proxy create-state create-hardfork tlbc emulator proxy-liteserver all-tests
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
-  ninja storage-daemon storage-daemon-cli blockchain-explorer   \
+  ninja blockchain-explorer \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
-  http-proxy rldp-http-proxy create-state create-hardfork tlbc emulator proxy-liteserver
+  http-proxy create-state create-hardfork tlbc emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
 
@@ -88,8 +88,6 @@ if [ "$with_artifacts" = true ]; then
   echo Creating artifacts...
   rm -rf artifacts
   mkdir artifacts
-  cp build/storage/storage-daemon/storage-daemon artifacts/
-  cp build/storage/storage-daemon/storage-daemon-cli artifacts/
   cp build/blockchain-explorer/blockchain-explorer artifacts/
   cp build/crypto/fift artifacts/
   cp build/crypto/func artifacts/
@@ -100,7 +98,6 @@ if [ "$with_artifacts" = true ]; then
   cp build/tonlib/tonlib-cli artifacts/
   cp build/tonlib/libtonlibjson.0.5.dylib artifacts/libtonlibjson.dylib
   cp build/http/http-proxy artifacts/
-  cp build/rldp-http-proxy/rldp-http-proxy artifacts/
   cp build/dht-server/dht-server artifacts/
   cp build/dht/dht-ping-servers artifacts/
   cp build/dht/dht-resolve artifacts/

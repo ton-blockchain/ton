@@ -6782,9 +6782,6 @@ td::Status Collator::register_external_message(Ref<ExtMessage> ext_msg, int prio
   if (!block::tlb::t_Message.validate_ref(256, ext_msg_cell)) {
     return td::Status::Error("external message is not a (Message Any) according to hand-written checks");
   }
-  if (!block::tlb::validate_message_libs(ext_msg_cell)) {
-    return td::Status::Error("external message has invalid libs in StateInit");
-  }
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
   if (!tlb::unpack_cell_inexact(ext_msg_cell, info)) {
     return td::Status::Error("cannot unpack external message header");

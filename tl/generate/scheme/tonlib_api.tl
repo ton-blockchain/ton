@@ -59,8 +59,6 @@ raw.transactions transactions:vector<raw.transaction> previous_transaction_id:in
 
 raw.extMessageInfo hash:bytes hash_norm:bytes = raw.ExtMessageInfo;
 
-pchan.config alice_public_key:string alice_address:accountAddress bob_public_key:string bob_address:accountAddress init_timeout:int32 close_timeout:int32 channel_id:int64 = pchan.Config;
-
 raw.initialAccountState code:bytes data:bytes = InitialAccountState;
 wallet.v3.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
 wallet.v4.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
@@ -72,7 +70,6 @@ rwallet.config start_at:int53 limits:vector<rwallet.limit> = rwallet.Config;
 rwallet.initialAccountState init_public_key:string public_key:string wallet_id:int64 = InitialAccountState;
 
 dns.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
-pchan.initialAccountState config:pchan.config = InitialAccountState;
 
 raw.accountState code:bytes data:bytes frozen_hash:bytes = AccountState;
 wallet.v3.accountState wallet_id:int64 seqno:int32 = AccountState;
@@ -82,11 +79,6 @@ wallet.highload.v2.accountState wallet_id:int64 = AccountState;
 dns.accountState wallet_id:int64 = AccountState;
 rwallet.accountState wallet_id:int64 seqno:int32 unlocked_balance:int64 config:rwallet.config = AccountState;
 
-pchan.stateInit signed_A:Bool signed_B:Bool min_A:int64 min_B:int64 expire_at:int53 A:int64 B:int64 = pchan.State;
-pchan.stateClose signed_A:Bool signed_B:Bool min_A:int64 min_B:int64 expire_at:int53 A:int64 B:int64 = pchan.State;
-pchan.statePayout A:int64 B:int64 = pchan.State;
-
-pchan.accountState config:pchan.config state:pchan.State description:string = AccountState;
 uninited.accountState frozen_hash:bytes = AccountState;
 
 fullAccountState address:accountAddress balance:int64 extra_currencies:vector<extraCurrency> last_transaction_id:internal.transactionId block_id:ton.blockIdExt sync_utime:int53 account_state:AccountState revision:int32 = FullAccountState;
@@ -134,16 +126,6 @@ dns.actionSet entry:dns.entry = dns.Action;
 
 dns.resolved entries:vector<dns.entry> = dns.Resolved;
 
-
-//
-// Payment channel
-//
-pchan.promise signature:bytes promise_A:int64 promise_B:int64 channel_id:int64 = pchan.Promise;
-
-pchan.actionInit inc_A:int64 inc_B:int64 min_A:int64 min_B:int64 = pchan.Action;
-pchan.actionClose extra_A:int64 extra_B:int64 promise:pchan.promise = pchan.Action;
-pchan.actionTimeout = pchan.Action;
-
 //
 // Restricted wallet initialization
 //
@@ -156,7 +138,6 @@ rwallet.actionInit config:rwallet.config = rwallet.Action;
 actionNoop  = Action;
 actionMsg messages:vector<msg.message> allow_send_to_uninited:Bool = Action;
 actionDns actions:vector<dns.Action> = Action;
-actionPchan action:pchan.Action = Action;
 actionRwallet action:rwallet.actionInit = Action;
 //actionMultisig actions:vector<multisig.order> = Action;
 
@@ -326,13 +307,6 @@ smc.getLibraries library_list:(vector int256) = smc.LibraryResult;
 smc.getLibrariesExt list:(vector smc.LibraryQueryExt) = smc.LibraryResultExt;
 
 dns.resolve account_address:accountAddress name:string category:int256 ttl:int32 = dns.Resolved;
-
-pchan.signPromise input_key:InputKey promise:pchan.promise = pchan.Promise;
-pchan.validatePromise public_key:bytes promise:pchan.promise = Ok;
-
-pchan.packPromise promise:pchan.promise = Data;
-pchan.unpackPromise data:secureBytes = pchan.Promise;
-
 
 blocks.getMasterchainInfo = blocks.MasterchainInfo;
 blocks.getMasterchainInfoExt mode:int32 = blocks.MasterchainInfoExt;

@@ -395,7 +395,7 @@ td::uint64 BagOfCells::compute_sizes(int mode, int& r_size, int& o_size) {
     r_size = o_size = 0;
     return 0;
   }
-  while (cell_count >= (1LL << (rs << 3))) {
+  while (std::max(cell_count, root_count) >= (1LL << (rs << 3))) {
     rs++;
   }
   td::uint64 hashes =
@@ -1101,6 +1101,7 @@ td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(const Ce
   }
   if (!(skip_count_root & 2)) {
     bits += cs.size();
+    refs += cs.size_refs();
     if (bits > limit_bits) {
       return td::Status::Error("too many bits");
     }
@@ -1127,6 +1128,7 @@ td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(CellSlic
   }
   if (!(skip_count_root & 2)) {
     bits += cs.size();
+    refs += cs.size_refs();
     if (bits > limit_bits) {
       return td::Status::Error("too many bits");
     }
@@ -1259,8 +1261,13 @@ void NewCellStorageStat::dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_st
         }
       }
       need_left_mu_stat = false;
-    } else if (!cell->is_loaded() || !mu_left_seen_.insert(cell).second) {
+    } else if (!cell->is_loaded() || (!tree_node.empty() && !tree_node.is_loaded())) {
       need_left_mu_stat = false;
+    } else {
+      auto loaded = cell->load_cell().move_as_ok();  // cell->is_loaded() == true
+      if (!mu_left_seen_[cell->get_level()].insert(loaded.data_cell).second) {
+        need_left_mu_stat = false;
+      }
     }
   }
 

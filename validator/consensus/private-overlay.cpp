@@ -33,16 +33,11 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  static bool should_be_spawned(const Bus& bus) {
-    return bus.is_validator() || bus.is_collator || bus.config.observers_in_private_overlay();
-  }
-
   void start_up() override {
     auto& bus = *owning_bus();
 
     overlays_ = bus.overlays;
     local_adnl_id_ = bus.local_adnl_id;
-    adnl_sender_ = bus.adnl_sender;
 
     std::vector<td::Bits256> overlay_nodes_tl;
     std::map<PublicKeyHash, td::uint32> authorized_keys;
@@ -51,15 +46,12 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     for (const auto& peer : bus.validator_set) {
       adnl_id_to_peer_[peer.adnl_id] = peer;
       broadcast_src_to_peer_[peer.short_id] = peer;
-      overlay_nodes_.push_back(peer.adnl_id);
       overlay_nodes_tl.push_back(peer.short_id.bits256_value());
       authorized_keys.emplace(peer.short_id, max_broadcast_size);
     }
     if (!bus.shard.is_masterchain()) {
       for (const adnl::AdnlNodeIdShort& collator_id : bus.all_collators) {
-        if (authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size).second) {
-          overlay_nodes_.push_back(collator_id);
-        }
+        authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size);
       }
     }
     if (bus.is_validator()) {
@@ -68,8 +60,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       local_broadcast_src_ = bus.local_adnl_id.pubkey_hash();
     }
 
-    td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_adnl_id_);
-
     auto overlay_seed = create_tl_object<tl::overlayId>(bus.session_id, std::move(overlay_nodes_tl));
     auto overlay_full_id = overlay::OverlayIdFull{serialize_tl_object(overlay_seed, true)};
     overlay_id_ = overlay_full_id.compute_short_id();
@@ -77,14 +67,10 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     overlay::OverlayOptions options;
     options.name_ = PSTRING() << "valgroup" << bus.shard << "." << bus.cc_seqno;
     options.private_ping_peers_ = true;
-    options.twostep_broadcast_sender_ = adnl_sender_;
     options.send_twostep_broadcast_ = true;
     options.allow_old_broadcasts_ = false;
     options.twostep_intermediate_nodes_ = bus.all_current_validators;
-
-    if (bus.config.observers_in_private_overlay()) {
-      overlay_nodes_ = bus.all_overlay_nodes;
-    }
+    overlay_nodes_ = bus.all_overlay_nodes;
 
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
                             std::move(overlay_full_id), overlay_nodes_, make_callback(),
@@ -110,8 +96,8 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   void handle(BusHandle, std::shared_ptr<const OutgoingProtocolMessage> message) {
     auto send_to_peer = [&](const adnl::AdnlNodeIdShort& adnl_id) {
       CHECK(adnl_id != local_adnl_id_);
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_message_via, adnl_id, local_adnl_id_, overlay_id_,
-                              message->message.data.clone(), adnl_sender_);
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_message, adnl_id, local_adnl_id_, overlay_id_,
+                              message->message.data.clone());
     };
 
     auto broadcast_all_fn = [&](const OutgoingProtocolMessage::BroadcastToAll&) {
@@ -154,9 +140,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     }
 
     auto [awaiter, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, *destination, local_adnl_id_, overlay_id_,
-                            "", std::move(promise), message->timeout, std::move(message->request.data),
-                            message->max_answer_size, adnl_sender_);
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_query, *destination, local_adnl_id_, overlay_id_, "",
+                            std::move(promise), message->timeout, std::move(message->request.data),
+                            message->max_answer_size);
     auto response = co_await std::move(awaiter);
     if (fetch_tl_object<tl::requestError>(response, true).is_ok()) {
       co_return td::Status::Error("Peer returned an error");
@@ -166,11 +152,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
-    auto& bus = *owning_bus();
-    if (bus.config.enable_block_sync()) {
-      return;
-    }
-
     td::BufferSlice extra;
     if (event->candidate->delegation) {
       extra = create_serialize_tl_object<tl::broadcastExtra>(1, event->candidate->id.slot,
@@ -231,10 +212,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   void on_overlay_broadcast(PublicKeyHash src, td::BufferSlice data, td::BufferSlice extra) {
     auto& bus = *owning_bus();
 
-    if (bus.config.enable_block_sync()) {
-      LOG(WARNING) << "Dropping candidate broadcast from " << src << " in private overlay: protocol violation";
-      return;
-    }
     if (src == local_broadcast_src_) {
       return;
     }
@@ -275,9 +252,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
     auto& bus = *owning_bus();
-    if (bus.config.enable_block_sync()) {
-      co_return td::Status::Error("Precheck failed: Candidate broadcasts in private overlay are disabled");
-    }
     auto parsed_extra = CO_TRY(parse_broadcast_extra(extra).trace("Precheck failed: Failed to parse broadcast extra"));
     auto expected_leader = bus.collator_schedule->expected_collator_for(parsed_extra.slot);
     if (parsed_extra.delegation.has_value()) {
@@ -285,7 +259,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
         co_return td::Status::Error("Precheck failed: Delegation collator key does not match the broadcast source");
       }
       if (signature_checked) {
-        CO_TRY(check_delegation(*parsed_extra.delegation, expected_leader.get_using(bus), parsed_extra.slot, bus)
+        CO_TRY(check_delegation_from(src, *parsed_extra.delegation, expected_leader, parsed_extra.slot)
                    .trace("Precheck failed"));
       }
     } else {
@@ -338,7 +312,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   }
 
   td::actor::ActorId<overlay::Overlays> overlays_;
-  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender_;
   overlay::OverlayIdShort overlay_id_;
   adnl::AdnlNodeIdShort local_adnl_id_;
   std::vector<adnl::AdnlNodeIdShort> overlay_nodes_;
@@ -367,6 +340,33 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   PublicKeyHash local_broadcast_src_;
 
   std::mt19937 gossip_rng_ = td::Random::fast_gen();
+
+  std::map<PublicKeyHash, td::Timestamp> bad_signature_bans_;
+
+  bool is_banned(PublicKeyHash src) {
+    auto it = bad_signature_bans_.find(src);
+    if (it == bad_signature_bans_.end()) {
+      return false;
+    }
+    if (it->second.is_in_past()) {
+      bad_signature_bans_.erase(it);
+      return false;
+    }
+    return true;
+  }
+
+  td::Status check_delegation_from(PublicKeyHash src, const Delegation& delegation, PeerValidatorId leader_id,
+                                   td::uint32 slot) {
+    if (is_banned(src)) {
+      return td::Status::Error("src is temporarily banned");
+    }
+    auto& bus = *owning_bus();
+    auto S = check_delegation(delegation, leader_id.get_using(bus), slot, bus);
+    if (S.is_error()) {
+      bad_signature_bans_[src] = td::Timestamp::in(bus.config.noncritical_params.bad_signature_ban_duration);
+    }
+    return S;
+  }
 };
 
 }  // namespace

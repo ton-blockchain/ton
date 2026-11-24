@@ -36,7 +36,6 @@ struct GroupIdentity {
   adnl::AdnlNodeIdShort adnl_id;
   std::optional<PublicKeyHash> short_id = std::nullopt;
   bool is_collator = false;
-  bool suffix_db = true;
 
   std::strong_ordering operator<=>(const GroupIdentity&) const = default;
 
@@ -58,7 +57,6 @@ struct GroupParams {
 
   ValidatorSessionId session_id;
   td::actor::ActorId<overlay::Overlays> overlays;
-  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
   std::string db_root;
 
   std::vector<adnl::AdnlNodeIdShort> all_overlay_nodes;
@@ -87,7 +85,6 @@ struct ManagerContext {
   td::Ref<ValidatorManagerOptions> opts;
   td::actor::ActorId<keyring::Keyring> keyring;
   td::actor::ActorId<overlay::Overlays> overlays;
-  td::actor::ActorId<adnl::AdnlSenderEx> quic;
   std::string db_root;
 
   std::set<PublicKeyHash> validator_keys;

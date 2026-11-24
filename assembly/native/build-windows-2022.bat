@@ -12,23 +12,12 @@ if not exist "%ROOT_DIR%\third-party" (
 echo Using repo root: %ROOT_DIR%
 cd /d "%ROOT_DIR%"
 
-echo Installing chocolatey windows package manager...
-@"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -InputFormat None -ExecutionPolicy Bypass -Command "iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))" && SET "PATH=%PATH%;%ALLUSERSPROFILE%\chocolatey\bin"
-choco -?
-IF %errorlevel% NEQ 0 (
-  echo Can't install chocolatey
-  exit /b %errorlevel%
-)
-
-choco feature enable -n allowEmptyChecksums
-
-echo Installing tools...
-choco install -y ninja nasm
-IF %errorlevel% NEQ 0 (
-  echo Can't install tools
-  exit /b %errorlevel%
-)
-SET PATH=%PATH%;C:\Program Files\NASM
+set "TON_NASM_VERSION=2.16.03"
+set "PATH=%ROOT_DIR%\third_libs\nasm-%TON_NASM_VERSION%;%PATH%;C:\Program Files\NASM;%ALLUSERSPROFILE%\chocolatey\bin"
+call :ensure_build_tool ninja --version
+IF ERRORLEVEL 1 exit /b 1
+call :ensure_nasm
+IF ERRORLEVEL 1 exit /b 1
 
 where clang-cl
 IF %errorlevel% NEQ 0 (
@@ -54,18 +43,18 @@ IF %errorlevel% NEQ 0 (
 )
 
 IF "%1"=="-t" (
-ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
+ninja blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
-json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator ^
+json2tlo dht-server http-proxy create-state create-hardfork emulator ^
 proxy-liteserver all-tests
 IF ERRORLEVEL 1 (
   echo Can't compile TON
   exit /b 1
 )
 ) else (
-ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
+ninja blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
-json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator proxy-liteserver
+json2tlo dht-server http-proxy create-state create-hardfork emulator proxy-liteserver
 IF ERRORLEVEL 1 (
   echo Can't compile TON
   exit /b 1
@@ -90,9 +79,7 @@ mkdir artifacts
 mkdir artifacts\smartcont
 mkdir artifacts\lib
 
-for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
-  build\storage\storage-daemon\storage-daemon-cli.exe ^
-  build\blockchain-explorer\blockchain-explorer.exe ^
+for %%I in (build\blockchain-explorer\blockchain-explorer.exe ^
   build\crypto\fift.exe ^
   build\crypto\tlbc.exe ^
   build\crypto\func.exe ^
@@ -102,7 +89,6 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\tonlib\tonlib-cli.exe ^
   build\tonlib\tonlibjson.dll ^
   build\http\http-proxy.exe ^
-  build\rldp-http-proxy\rldp-http-proxy.exe ^
   build\dht-server\dht-server.exe ^
   build\lite-client\lite-client.exe ^
   build\validator-engine\validator-engine.exe ^
@@ -137,3 +123,54 @@ IF ERRORLEVEL 1 (
   echo Can't copy fift lib artifacts
   exit /b 1
 )
+
+exit /b 0
+
+:ensure_build_tool
+%~1 %~2 >nul 2>nul
+IF NOT ERRORLEVEL 1 exit /b 0
+
+choco --version >nul 2>nul
+IF ERRORLEVEL 1 (
+  echo Installing Chocolatey for %~1...
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
+  IF ERRORLEVEL 1 exit /b 1
+)
+choco --version
+IF ERRORLEVEL 1 exit /b 1
+
+for /L %%A in (1,1,3) do (
+  echo Installing %~1 ^(attempt %%A of 3^)...
+  choco install -y --no-progress %~1
+  REM Verify the tool itself rather than relying on the installer exit code.
+  %~1 %~2
+  IF NOT ERRORLEVEL 1 exit /b 0
+  IF %%A LSS 3 powershell -NoProfile -Command "Start-Sleep -Seconds 10"
+)
+
+echo Can't install %~1 after 3 attempts
+exit /b 1
+
+:ensure_nasm
+nasm -v >nul 2>nul
+IF NOT ERRORLEVEL 1 exit /b 0
+
+echo Downloading NASM %TON_NASM_VERSION% from nasm.us...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference = 'Stop';" ^
+  "$version = $env:TON_NASM_VERSION; $destination = Join-Path $env:ROOT_DIR 'third_libs';" ^
+  "$archive = Join-Path $env:TEMP ('nasm-' + $version + '-win64.zip');" ^
+  "$url = 'https://www.nasm.us/pub/nasm/releasebuilds/' + $version + '/win64/nasm-' + $version + '-win64.zip';" ^
+  "for ($attempt = 1; $attempt -le 3; $attempt++) { try {" ^
+  "  Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $archive -TimeoutSec 60;" ^
+  "  if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne '3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6') { throw 'NASM archive checksum mismatch' };" ^
+  "  Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force;" ^
+  "  Remove-Item -LiteralPath $archive; exit 0;" ^
+  "} catch { if ($attempt -eq 3) { throw }; Write-Warning $_; Start-Sleep -Seconds 10 } }"
+IF ERRORLEVEL 1 exit /b 1
+nasm -v
+IF ERRORLEVEL 1 (
+  echo NASM is unavailable after extracting the official archive
+  exit /b 1
+)
+exit /b 0

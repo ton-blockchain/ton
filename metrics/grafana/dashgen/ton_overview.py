@@ -696,18 +696,13 @@ ROWS = [
                           "ton_adnl_query_roundtrip_seconds_count"),
             failure_ratio("inbound queries", "ton_adnl_query_failed_total",
                           "ton_adnl_query_duration_seconds_count", tl=r"!~dht\\..*"),
-            failure_ratio("rldp2 delivery", "ton_rldp2_message_delivery_failed_total",
-                          "ton_rldp2_message_delivery_seconds_count"),
-            failure_ratio("rldp2 roundtrip", "ton_rldp2_query_roundtrip_failed_total",
-                          "ton_rldp2_query_roundtrip_seconds_count"),
             unit="percentunit", id=31, h=8, legend=LIST_LEGEND, thresholds=failure_bands(),
             description=(
                 "Each line is one node's failure share for that transport, collapsed across nodes "
                 "by the Node aggregation switch — worst by default, so a single bad node is not "
                 "diluted by the fleet, and the hidden ⇒ row names it. QUIC confirmation ratios cover "
                 "stream-based fire-and-forget messages whose transport acknowledgement or legacy "
-                "empty receipt never came; DATAGRAM messages have no confirmation sample. RLDP2 "
-                "delivery and query roundtrip ratios retain their transport-specific meanings. "
+                "empty receipt never came; DATAGRAM messages have no confirmation sample. "
                 "Inbound failures include explicit errors and "
                 "abandoned answer promises; DHT is excluded because client-mode nodes "
                 "intentionally reject inbound DHT requests. A node contributes a healthy zero when "

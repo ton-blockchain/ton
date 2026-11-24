@@ -42,7 +42,6 @@ const auto& get_map() {
 #include "smartcont/auto/highload-wallet-code.cpp"
 #include "smartcont/auto/highload-wallet-v2-code.cpp"
 #include "smartcont/auto/multisig-code.cpp"
-#include "smartcont/auto/payment-channel-code.cpp"
 #include "smartcont/auto/restricted-wallet3-code.cpp"
 #include "smartcont/auto/wallet-code.cpp"
 
@@ -144,10 +143,6 @@ td::Span<int> SmartContractCode::get_revisions(Type type) {
       static int res[] = {-1, 1};
       return res;
     }
-    case Type::PaymentChannel: {
-      static int res[] = {-1};
-      return res;
-    }
     case Type::RestrictedWallet: {
       static int res[] = {1};
       return res;
@@ -200,8 +195,6 @@ td::Ref<vm::Cell> SmartContractCode::get_code(Type type, int ext_revision) {
         return "multisig";
       case Type::ManualDns:
         return "dns-manual";
-      case Type::PaymentChannel:
-        return "payment-channel";
       case Type::RestrictedWallet:
         return "restricted-wallet3";
       case Type::WalletV4:
