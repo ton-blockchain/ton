@@ -373,6 +373,7 @@ Result<SecureString> Ed25519::PrivateKey::sign(Slice data) const {
 }
 
 Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature, SignatureDomain domain) const {
+  TD_PERF_COUNTER(Ed25519_verify_signature);
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
   auto [cache, cache_key, slot] = get_cache_data(data, octet_string_, signature, domain);
   if (cache) {
