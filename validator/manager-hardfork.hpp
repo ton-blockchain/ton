@@ -103,9 +103,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
                                  td::Promise<td::Ref<ShardState>> promise) override;
-  void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;
@@ -325,11 +322,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                         td::Promise<std::vector<BlockIdExt>> promise) override {
     UNREACHABLE();
-  }
-  void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override {
-    UNREACHABLE();
-  }
-  void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
   }
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override {
   }

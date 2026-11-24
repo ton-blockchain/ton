@@ -33,7 +33,7 @@
 #include "td/utils/LRUCache.h"
 
 #include "full-node-custom-overlays.hpp"
-#include "full-node-fast-sync-overlays.hpp"
+#include "full-node-protected-overlays.hpp"
 #include "full-node-queries.hpp"
 #include "full-node-shard.h"
 #include "full-node.h"
@@ -44,6 +44,21 @@ namespace ton {
 namespace validator {
 
 namespace fullnode {
+
+enum class PublicRebroadcastType { candidate, finality };
+inline constexpr metrics::LabelEnum<PublicRebroadcastType, 2> ton_metric_label(PublicRebroadcastType) {
+  return {"type", {{"candidate", "finality"}}};
+}
+
+enum class PublicRebroadcastSource { protected_overlay, custom_overlay };
+inline constexpr metrics::LabelEnum<PublicRebroadcastSource, 2> ton_metric_label(PublicRebroadcastSource) {
+  return {"source", {{"protected", "custom"}}};
+}
+
+enum class ExternalRelayResult { relayed, no_protected_route };
+inline constexpr metrics::LabelEnum<ExternalRelayResult, 2> ton_metric_label(ExternalRelayResult) {
+  return {"result", {{"relayed", "no_protected_route"}}};
+}
 
 class FullNodeImpl : public FullNode {
  public:
@@ -67,6 +82,7 @@ class FullNodeImpl : public FullNode {
 
   void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) override;
   void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) override;
+  void relay_external_message_to_protected_overlay(ShardIdFull shard, td::BufferSlice data) override;
 
   void on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor);
 
@@ -74,12 +90,9 @@ class FullNodeImpl : public FullNode {
 
   void initial_read_complete(BlockHandle top_block);
   td::actor::Task<> send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
-  void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
-  void send_broadcast(BlockBroadcast broadcast, int mode);
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode);
-  void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
 
   td::actor::Task<QuerySender> get_query_sender(ShardIdFull shard_id, bool historical = false);
 
@@ -101,14 +114,10 @@ class FullNodeImpl : public FullNode {
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
 
-  void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source,
-                               bool send_to_custom) override;
   void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
                                         bool send_to_custom) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                          td::BufferSlice data, BroadcastSource source, bool send_to_custom) override;
-  void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
-                                          bool send_to_custom) override;
   void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) override;
 
   void set_validator_telemetry_filename(std::string value) override;
@@ -118,42 +127,62 @@ class FullNodeImpl : public FullNode {
                            std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) override;
   void alarm() override;
 
-  void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
-                                           overlay::OverlayMemberCertificate cert) override {
-    VLOG(full_node, DEBUG) << "Importing fast sync overlay certificate for " << local_id << " issued by "
+  void import_protected_overlay_member_certificate(adnl::AdnlNodeIdShort local_id,
+                                                   overlay::OverlayMemberCertificate cert) override {
+    VLOG(full_node, DEBUG) << "Importing protected overlay certificate for " << local_id << " issued by "
                            << cert.issued_by().compute_short_id() << " expires in "
                            << (double)cert.expire_at() - td::Clocks::system();
-    fast_sync_overlays_.add_member_certificate(local_id, std::move(cert));
-    update_fast_sync_and_public_overlays();
+    protected_overlays_.add_member_certificate(local_id, std::move(cert));
+    update_protected_and_public_overlays();
   }
   void initial_config_loaded() override;
 
   td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
                                                 QuerySource source) override;
 
+  td::actor::Task<> collect(metrics::Context ctx) override;
+
   void start_up() override;
 
   FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
                td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-               td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
                td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
                td::Promise<td::Unit> started_promise);
 
  private:
+  struct RebroadcasterMetrics {
+    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType, PublicRebroadcastSource>
+        broadcasts;
+    metrics::Labeled<metrics::Counter, overlay::OverlayChain, PublicRebroadcastType, PublicRebroadcastSource> arrivals;
+    metrics::Labeled<metrics::Gauge<double>, overlay::OverlayChain, PublicRebroadcastType>
+        last_broadcast_timestamp_seconds;
+    metrics::Labeled<metrics::Counter, ExternalRelayResult> external_messages;
+
+    void collect(metrics::Context ctx) const {
+      ctx.collect(broadcasts, "broadcasts");
+      ctx.collect(arrivals, "arrivals");
+      ctx.collect(last_broadcast_timestamp_seconds, "last_broadcast_timestamp_seconds");
+      ctx.collect(external_messages, "external_messages");
+    }
+  } rebroadcaster_metrics_;
+
   struct ShardInfo {
     td::actor::ActorOwn<FullNodeShard> actor;
     PublicKeyHash local_id = PublicKeyHash::zero();
     bool active = false;
-    bool enable_plumtree_broadcast = false;
     td::Timestamp delete_at = td::Timestamp::never();
   };
 
-  void update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast);
+  void update_shard_actor(ShardIdFull shard, bool active);
   void set_public_overlays_enabled(bool enabled);
-  void update_public_overlay_mode(double fast_sync_authority_until);
-  void update_fast_sync_and_public_overlays();
+  void update_public_overlay_mode(double protected_overlay_authority_until);
+  void update_protected_and_public_overlays();
+  void record_public_rebroadcast_arrival(const BlockIdExt& block_id, PublicRebroadcastType type,
+                                         PublicRebroadcastSource source);
+  void record_public_rebroadcast(const BlockIdExt& block_id, PublicRebroadcastType type,
+                                 PublicRebroadcastSource source);
 
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
@@ -170,8 +199,6 @@ class FullNodeImpl : public FullNode {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
-  td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<dht::Dht> dht_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
@@ -195,7 +222,7 @@ class FullNodeImpl : public FullNode {
   td::Promise<> sync_promise_;
   td::Timestamp sync_completed_at_;
 
-  FullNodeFastSyncOverlays fast_sync_overlays_;
+  FullNodeProtectedOverlays protected_overlays_;
 
   struct CustomOverlayInfo {
     CustomOverlayParams params_;
@@ -204,16 +231,14 @@ class FullNodeImpl : public FullNode {
   std::map<std::string, CustomOverlayInfo> custom_overlays_;
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{10000};
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_finality_{10000};
-  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_shard_block_desc_{10000};
+  td::LRUCache<BlockIdExt, td::Unit> public_rebroadcasted_candidates_{256};
+  td::LRUCache<BlockIdExt, td::Unit> public_rebroadcasted_finalities_{256};
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);
-  void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
   void send_block_finality_broadcast_to_custom_overlays(const BlockFinalityBroadcast& finality);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
                                                          td::uint32 validator_set_hash, const td::BufferSlice& data);
-  void send_shard_block_info_to_custom_overlays(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                const td::BufferSlice& data);
 
   std::string validator_telemetry_filename_;
   PublicKeyHash validator_telemetry_collector_key_ = PublicKeyHash::zero();
@@ -232,13 +257,13 @@ class FullNodeImpl : public FullNode {
   td::Timestamp plumtree_stats_exchange_at_ = td::Timestamp::never();
 
   void schedule_plumtree_stats_exchange();
-  void start_plumtree_stats_exchange();
+  void start_plumtree_stats_exchange(bool exchange_protected);
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 
   // Separate handlers for separate rate limiters
   FullNodeQueryHandler query_handler_public_;
-  FullNodeQueryHandler query_handler_fast_sync_;
+  FullNodeQueryHandler query_handler_protected_;
   FullNodeQueryHandler query_handler_custom_;
 
   static std::shared_ptr<RateLimiter<>> make_rate_limiter(const FullNodeOptions::RateLimiterParams& params);

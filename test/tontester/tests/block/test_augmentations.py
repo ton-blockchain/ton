@@ -13,6 +13,7 @@ from block.generated import (
     KeyExtBlkRef,
     KeyMaxLt,
     KeyMaxLtAug,
+    Message,
     MsgEnvelopeType,
     OutMsgQueueAug,
     account,
@@ -31,11 +32,10 @@ from block.generated import (
     dispatch_queue_aug_old,
     ext_blk_ref,
     ext_in_msg_info,
-    ext_out_msg_info,
+    ext_out_msg_info_1,
     extra_currencies,
     interm_addr_regular,
     left,
-    message,
     msg_envelope,
     msg_envelope_v2,
     nanograms,
@@ -110,10 +110,10 @@ def _make_addr_std(workchain: int = 0, address_int: int = 1) -> addr_std:
     return addr_std(anycast=None, workchain_id=workchain, address=_bits(address_int))
 
 
-def _make_message(*, info: CommonMsgInfo) -> message[Slice]:
+def _make_message(*, info: CommonMsgInfo) -> Message[Slice]:
     """Build a Message[Slice] with a trivial empty-slice body and no init."""
     empty_slice = Builder().end_cell().begin_parse()
-    return message[Slice](
+    return Message[Slice](
         _tX=AnyType,
         info=info,
         init=None,
@@ -121,8 +121,8 @@ def _make_message(*, info: CommonMsgInfo) -> message[Slice]:
     )
 
 
-def _make_message_ref(info: CommonMsgInfo) -> Ref[message[Slice]]:
-    return Ref(message[Slice].instantiate(AnyType), _make_message(info=info))
+def _make_message_ref(info: CommonMsgInfo) -> Ref[Message[Slice]]:
+    return Ref(Message[Slice].instantiate(AnyType), _make_message(info=info))
 
 
 def _msg_envelope_v2(
@@ -154,8 +154,8 @@ def _msg_envelope_old(
     )
 
 
-def _ext_out_info(created_lt: int) -> ext_out_msg_info:
-    return ext_out_msg_info(
+def _ext_out_info(created_lt: int) -> ext_out_msg_info_1:
+    return ext_out_msg_info_1(
         src=_make_addr_std(),
         dest=addr_none(),
         created_lt=created_lt,

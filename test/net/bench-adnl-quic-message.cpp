@@ -373,23 +373,6 @@ class BenchmarkRunner final : public td::actor::Actor {
     }
   }
 
-  td::actor::Task<td::Unit> wait_for_quic_connection(td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender,
-                                                     ton::adnl::AdnlNodeIdShort local_id,
-                                                     ton::adnl::AdnlNodeIdShort peer_id) {
-    auto deadline = td::Timestamp::in(10.0);
-    while (true) {
-      auto [task, promise] = td::actor::StartedTask<std::string>::make_bridge();
-      td::actor::send_closure(sender, &ton::adnl::AdnlSenderInterface::get_conn_ip_str, local_id, peer_id,
-                              std::move(promise));
-      auto result = co_await std::move(task).wrap();
-      if (result.is_ok()) {
-        co_return td::Unit{};
-      }
-      LOG_CHECK(!deadline.is_in_past()) << "QUIC connection did not become ready: " << result.error();
-      co_await td::actor::coro_sleep(td::Timestamp::in(0.01));
-    }
-  }
-
   // The batching histograms in Prometheus text form, filtered to the wire and batching tiers: this
   // is the same collect() the exporter drives, so a stderr run and a scrape agree by construction.
   td::actor::Task<td::Unit> print_quic_metrics(const char* who, td::actor::ActorId<ton::quic::QuicSender> quic) {
@@ -418,10 +401,6 @@ class BenchmarkRunner final : public td::actor::Actor {
     co_await td::actor::Yield{};
 
     auto sender = client.sender;
-    if (config_.protocol == Protocol::quic) {
-      co_await wait_for_quic_connection(sender, client.id, server.id);
-    }
-
     auto payload = make_payload();
 
     // Establish the ADNL channel or QUIC connection outside the measurement.

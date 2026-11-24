@@ -1073,10 +1073,9 @@ MergeStats merge_runs_to_sst(RunRegistry &registry, const std::string &sst_dir, 
 void write_celldb(const std::string &celldb_path, const MergeStats &stats, const td::Bits256 &root_hash,
                   const td::Bits256 &file_hash) {
   auto options = make_celldb_options();
-  rocksdb::DB *raw_db = nullptr;
-  auto status = rocksdb::DB::Open(options, celldb_path, &raw_db);
+  std::unique_ptr<rocksdb::DB> db;
+  auto status = rocksdb::DB::Open(options, celldb_path, &db);
   LOG_CHECK(status.ok()) << "rocksdb::DB::Open " << celldb_path << ": " << status.ToString();
-  std::unique_ptr<rocksdb::DB> db(raw_db);
 
   if (!stats.sst_files.empty()) {
     rocksdb::IngestExternalFileOptions ifo;
@@ -1343,12 +1342,11 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
 td::Status do_checkpoint(const std::string &src, const std::string &dst) {
   auto options = make_celldb_options();
   options.create_if_missing = false;
-  rocksdb::DB *raw_db = nullptr;
-  auto status = rocksdb::DB::Open(options, src, &raw_db);
+  std::unique_ptr<rocksdb::DB> db;
+  auto status = rocksdb::DB::Open(options, src, &db);
   if (!status.ok()) {
     return td::Status::Error(PSTRING() << "cannot open " << src << ": " << status.ToString());
   }
-  std::unique_ptr<rocksdb::DB> db(raw_db);
   rocksdb::Checkpoint *raw_cp = nullptr;
   status = rocksdb::Checkpoint::Create(db.get(), &raw_cp);
   if (!status.ok()) {

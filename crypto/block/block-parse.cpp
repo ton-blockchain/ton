@@ -2539,7 +2539,7 @@ bool validate_message_libs(const td::Ref<vm::Cell>& cell) {
   }
 }
 
-bool validate_message_relaxed_libs(const td::Ref<vm::Cell>& cell) {
+bool validate_message_relaxed_libs(const td::Ref<vm::Cell>& cell, bool allow_libs) {
   gen::MessageRelaxed::Record rec;
   if (!type_unpack_cell(cell, gen::t_MessageRelaxed_Any, rec)) {
     return false;
@@ -2548,10 +2548,11 @@ bool validate_message_relaxed_libs(const td::Ref<vm::Cell>& cell) {
   if (!state_init.fetch_long(1)) {
     return true;
   }
+  const auto& t_StateInit = allow_libs ? (const tlb::TLB&)gen::t_StateInitWithLibs : gen::t_StateInitNullLibs;
   if (state_init.fetch_long(1)) {
-    return gen::t_StateInitWithLibs.validate_ref(state_init.prefetch_ref());
+    return t_StateInit.validate_ref(state_init.prefetch_ref());
   } else {
-    return gen::t_StateInitWithLibs.validate_csr(rec.init);
+    return t_StateInit.validate_csr(rec.init);
   }
 }
 

@@ -28,8 +28,6 @@
 #ifdef TON_TEST_METRICS_QUIC
 #include "quic/metrics.h"
 #endif
-#include "rldp2/RldpConnection.h"
-#include "rldp2/rldp-metrics.h"
 #include "td/actor/actor.h"
 #include "td/actor/core/Scheduler.h"
 #include "td/utils/Random.h"
@@ -705,33 +703,6 @@ TEST(MetricsGolden, Adnl) {
             }));
 }
 
-TEST(MetricsGolden, Rldp2) {
-  // RldpIn::collect
-  ASSERT_EQ(families({
-                "ton_rldp2_wire_bytes counter",
-                "ton_rldp2_wire_packets counter",
-                "ton_rldp2_transport_dropped counter",
-                "ton_rldp2_transport_transfers counter",
-                "ton_rldp2_transport_connections gauge",
-                "ton_rldp2_transport_queries_pending gauge",
-                "ton_rldp2_app_bytes counter",
-                "ton_rldp2_app_messages counter",
-                "ton_rldp2_app_dropped counter",
-                "ton_rldp2_query_roundtrip_seconds histogram",
-                "ton_rldp2_query_roundtrip_failed counter",
-                "ton_rldp2_message_delivery_seconds histogram",
-                "ton_rldp2_message_delivery_failed counter",
-            }),
-            emitted_families([](Context ctx) {
-              ::ton::rldp2::RldpConnMetrics aggregate;
-              ::ton::rldp2::RldpMetrics metrics;
-              auto rldp = ctx.with_name("rldp2");
-              rldp.collect(aggregate.wire, "wire");
-              rldp.collect(aggregate.transport_dropped, "transport_dropped");
-              rldp.collect(metrics);
-            }));
-}
-
 #ifdef TON_TEST_METRICS_QUIC
 TEST(Metrics, QuicPeerMetricsSplitByTrust) {
   ::ton::metrics::Labeled<::ton::quic::PeerMetrics, ::ton::quic::Trust> peers;
@@ -796,6 +767,18 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_batching_egress_flush_packets histogram",
                 "ton_quic_batching_egress_gso_segments histogram",
                 "ton_quic_batching_egress_syscall_messages histogram",
+                "ton_quic_flood_admit_rejected counter",
+                "ton_quic_flood_closed counter",
+                "ton_quic_flood_streams_failed counter",
+                "ton_quic_flood_ingress_granted_bytes counter",
+                "ton_quic_flood_half_open gauge",
+                "ton_quic_flood_discouraged_ips gauge",
+                "ton_quic_flood_untrusted_connections gauge",
+                "ton_quic_flood_shaper_waiters gauge",
+                "ton_quic_flood_buffered_bytes gauge",
+                "ton_quic_flood_inflight_bytes gauge",
+                "ton_quic_flood_untrusted_egress_bytes gauge",
+                "ton_quic_flood_reserved_only gauge",
                 "ton_quic_transport_connections_ready gauge",
                 "ton_quic_app_bytes counter",
                 "ton_quic_app_messages counter",

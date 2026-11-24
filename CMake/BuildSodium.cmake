@@ -86,16 +86,15 @@ elseif (ANDROID OR NOT NIX)
   file(MAKE_DIRECTORY ${SODIUM_INCLUDE_DIR})
   file(MAKE_DIRECTORY ${SODIUM_BUILD_DIR})
 
-  if (CMAKE_C_FLAGS)
-    set(SODIUM_CFLAGS "${CMAKE_C_FLAGS} -fPIC")
-  else()
-    set(SODIUM_CFLAGS "-fPIC")
+  set(SODIUM_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
+  # Multi-config builds share one archive, so build an optimized dependency.
+  if (CMAKE_CONFIGURATION_TYPES OR NOT SODIUM_BUILD_TYPE)
+    set(SODIUM_BUILD_TYPE Release)
   endif()
-  if (CMAKE_CXX_FLAGS)
-    set(SODIUM_CXXFLAGS "${CMAKE_CXX_FLAGS} -fPIC")
-  else()
-    set(SODIUM_CXXFLAGS "-fPIC")
-  endif()
+  string(TOUPPER "${SODIUM_BUILD_TYPE}" SODIUM_BUILD_TYPE)
+  # Autotools does not inherit CMake's configuration-specific compiler flags.
+  string(STRIP "${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_${SODIUM_BUILD_TYPE}} -fPIC" SODIUM_CFLAGS)
+  string(STRIP "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${SODIUM_BUILD_TYPE}} -fPIC" SODIUM_CXXFLAGS)
 
   set(SODIUM_CONFIGURE_ARGS
     --prefix=${SODIUM_BINARY_DIR}
@@ -123,7 +122,7 @@ elseif (ANDROID OR NOT NIX)
       COMMAND ${MSYS2_BASH} -lc "cd '${SODIUM_BUILD_DIR}' && CC='${SODIUM_CC}' CXX='${SODIUM_CXX}' AR='${SODIUM_AR}' RANLIB='${SODIUM_RANLIB}' CFLAGS='${SODIUM_CFLAGS}' CXXFLAGS='${SODIUM_CXXFLAGS}' make install"
       COMMAND ${CMAKE_COMMAND} -E echo "Skip ranlib on MinGW"
       COMMENT "Build sodium"
-      DEPENDS ${SODIUM_SOURCE_DIR}
+      DEPENDS ${SODIUM_SOURCE_DIR} ${CMAKE_CURRENT_LIST_FILE}
       OUTPUT ${SODIUM_LIBRARY}
     )
   else()
@@ -166,7 +165,7 @@ elseif (ANDROID OR NOT NIX)
         make install
       COMMAND ${SODIUM_RANLIB} ${SODIUM_LIBRARY}
       COMMENT "Build sodium"
-      DEPENDS ${SODIUM_SOURCE_DIR}
+      DEPENDS ${SODIUM_SOURCE_DIR} ${CMAKE_CURRENT_LIST_FILE}
       OUTPUT ${SODIUM_LIBRARY}
     )
   endif()
@@ -175,3 +174,4 @@ else()
 endif()
 
 add_custom_target(sodium DEPENDS ${SODIUM_LIBRARY})
+

@@ -11,7 +11,7 @@ if [ -z "${IMPLEMENTATIONS:-}" ]; then
   [ -x "$GO_BENCH" ] && IMPLEMENTATIONS="$IMPLEMENTATIONS quic-go" || echo "quic-go driver not built, skipping ($GO_BENCH)"
   [ -x "$QUINN_BENCH" ] && IMPLEMENTATIONS="$IMPLEMENTATIONS quinn" || echo "quinn driver not built, skipping ($QUINN_BENCH)"
 fi
-PROTOCOLS="${PROTOCOLS:-quic adnl rldp2}"
+PROTOCOLS="${PROTOCOLS:-quic adnl}"
 DURATION="${DURATION:-20}"
 WARMUP="${WARMUP:-5}"
 FANIN_RATE="${FANIN_RATE:-1000}"
@@ -30,13 +30,12 @@ for implementation in $IMPLEMENTATIONS; do
 done
 for protocol in $PROTOCOLS; do
   case "$protocol" in
-    quic|adnl|rldp2) ;;
+    quic|adnl) ;;
     *) echo "unknown protocol: $protocol" >&2; exit 2 ;;
   esac
 done
-if ! contains "$IMPLEMENTATIONS" ton && \
-   { contains "$PROTOCOLS" adnl || contains "$PROTOCOLS" rldp2; }; then
-  echo "ADNL and RLDP2 require IMPLEMENTATIONS to include ton" >&2
+if ! contains "$IMPLEMENTATIONS" ton && contains "$PROTOCOLS" adnl; then
+  echo "ADNL requires IMPLEMENTATIONS to include ton" >&2
   exit 2
 fi
 if ! contains "$PROTOCOLS" quic && \
@@ -75,9 +74,6 @@ run_selected() {
   if contains "$IMPLEMENTATIONS" ton; then
     if [ "$adnl_supported" -eq 1 ] && contains "$PROTOCOLS" adnl; then
       run "$scenario" ton adnl "$@"
-    fi
-    if contains "$PROTOCOLS" rldp2; then
-      run "$scenario" ton rldp2 "$@"
     fi
   fi
 }

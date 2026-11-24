@@ -144,20 +144,6 @@ Compile TON binaries with emscripten
   ./fift-func-wasm-build-ubuntu.sh
 ```
 
-### Building TON tonlib library for Android (arm64-v8a, armeabi-v7a, x86, x86-64)
-Install additional system libraries on Ubuntu
-```bash
-  sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
-  libreadline-dev pkg-config libgsl-dev python3 python3-dev libtool autoconf
-```
-Compile TON tonlib library
-```bash
-  cp assembly/android/build-android-tonlib.sh .
-  chmod +x build-android-tonlib.sh
-  ./build-android-tonlib.sh
-```
-
 ### TON portable binaries
 
 Linux portable binaries are wrapped into AppImages, at the same time MacOS portable binaries are statically linked executables.

@@ -241,8 +241,8 @@ void BroadcastsTwostep::signed_simple(OverlayImpl *overlay, BroadcastTwostepData
       data.flags, data.date, V.second.tl(), overlay->local_id().bits256_value(),
       cert ? cert->tl() : Certificate::empty_tl(), std::move(data.data), std::move(data.extra), std::move(V.first));
   for (auto &dst : data.dsts) {
-    td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
-                            overlay->overlay_id(), broadcast.clone(), sender_);
+    td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message, dst, overlay->local_id(),
+                            overlay->overlay_id(), broadcast.clone());
   }
   overlay->get_broadcasts_limiter(data.src.pubkey_hash(), cert.get())
       .register_out_traffic(broadcast.size() * data.dsts.size());
@@ -263,8 +263,8 @@ void BroadcastsTwostep::signed_fec(OverlayImpl *overlay, BroadcastTwostepDataFec
       cert ? cert->tl() : Certificate::empty_tl(), data.data_hash, data.data_size, data.seqno, std::move(data.part),
       std::move(data.extra), std::move(V.first));
   overlay->get_broadcasts_limiter(data.src.pubkey_hash(), cert.get()).register_out_traffic(broadcast.size());
-  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, data.dst, overlay->local_id(),
-                          overlay->overlay_id(), std::move(broadcast), sender_);
+  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message, data.dst, overlay->local_id(),
+                          overlay->overlay_id(), std::move(broadcast));
 }
 
 static td::Result<BroadcastCheckResult> check_source(OverlayImpl *overlay, const PublicKeyHash &src_keyhash,
@@ -284,8 +284,8 @@ td::uint64 BroadcastsTwostep::rebroadcast(OverlayImpl *overlay, const adnl::Adnl
   overlay->iterate_all_peers([&](const adnl::AdnlNodeIdShort &peer_id, OverlayPeer &) {
     if (peer_id != bcast_src_adnl_id && peer_id != overlay->local_id()) {
       total_size += data.size();
-      td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, peer_id, overlay->local_id(),
-                              overlay->overlay_id(), data.clone(), sender_);
+      td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message, peer_id, overlay->local_id(),
+                              overlay->overlay_id(), data.clone());
     }
   });
   return total_size;

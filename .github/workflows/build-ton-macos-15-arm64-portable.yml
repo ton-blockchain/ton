@@ -77,8 +77,15 @@ jobs:
           echo "Deleting restored cache: ${CACHE_KEY} for ${GITHUB_REF}"
           gh cache delete "${CACHE_KEY}" --repo "${GITHUB_REPOSITORY}" --ref "${GITHUB_REF}" || true
 
+      # CTest 4.5.0 has quadratic output capture: https://gitlab.kitware.com/cmake/cmake/-/issues/28298
+      - name: Set up CTest 4.5.1
+        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2
+        with:
+          cmake-version: '4.5.1'
+
       - name: Run Tests
         run: |
+          ctest --version
           cd build
           ctest --output-on-failure --timeout 1800
 

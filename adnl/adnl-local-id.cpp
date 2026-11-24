@@ -42,43 +42,49 @@ AdnlNodeIdShort AdnlLocalId::get_short_id() const {
 }
 
 void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
-  [](AdnlLocalId *self, td::IPAddress addr, td::BufferSlice data) -> td::actor::Task<> {
-    auto R = co_await self->receive_coro(addr, std::move(data)).wrap();
-    if (R.is_error()) {
-      VLOG(adnl, INFO) << self << ": dropping IN message from " << addr << ": " << R.move_as_error();
-    }
-    co_return {};
-  }(this, std::move(addr), std::move(data))
-                                                                         .start()
-                                                                         .detach();
-}
-
-td::actor::Task<> AdnlLocalId::receive_coro(td::IPAddress addr, td::BufferSlice data) {
   InboundRateLimiter &rate_limiter = inbound_rate_limiter_[remove_port(addr)];
   if (!cleanup_rate_limiter_at_) {
     alarm_timestamp().relax(cleanup_rate_limiter_at_ = td::Timestamp::in(1.0));
   }
   if (!rate_limiter.rate_limiter.take()) {
     add_dropped_packet_stats(addr);
-    co_return td::Status::Error("rate limit exceeded");
+    VLOG(adnl, INFO) << this << ": dropping IN message from " << addr << ": rate limit exceeded";
+    return;
   }
   ++rate_limiter.currently_decrypting_packets;
 
-  size_t data_size = data.size();
-  auto r_decrypted_data =
-      co_await td::actor::ask(keyring_, &keyring::Keyring::decrypt_message, short_id_.pubkey_hash(), std::move(data))
-          .wrap();
+  auto promise = td::PromiseCreator::lambda(
+      [self = actor_id(this), addr, data_size = data.size()](td::Result<td::BufferSlice> result) {
+        // Always queue completions. An already-ready co_await can otherwise overtake an earlier
+        // packet whose coroutine continuation is still queued, breaking huge-message reassembly.
+        td::actor::send_closure_later(self, &AdnlLocalId::receive_decrypted, addr, std::move(result), data_size);
+      });
+  td::actor::send_closure_later(keyring_, &keyring::Keyring::decrypt_message, short_id_.pubkey_hash(), std::move(data),
+                                std::move(promise));
+}
 
-  // rate_limiter cannot be deleted from map while currently_decrypting_packets > 0
+void AdnlLocalId::receive_decrypted(td::IPAddress addr, td::Result<td::BufferSlice> data, size_t data_size) {
+  // The limiter cannot be deleted while currently_decrypting_packets > 0.
+  auto &rate_limiter = inbound_rate_limiter_.at(remove_port(addr));
   --rate_limiter.currently_decrypting_packets;
   add_decrypted_packet_stats(addr);
 
-  auto tl = co_await fetch_tl_object<ton_api::adnl_packetContents>(co_await std::move(r_decrypted_data), true);
-  auto packet = co_await AdnlPacket::create(std::move(tl));
+  auto status = process_decrypted_packet(addr, std::move(data), data_size);
+  if (status.is_error()) {
+    VLOG(adnl, INFO) << this << ": dropping IN message from " << addr << ": " << status;
+  }
+}
+
+td::Status AdnlLocalId::process_decrypted_packet(td::IPAddress addr, td::Result<td::BufferSlice> result,
+                                                 size_t data_size) {
+  TRY_RESULT(data, std::move(result));
+  TRY_RESULT(tl, fetch_tl_object<ton_api::adnl_packetContents>(std::move(data), true));
+  TRY_RESULT(packet, AdnlPacket::create(std::move(tl)));
   packet.set_remote_addr(addr);
+  auto &rate_limiter = inbound_rate_limiter_.at(remove_port(addr));
   if (rate_limiter.recent_inbound_peers.size() >= UNIQUE_PEERS_PER_IP_LIMIT) {
     if (!rate_limiter.recent_inbound_peers.contains(packet.from_short())) {
-      co_return td::Status::Error("too many unique peer ids from a single ip");
+      return td::Status::Error("too many unique peer ids from a single ip");
     }
   } else {
     rate_limiter.recent_inbound_peers.insert(packet.from_short());
@@ -89,25 +95,30 @@ td::actor::Task<> AdnlLocalId::receive_coro(td::IPAddress addr, td::BufferSlice 
 
   td::actor::send_closure(peer_table_, &AdnlPeerTable::receive_decrypted_packet, short_id_, std::move(packet),
                           data_size);
-  co_return {};
+  return td::Status::OK();
 }
 
 void AdnlLocalId::deliver(AdnlNodeIdShort src, td::BufferSlice data) {
+  deliver_ex(src, std::move(data), [](td::Result<td::Unit>) {});
+}
+
+void AdnlLocalId::deliver_ex(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::Unit> promise) {
   auto s = std::move(data);
   for (auto &cb : cb_) {
     auto f = cb.first;
     if (f.length() <= s.length() && s.as_slice().substr(0, f.length()) == f) {
-      cb.second->receive_message(src, short_id_, std::move(s));
+      cb.second->receive_message(src, short_id_, std::move(s), std::move(promise));
       return;
     }
   }
   VLOG(adnl, INFO) << this << ": dropping IN message from " << src
                    << ": no callbacks for custom message. firstint=" << td::TlParser(s.as_slice()).fetch_int();
+  promise.set_error(td::Status::Error(ErrorCode::warning, "dropping IN message: no callbacks for custom message"));
 }
 
 void AdnlLocalId::deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
   auto s = std::move(data);
-  // Every transport (peer pairs, RLDP2, QUIC, the ext server) funnels its queries through here, so
+  // Every transport (peer pairs, QUIC, the ext server) funnels its queries through here, so
   // this is the one place that times dispatch-to-answer. A dropped promise still runs the lambda
   // ("Lost promise"), so an abandoned query is recorded as failed instead of vanishing.
   // The answer may complete on any thread, so the recording happens on the peer table's own thread.
