@@ -17,7 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/utils.hpp"
-#include "td/utils/overloaded.h"
 #include "ton/ton-io.hpp"
 #include "ton/ton-shard.h"
 #include "ton/ton-tl.hpp"
@@ -32,14 +31,13 @@ namespace validator {
 
 namespace fullnode {
 
-DownloadNextBlocks::DownloadNextBlocks(BlockHandle handle, QuerySender query_sender, td::uint32 priority,
+DownloadNextBlocks::DownloadNextBlocks(BlockHandle handle, QuerySender query_sender,
                                        td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                        td::Promise<BlockHandle> promise)
     : initial_handle_(handle)
     , handle_(handle)
     , start_prev_id_(handle->id())
     , query_sender_(std::move(query_sender))
-    , priority_(priority)
     , validator_manager_(validator_manager)
     , promise_(std::move(promise)) {
 }
@@ -152,31 +150,10 @@ td::actor::Task<> DownloadNextBlocks::run() {
 }
 
 td::actor::Task<> DownloadNextBlocks::process_block(tl_object_ptr<ton_api::tonNode_DataFull> obj) {
-  auto requires_state = CO_TRY(need_state_for_decompression(*obj).trace("need state for decompression"));
-  Ref<vm::Cell> prev_state_root;
-  if (requires_state) {
-    CHECK(obj->get_id() == ton_api::tonNode_dataFullCompressedV2::ID);
-    auto compressed_v2 = static_cast<const ton_api::tonNode_dataFullCompressedV2 *>(obj.get());
-    BlockIdExt id = create_block_id(compressed_v2->id_);
-    auto prev_blocks =
-        CO_TRY(extract_prev_blocks_from_proof(compressed_v2->proof_.as_slice(), id).trace("extract prev blocks"));
-    if (prev_blocks != std::vector{handle_->id()}) {
-      co_return td::Status::Error(ErrorCode::protoviolation, "prev block id mismatch");
-    }
-    if (handle_->inited_next() && handle_->one_next(true) != id) {
-      co_return td::Status::Error(ErrorCode::protoviolation, "next block id mismatch");
-    }
-    auto prev_state = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::wait_block_state, handle_,
-                                              priority_, td::Timestamp::in(5.0), true)
-                          .trace("wait prev state");
-    prev_state_root = prev_state->root_cell();
-  }
-
   BlockIdExt id;
   td::BufferSlice proof, block_data;
   bool is_link;
-  CO_TRY(deserialize_block_full(*obj, id, proof, block_data, is_link, overlay::Overlays::max_fec_broadcast_size(),
-                                prev_state_root)
+  CO_TRY(deserialize_block_full(*obj, id, proof, block_data, is_link, overlay::Overlays::max_fec_broadcast_size())
              .trace("deserialize block"));
   if (is_link) {
     co_return td::Status::Error(ErrorCode::protoviolation, "node doesn't have proof for this block");

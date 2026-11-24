@@ -480,8 +480,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
-  void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
-                                 td::Promise<td::Ref<ShardState>> promise) override;
   void wait_prev_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                              td::Promise<td::Ref<ShardState>> promise) override;
 

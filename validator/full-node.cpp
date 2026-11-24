@@ -748,7 +748,7 @@ td::actor::Task<> FullNodeImpl::get_next_blocks_loop() {
     auto query_sender = r_query_sender.move_as_ok();
     auto [task, promise] = td::actor::StartedTask<BlockHandle>::make_bridge();
     td::actor::create_actor<DownloadNextBlocks>(PSTRING() << "downloadnextblocks" << handle_->id().id, handle_,
-                                                query_sender, 1, validator_manager_, std::move(promise))
+                                                query_sender, validator_manager_, std::move(promise))
         .release();
     // DownloadNextBlocks calls query_sender->query_finished()
     auto R = co_await std::move(task).wrap();

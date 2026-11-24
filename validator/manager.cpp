@@ -689,10 +689,10 @@ td::actor::Task<> ValidatorManagerImpl::try_process_pending_block_finality_inner
   };
   BlockBroadcast broadcast = co_await create_broadcast(block_id, std::move(data), signatures, serialized_signatures);
   auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-  td::actor::create_actor<ValidateBroadcast>(
-      PSTRING() << "broadcast" << block_id.id, std::move(broadcast), last_masterchain_block_handle_,
-      last_masterchain_state_, last_known_key_block_handle_, actor_id(this), td::Timestamp::in(20.0),
-      std::move(promise), /* signatures_only = */ false, /* signatures_checked = */ true)
+  td::actor::create_actor<ValidateBroadcast>(PSTRING() << "broadcast" << block_id.id, std::move(broadcast),
+                                             last_masterchain_block_handle_, last_masterchain_state_,
+                                             last_known_key_block_handle_, actor_id(this), td::Timestamp::in(20.0),
+                                             std::move(promise), /* signatures_checked = */ true)
       .release();
   co_await std::move(task);
   co_return {};
@@ -980,24 +980,6 @@ void ValidatorManagerImpl::wait_block_state_merge(BlockIdExt left_id, BlockIdExt
   td::actor::create_actor<WaitBlockStateMerge>(PSTRING() << "merge" << left_id.id << "." << right_id, left_id, right_id,
                                                priority, actor_id(this), timeout, std::move(promise))
       .release();
-}
-
-void ValidatorManagerImpl::wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
-                                                     td::Promise<td::Ref<ShardState>> promise) {
-  if (prev_blocks.empty() || prev_blocks.size() > 2) {
-    promise.set_error(td::Status::Error("invalid prev blocks count for state request"));
-    return;
-  }
-
-  if (prev_blocks.size() == 1) {
-    LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0] << " for " << block_id;
-    wait_block_state_short(prev_blocks[0], 0, td::Timestamp::in(10.0), false, std::move(promise));
-    return;
-  }
-
-  LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0] << " and " << prev_blocks[1] << " for "
-             << block_id;
-  wait_block_state_merge(prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0), std::move(promise));
 }
 
 void ValidatorManagerImpl::wait_prev_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,

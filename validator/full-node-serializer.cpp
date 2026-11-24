@@ -15,8 +15,6 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "auto/tl/ton_api.hpp"
-#include "block/block-auto.h"
-#include "block/block-parse.h"
 #include "td/utils/Time.h"
 #include "td/utils/lz4.h"
 #include "td/utils/overloaded.h"
@@ -25,48 +23,11 @@
 #include "ton/ton-tl.hpp"
 #include "vm/boc-compression.h"
 #include "vm/boc.h"
-#include "vm/cells/MerkleProof.h"
 
 #include "full-node-serializer.hpp"
 #include "full-node.h"
 
 namespace ton::validator::fullnode {
-
-td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice proof, const BlockIdExt& block_id) {
-  TRY_RESULT(proof_root, vm::std_boc_deserialize(proof));
-  block::gen::BlockProof::Record proof_rec;
-  BlockIdExt proof_blk_id;
-  if (!(tlb::unpack_cell(proof_root, proof_rec) &&
-        block::tlb::t_BlockIdExt.unpack(proof_rec.proof_for.write(), proof_blk_id))) {
-    return td::Status::Error("invalid block proof in broadcast");
-  }
-  if (proof_blk_id != block_id) {
-    return td::Status::Error("block proof is for different block than broadcast id");
-  }
-  TRY_RESULT(header_root, vm::MerkleProof::virtualize(proof_rec.root));
-  std::vector<BlockIdExt> prev_blocks;
-  BlockIdExt mc_blkid;
-  bool after_split;
-  TRY_STATUS_PREFIX(block::unpack_block_prev_blk_try(header_root, block_id, prev_blocks, mc_blkid, after_split),
-                    "failed to unpack previous block IDs from proof: ");
-  if (prev_blocks.empty()) {
-    return td::Status::Error("no previous blocks found in proof");
-  }
-  if (prev_blocks.size() > 2) {
-    return td::Status::Error("invalid number of previous blocks in proof");
-  }
-  return prev_blocks;
-}
-
-td::Result<bool> need_state_for_decompression(ton_api::tonNode_DataFull& data_full) {
-  td::Result<bool> result;
-  ton_api::downcast_call(data_full, td::overloaded(
-                                        [&](ton_api::tonNode_dataFullCompressedV2& f) {
-                                          result = vm::boc_need_state_for_decompression(f.block_compressed_);
-                                        },
-                                        [&](auto&) { result = false; }));
-  return result;
-}
 
 td::Result<tl_object_ptr<ton_api::tonNode_DataFull>> serialize_block_full_obj(const BlockIdExt& id, td::Slice proof,
                                                                               td::Slice data, bool is_proof_link,
@@ -139,11 +100,11 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressed& f,
 
 static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& f, BlockIdExt& id,
                                          td::BufferSlice& proof, td::BufferSlice& data, bool& is_proof_link,
-                                         int max_decompressed_size, td::Ref<vm::Cell> state) {
+                                         int max_decompressed_size) {
   id = create_block_id(f.id_);
   auto t_decompression_start = td::Time::now();
 
-  TRY_RESULT(roots, vm::boc_decompress(f.block_compressed_, max_decompressed_size, state));
+  TRY_RESULT(roots, vm::boc_decompress(f.block_compressed_, max_decompressed_size));
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
   }
@@ -164,8 +125,7 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& 
 }
 
 td::Status deserialize_block_full(ton_api::tonNode_DataFull& obj, BlockIdExt& id, td::BufferSlice& proof,
-                                  td::BufferSlice& data, bool& is_proof_link, int max_decompressed_data_size,
-                                  td::Ref<vm::Cell> state) {
+                                  td::BufferSlice& data, bool& is_proof_link, int max_decompressed_data_size) {
   td::Status S;
   ton_api::downcast_call(
       obj, td::overloaded(
@@ -174,7 +134,7 @@ td::Status deserialize_block_full(ton_api::tonNode_DataFull& obj, BlockIdExt& id
                  S = deserialize_block_full(f, id, proof, data, is_proof_link, max_decompressed_data_size);
                },
                [&](ton_api::tonNode_dataFullCompressedV2& f) {
-                 S = deserialize_block_full(f, id, proof, data, is_proof_link, max_decompressed_data_size, state);
+                 S = deserialize_block_full(f, id, proof, data, is_proof_link, max_decompressed_data_size);
                },
                [&](auto&) { S = td::Status::Error("unknown data type"); }));
   return S;

@@ -121,8 +121,7 @@ td::RefInt256 process_shard_accounts_vertex(vm::CellSlice& cs_left, vm::CellSlic
   return td::RefInt256{};
 }
 
-td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots,
-                                                                bool compress_merkle_update, td::Ref<vm::Cell> state) {
+td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
   const bool kMURemoveSubtreeSums = true;
   // Input validation
   if (boc_roots.empty()) {
@@ -146,8 +145,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
   // Build graph representation using recursive lambda
   const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell, const td::Ref<vm::Cell>& main_mu_cell,
-                               bool under_mu_left = false, bool under_mu_right = false,
-                               td::Ref<vm::Cell> left_cell = td::Ref<vm::Cell>(),
+                               bool under_mu_right = false, td::Ref<vm::Cell> left_cell = td::Ref<vm::Cell>(),
                                td::RefInt256* sum_diff_out = nullptr) -> td::Result<unsigned> {
     if (cell.is_null()) {
       return td::Status::Error("Error while importing a cell during serialization: cell is null");
@@ -197,20 +195,17 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       cell_data.emplace_back(cell_bitslice);
     }
 
-    if (compress_merkle_update && under_mu_left) {
-      cell_data.back() = td::BitSlice();
-    }
     total_size_estimate += cell_bitslice.size();
 
     // Process cell references
     if (kMURemoveSubtreeSums && cell_slice.special_type() == vm::CellTraits::SpecialType::MerkleUpdate &&
         main_mu_cell.not_null() && cell_hash == main_mu_cell->get_hash()) {
       // Left branch: traverse normally
-      TRY_RESULT(child_left_id, self(self, cell_slice.prefetch_ref(0), main_mu_cell, true));
+      TRY_RESULT(child_left_id, self(self, cell_slice.prefetch_ref(0), main_mu_cell));
       boc_graph[current_cell_id][0] = child_left_id;
       // Right branch: traverse paired with left and compute diffs inline
       TRY_RESULT(child_right_id,
-                 self(self, cell_slice.prefetch_ref(1), main_mu_cell, false, true, cell_slice.prefetch_ref(0)));
+                 self(self, cell_slice.prefetch_ref(1), main_mu_cell, true, cell_slice.prefetch_ref(0)));
       boc_graph[current_cell_id][1] = child_right_id;
     } else if (under_mu_right && left_cell.not_null()) {
       // Inline computation for RIGHT subtree nodes under MerkleUpdate
@@ -218,7 +213,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       td::RefInt256 sum_child_diff = td::make_refint(0);
       // Recurse children first
       for (unsigned i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, false, true, cs_left.prefetch_ref(i),
+        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, true, cs_left.prefetch_ref(i),
                                   &sum_child_diff));
         boc_graph[current_cell_id][i] = child_id;
       }
@@ -234,7 +229,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       }
     } else {
       for (unsigned i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, under_mu_left, under_mu_right));
+        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, under_mu_right));
         boc_graph[current_cell_id][i] = child_id;
       }
     }
@@ -503,15 +498,9 @@ bool is_merkle_update_node(td::uint8 is_special, td::uint8 pb_level_mask, const 
 }
 
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed,
-                                                                                 unsigned max_decompressed_size,
-                                                                                 bool decompress_merkle_update,
-                                                                                 td::Ref<vm::Cell> state) {
+                                                                                 unsigned max_decompressed_size) {
   constexpr unsigned kMaxCellDataLengthBits = 1024;
   constexpr unsigned kMaxNodeCount = (1u << 20);
-
-  if (decompress_merkle_update && state.is_null()) {
-    return td::Status::Error("BOC decompression failed: state is required for MU decompressing");
-  }
 
   // Check minimum input size for decompressed size header
   if (compressed.size() < kDecompressedSizeBytes) {
@@ -818,73 +807,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     return finalize_node_from_builder(idx, cb);
   };
 
-  auto build_prunned_branch_from_state = [&](unsigned idx, td::Ref<vm::Cell> source_cell) -> td::Status {
-    // Mask uniquely defines the PB structure
-    vm::Cell::LevelMask level_mask(pb_level_mask[idx]);
-    unsigned pb_level = level_mask.get_level();
-    if (pb_level == 0 || pb_level > vm::Cell::max_level) {
-      return td::Status::Error("BOC decompression failed: invalid level for prunned branch under MerkleUpdate");
-    }
-
-    // If source is already at the right level, just copy it
-    if (source_cell->get_level() == pb_level) {
-      nodes[idx] = source_cell;
-      return td::Status::OK();
-    }
-
-    try {
-      td::Ref<vm::Cell> pb_cell = vm::CellBuilder::do_create_pruned_branch(source_cell, pb_level);
-      if (pb_cell.is_null()) {
-        return td::Status::Error("BOC decompression failed: failed to create pruned branch from state");
-      }
-      nodes[idx] = std::move(pb_cell);
-      return td::Status::OK();
-    } catch (const vm::CellBuilder::CellWriteError&) {
-      return td::Status::Error("BOC decompression failed: failed to create pruned branch from state (CellWriteError)");
-    }
-  };
-
   const unsigned kNoNode = std::numeric_limits<unsigned>::max();
-
-  // Recursive rebuild of the left subtree of a MerkleUpdate by mirroring the provided state tree.
-  const auto build_left_under_mu = [&](auto&& self, unsigned left_idx, td::Ref<vm::Cell> state_cell) -> td::Status {
-    if (state_cell.is_null()) {
-      return td::Status::Error("BOC decompression failed: missing state subtree for MerkleUpdate left branch");
-    }
-    if (nodes[left_idx].not_null()) {
-      return td::Status::OK();
-    }
-    bool is_prunned_branch = pb_level_mask[left_idx] != 0;
-
-    bool state_is_special = false;
-    vm::CellSlice state_slice = vm::load_cell_slice_special(state_cell, state_is_special);
-    if (!state_slice.is_valid()) {
-      return td::Status::Error(
-          "BOC decompression failed: invalid state cell while restoring MerkleUpdate left subtree");
-    }
-    if (is_prunned_branch) {
-      TRY_STATUS(build_prunned_branch_from_state(left_idx, state_cell));
-      return td::Status::OK();
-    }
-    if (state_slice.size_refs() != cell_refs_cnt[left_idx]) {
-      return td::Status::Error(
-          "BOC decompression failed: state subtree refs mismatch while restoring MerkleUpdate left subtree");
-    }
-    if (static_cast<bool>(is_special[left_idx]) != state_is_special) {
-      return td::Status::Error(
-          "BOC decompression failed: state subtree special flag mismatch while restoring MerkleUpdate left subtree");
-    }
-
-    for (unsigned j = 0; j < cell_refs_cnt[left_idx]; ++j) {
-      td::Ref<vm::Cell> child_state = state_slice.prefetch_ref(j);
-      TRY_STATUS(self(self, boc_graph[left_idx][j], child_state));
-    }
-
-    vm::CellBuilder cb;
-    cb.store_bits(state_slice.as_bitslice());
-    TRY_STATUS(finalize_node_from_builder(left_idx, cb));
-    return td::Status::OK();
-  };
 
   // Recursive build of right subtree under MerkleUpdate, pairing with the left subtree and computing sum diffs.
   const auto build_right_under_mu = [&](auto&& self, unsigned right_idx, unsigned left_idx,
@@ -960,11 +883,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
       const unsigned left_idx = boc_graph[idx][0];
       const unsigned right_idx = boc_graph[idx][1];
 
-      if (decompress_merkle_update) {
-        TRY_STATUS(build_left_under_mu(build_left_under_mu, left_idx, state));
-      } else {
-        TRY_STATUS(self(self, left_idx, kNoNode));
-      }
+      TRY_STATUS(self(self, left_idx, kNoNode));
       TRY_STATUS(build_right_under_mu(build_right_under_mu, right_idx, left_idx, nullptr));
       TRY_STATUS(finalize_node(idx));
       return td::Status::OK();
@@ -995,8 +914,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   return root_nodes;
 }
 
-td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots, CompressionAlgorithm algo,
-                                         td::Ref<vm::Cell> state) {
+td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots, CompressionAlgorithm algo) {
   // Check for empty input
   if (boc_roots.empty()) {
     return td::Status::Error("Cannot compress empty BOC roots");
@@ -1006,9 +924,7 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
   if (algo == CompressionAlgorithm::BaselineLZ4) {
     TRY_RESULT_ASSIGN(compressed, boc_compress_baseline_lz4(boc_roots));
   } else if (algo == CompressionAlgorithm::ImprovedStructureLZ4) {
-    TRY_RESULT_ASSIGN(compressed, boc_compress_improved_structure_lz4(boc_roots, false));
-  } else if (algo == CompressionAlgorithm::ImprovedStructureLZ4WithState) {
-    TRY_RESULT_ASSIGN(compressed, boc_compress_improved_structure_lz4(boc_roots, true, state));
+    TRY_RESULT_ASSIGN(compressed, boc_compress_improved_structure_lz4(boc_roots));
   } else {
     return td::Status::Error("Unknown compression algorithm");
   }
@@ -1019,8 +935,7 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
   return compressed_with_algo;
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size,
-                                                          td::Ref<vm::Cell> state) {
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size) {
   if (compressed.size() == 0) {
     return td::Status::Error("Can't decompress empty data");
   }
@@ -1037,29 +952,9 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, 
     case CompressionAlgorithm::BaselineLZ4:
       return boc_decompress_baseline_lz4(compressed, max_decompressed_size_uns);
     case CompressionAlgorithm::ImprovedStructureLZ4:
-      return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size_uns, false);
-    case CompressionAlgorithm::ImprovedStructureLZ4WithState:
-      return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size_uns, true, state);
+      return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size_uns);
   }
   return td::Status::Error("Unknown compression algorithm");
-}
-
-td::Result<bool> boc_need_state_for_decompression(const td::Slice& compressed) {
-  if (compressed.size() == 0) {
-    return td::Status::Error("Can't check algorithm on empty data");
-  }
-
-  CompressionAlgorithm algo = static_cast<CompressionAlgorithm>(compressed[0]);
-
-  switch (algo) {
-    case CompressionAlgorithm::BaselineLZ4:
-    case CompressionAlgorithm::ImprovedStructureLZ4:
-      return false;
-    case CompressionAlgorithm::ImprovedStructureLZ4WithState:
-      return true;
-    default:
-      return td::Status::Error("Unknown compression algorithm");
-  }
 }
 
 std::string compression_algorithm_to_str(CompressionAlgorithm algo) {
@@ -1068,8 +963,6 @@ std::string compression_algorithm_to_str(CompressionAlgorithm algo) {
       return "BaselineLZ4";
     case CompressionAlgorithm::ImprovedStructureLZ4:
       return "ImprovedStructureLZ4";
-    case CompressionAlgorithm::ImprovedStructureLZ4WithState:
-      return "ImprovedStructureLZ4WithState";
     default:
       return "Unknown";
   }
@@ -1085,7 +978,6 @@ td::Result<std::string> boc_get_algorithm_name(const td::Slice& compressed) {
   switch (algo) {
     case CompressionAlgorithm::BaselineLZ4:
     case CompressionAlgorithm::ImprovedStructureLZ4:
-    case CompressionAlgorithm::ImprovedStructureLZ4WithState:
       return compression_algorithm_to_str(algo);
     default:
       return td::Status::Error("Unknown compression algorithm");

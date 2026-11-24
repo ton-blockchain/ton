@@ -31,7 +31,7 @@ namespace fullnode {
 
 class DownloadNextBlocks : public td::actor::Actor {
  public:
-  DownloadNextBlocks(BlockHandle handle, QuerySender query_sender, td::uint32 priority,
+  DownloadNextBlocks(BlockHandle handle, QuerySender query_sender,
                      td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::Promise<BlockHandle> promise);
 
   void start_up() override;
@@ -44,7 +44,6 @@ class DownloadNextBlocks : public td::actor::Actor {
   BlockIdExt start_prev_id_;
 
   QuerySender query_sender_;
-  td::uint32 priority_;
 
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::Promise<BlockHandle> promise_;
