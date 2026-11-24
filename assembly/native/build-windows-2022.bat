@@ -43,18 +43,18 @@ IF %errorlevel% NEQ 0 (
 )
 
 IF "%1"=="-t" (
-ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
+ninja blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
-json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator ^
+json2tlo dht-server http-proxy create-state create-hardfork emulator ^
 proxy-liteserver all-tests
 IF ERRORLEVEL 1 (
   echo Can't compile TON
   exit /b 1
 )
 ) else (
-ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
+ninja blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
-json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator proxy-liteserver
+json2tlo dht-server http-proxy create-state create-hardfork emulator proxy-liteserver
 IF ERRORLEVEL 1 (
   echo Can't compile TON
   exit /b 1
@@ -79,9 +79,7 @@ mkdir artifacts
 mkdir artifacts\smartcont
 mkdir artifacts\lib
 
-for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
-  build\storage\storage-daemon\storage-daemon-cli.exe ^
-  build\blockchain-explorer\blockchain-explorer.exe ^
+for %%I in (build\blockchain-explorer\blockchain-explorer.exe ^
   build\crypto\fift.exe ^
   build\crypto\tlbc.exe ^
   build\crypto\func.exe ^
@@ -91,7 +89,6 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\tonlib\tonlib-cli.exe ^
   build\tonlib\tonlibjson.dll ^
   build\http\http-proxy.exe ^
-  build\rldp-http-proxy\rldp-http-proxy.exe ^
   build\dht-server\dht-server.exe ^
   build\lite-client\lite-client.exe ^
   build\validator-engine\validator-engine.exe ^

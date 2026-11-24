@@ -34,6 +34,7 @@ void OptionParser::add_option(Option::Type type, char short_key, Slice long_key,
   for (auto &option : options_) {
     if ((short_key != '\0' && option.short_key == short_key) || (!long_key.empty() && long_key == option.long_key)) {
       LOG(ERROR) << "Ignore duplicated option '" << short_key << "' '" << long_key << "'";
+      return;
     }
   }
   options_.push_back(Option{type, short_key, long_key.str(), description.str(), std::move(callback)});
@@ -66,6 +67,26 @@ void OptionParser::add_option(char short_key, Slice long_key, Slice description,
 
 void OptionParser::add_check(std::function<Status()> check) {
   checks_.push_back(std::move(check));
+}
+
+void OptionParser::add_alias(Slice name, Slice original) {
+  for (auto &option : options_) {
+    if (name == option.long_key) {
+      LOG(ERROR) << "Ignore duplicated option '" << name << "'";
+      return;
+    }
+  }
+  for (auto &option : options_) {
+    if (original == option.long_key) {
+      Option new_option = option;
+      new_option.short_key = '\0';
+      new_option.long_key = name.str();
+      new_option.hidden = true;
+      options_.push_back(std::move(new_option));
+      return;
+    }
+  }
+  LOG(ERROR) << "Ignore alias '" << name << "': no such option '" << original << "'";
 }
 
 Result<vector<char *>> OptionParser::run(int argc, char *argv[], int expected_non_option_count) {
@@ -189,6 +210,9 @@ StringBuilder &operator<<(StringBuilder &sb, const OptionParser &o) {
 
   size_t max_length = 0;
   for (auto &opt : o.options_) {
+    if (opt.hidden) {
+      continue;
+    }
     bool has_short_key = opt.short_key != '\0';
     bool has_long_key = !opt.long_key.empty();
     size_t length = (has_short_key ? 2 : 0) + (has_long_key ? 2 + opt.long_key.size() + 2 * has_short_key : 0);
@@ -202,6 +226,9 @@ StringBuilder &operator<<(StringBuilder &sb, const OptionParser &o) {
   max_length++;
 
   for (auto &opt : o.options_) {
+    if (opt.hidden) {
+      continue;
+    }
     bool has_short_key = opt.short_key != '\0';
     sb << "  ";
     size_t length = max_length;

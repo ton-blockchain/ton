@@ -36,6 +36,7 @@ class OptionParser {
     string long_key;
     string description;
     std::function<Status(Slice)> arg_callback;
+    bool hidden = false;
   };
 
   void add_option(Option::Type type, char short_key, Slice long_key, Slice description,
@@ -57,6 +58,8 @@ class OptionParser {
   void add_option(char short_key, Slice long_key, Slice description, std::function<void(void)> callback);
 
   void add_check(std::function<Status()> check);
+
+  void add_alias(Slice name, Slice original);
 
   // returns found non-option parameters
   Result<vector<char *>> run(int argc, char *argv[], int expected_non_option_count = -1) TD_WARN_UNUSED_RESULT;

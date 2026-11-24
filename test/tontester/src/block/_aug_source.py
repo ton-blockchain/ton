@@ -32,9 +32,8 @@ from .generated import (
     depth_balance,
     dispatch_queue_aug,
     dispatch_queue_aug_old,
-    ext_out_msg_info,
+    ext_in_msg_info,
     extra_currencies,
-    int_msg_info,
     msg_envelope_v2,
     nanograms,
 )
@@ -128,9 +127,9 @@ class OutMsgQueueAug(Augmentation[EnqueuedMsg, int]):
         if isinstance(envelope, msg_envelope_v2) and envelope.emitted_lt is not None:
             return envelope.emitted_lt
         info = envelope.msg.ref.info
-        if isinstance(info, int_msg_info | ext_out_msg_info):
-            return info.created_lt
-        return 0
+        if isinstance(info, ext_in_msg_info):
+            return 0
+        return info.created_lt
 
     @override
     def merge(self, left: int, right: int) -> int:

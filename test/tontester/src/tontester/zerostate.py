@@ -62,8 +62,8 @@ from block.generated import (
     storage_extra_none,
     storage_info,
     storage_used,
-    val_registry_config,
-    val_registry_storage,
+    val_registry_config_old,
+    val_registry_storage_old,
     validator,
     validator_info,
     validators_ext,
@@ -810,6 +810,7 @@ def _register_smc3(zs: ZerostateBuilder, wallet_addr: int) -> Address:
 # so a dedicated collator node only works on a net that has it. Regenerate with:
 #   echo '"validator-registry.fif" include 2 boc+>B Bx. cr bye' \
 #     | cmake-build-relwithdebinfo/crypto/fift -I crypto/fift/lib:crypto/smartcont -i
+# TODO: Update to the new validator registry code (this requires changing registry storage and config as well)
 VALIDATOR_REGISTRY_CODE = Cell.one_from_boc(
     "B5EE9C7241020E010002D0000114FF00F4A413F4BCF2C80B0102012002030202D0040502F6F2D31F21821032B85A9BBAE30221821034BDAA6CBA8E4331D4D1802EF833206EF2D38FD0D72C21B008B1F4F2BF810120D721D3000193D70BFF92306DE2206EB39721F90021BAC3009170E2F2E390F82AF900BDF2E391FB04F800E0018210CDB9D286BAF2E3848308D71820C8CEF91601D72C27DEC15814F2BFD31F080902012006070069401F833206E9130E0D020D74A9130E1D74C208010F4866FA5908E1601D32731D70BFFC840148307F44351218010F47C6FA5E85F03800012000E5081BA44C383435CB09D5C164E93CAFFD0134C0C870427CB8E3886B9B04B5C04C74600BBE0CC81BBCB4E3F435CB086C022C7D3CAFF4FFCC75C2C7DC08A0C1FD219BE964238A80A914C0EEFCB8E14075CB08206C89293CAFF4C0C870427CB8E3886B9B04B5C04C745444E0C1FD1F1BE97A17C16001FE31D1ED44D0D72C24DE391544F2BFF404D31FD1F834016F125CB9F2E386F8006D802001F002802201F002802401F002238307F4866FA5327091028E3D53058307F47C6FA53253248307F40E6FA13191329950278307F45B305066E202A4208014A9088E14C8CF926F1C8AA25270F40026CF0B1FC9ED54F80FDFE810345F04C80A02FAD307D30FD31FF404D1F834016F1215BAF2E38722C020917F9522C022C300E2917F9522C024C300E2F2E388F823A67821BCF2E389F823BCF2E38A01F833206EF2D38BD020D74AC200F2E38BD74C8010F40EF2E38BD32731D70BFFED44D0D72C24DE391544F2BFF404D31FD153218307F40E6FA19330706DE30DF82358BE0C0D011689CF1612F400CB1FC9ED540B00089BC722A8001CD72C22BBB37764F2BFD31FF404D100BAF2E38C541563F910F2E38DF800F823A678C8CF915DD9BBB221CF0B1F16F40052228307F443C8CF926F1C8AA25210F40024CF0B1FC9ED54F80F22F001C8CF915DD9BBB215CB1F12F40040138307F443C8CF926F1C8AA2F400CB1FC9ED54AF8120E1"
 )
@@ -817,7 +818,7 @@ VALIDATOR_REGISTRY_CODE = Cell.one_from_boc(
 
 def _register_validator_registry(zs: ZerostateBuilder) -> Address:
     """Register the validator registry contract with an empty registry."""
-    data = val_registry_storage(registry={}, last_cleanup_key_block_seqno=0).serialize()
+    data = val_registry_storage_old(registry={}, last_cleanup_key_block_seqno=0).serialize()
     si = PyStateInit(code=VALIDATOR_REGISTRY_CODE, data=data)
     addr = Address((-1, si.serialize().hash))
     zs.smcs.append(_SmcEntry(blueprint=_RawBlueprint(si, addr), balance=ton(100).grams))
@@ -994,7 +995,7 @@ def create_zerostate(
 
         config_params.append(
             ConfigParam_46(
-                field=val_registry_config(
+                field=val_registry_config_old(
                     contract_address=_bits256(registry_addr.hash_part),
                     max_collators_per_validator=config.max_collators_per_validator,
                     new_code_hash=None,

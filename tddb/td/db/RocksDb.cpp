@@ -120,9 +120,9 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
   }
 
   if (options.no_transactions) {
-    rocksdb::DB *db{nullptr};
+    std::unique_ptr<rocksdb::DB> db;
     TRY_STATUS(from_rocksdb(rocksdb::DB::Open(db_options, std::move(path), &db)));
-    return RocksDb(std::shared_ptr<rocksdb::DB>(db), std::move(options));
+    return RocksDb(std::shared_ptr<rocksdb::DB>(std::move(db)), std::move(options));
   } else {
     rocksdb::OptimisticTransactionDB *db{nullptr};
     rocksdb::ColumnFamilyOptions cf_options(db_options);

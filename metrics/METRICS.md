@@ -27,8 +27,7 @@ each nesting level appends a segment joined with `_`:
 - `Counter` renders as `<segments>_total`.
 - `Gauge<T>` renders as `<segments>`, except `std::chrono` types which append `_seconds`.
 - `Labeled<Inner, L...>` adds one label per axis over a **closed** value set — `direction`, `kind`,
-  `reason`, `result`, `state`, `trust`, `workchain`, `source`. (An `outcome` axis is defined too, but
-  its only holder `TransferStats` is never instantiated, so no family carries it.) **Every cell of a
+  `reason`, `result`, `state`, `trust`, `workchain`, `source`, `outcome`. **Every cell of a
   closed axis is emitted on every scrape**, including zero-valued ones, so all such label combinations below are
   always present in the exposition (which is why the permanently-zero series in Known gaps still
   show up).
@@ -39,7 +38,7 @@ each nesting level appends a segment joined with `_`:
   families even when nothing was ever observed.
 
 Registered collectors, in order: the exporter itself, `AdnlNetworkManager`, `Adnl`, `QuicSender`,
-`Rldp` (rldp2), `Overlays`, `ValidatorManagerInterface`.
+`Overlays`, `ValidatorManagerInterface`, `FullNode`.
 
 ## Scrape semantics
 
@@ -66,9 +65,9 @@ A gather that **fails** — any collector returning an error — answers every w
 that never answers at all wedges the flight and with it the endpoint: that is a bug, not an
 operating mode, and there is deliberately no timeout machinery around it.
 
-Values are cumulative; gathering does not reset them. ADNL peer pairs, RLDP2 connections and
-overlays merge their per-actor deltas during a gather. Worker-liveness gauges are point samples and
-can miss stalls between gathers (see *Known gaps*).
+Values are cumulative; gathering does not reset them. ADNL peer pairs and overlays merge their
+per-actor deltas during a gather. Worker-liveness gauges are point samples and can miss stalls
+between gathers (see *Known gaps*).
 
 ---
 
@@ -76,7 +75,7 @@ can miss stalls between gathers (see *Known gaps*).
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_exporter_collectors` | gauge | — | Registered collector callbacks: 7 in a full validator-engine, 6 when no DHT node is configured (which also drops the `ton_overlay_*` families, since the overlay manager is only created with one). |
+| `ton_exporter_collectors` | gauge | — | Registered collector callbacks: 7 with both DHT and FullNode, 6 when either optional collector is absent, and 5 when both are absent. Without DHT the `ton_overlay_*` families are absent; without FullNode the `ton_rebroadcaster_*` families are absent. |
 | `ton_exporter_collections_total` | counter | — | Gather attempts started. Concurrent scrapes sharing one flight increment it once. It stays zero before the seal and while nobody scrapes. |
 | `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** successful gather (the current one sets it after this body is already rendered). How much of a scrape interval collection itself costs. |
 | `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, read straight from the process-global registry on each gather (its totals are already cumulative, so nothing is mirrored). `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …); a site registers on first execution, so one that has never run emits no series. |
@@ -101,8 +100,8 @@ cap. Bind the endpoint to a private interface.
 The actor framework's own view of the scheduler group hosting the exporter, read at gather time from
 tdactor's per-actor-class stat tables (`ActorTypeStatImpl`) and scheduler state. A group registry
 creates one table lazily for each executing thread and worker kind, then retains it until the group
-is destroyed. This keeps independent groups isolated in tools such as `bench-rldp --both` and
-preserves totals after a worker exits. Nothing is mirrored into the exporter: the collector only
+is destroyed. This keeps independent scheduler groups isolated and preserves totals after a worker
+exits. Nothing is mirrored into the exporter: the collector only
 reads, aggregates and demangles the counters tdactor already keeps. Every binary that runs the
 exporter gets this tier, not just `validator-engine`.
 
@@ -234,7 +233,7 @@ exception: the socket-read-error site is fed a synthetic message that was never 
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_adnl_query_duration_seconds` | histogram | `tl`, `le` | Dispatch-to-answer time of an inbound query, measured at the ADNL delivery layer (`AdnlLocalId::deliver_query`) — the single choke point every transport funnels through, so this covers queries arriving over ADNL peer pairs, RLDP2, QUIC and the ext server alike. The clock starts before the subscriber callback is invoked and stops when the answer promise is fulfilled; a promise dropped without an answer counts as a failure with its elapsed time. `tl` comes from the same envelope-resolving logic as the app tier, and magics the schema does not know collapse into `tl="unknown"` so the label space stays bounded by the schema. |
+| `ton_adnl_query_duration_seconds` | histogram | `tl`, `le` | Dispatch-to-answer time of an inbound query, measured at the ADNL delivery layer (`AdnlLocalId::deliver_query`) — the single choke point every transport funnels through, so this covers queries arriving over ADNL peer pairs, QUIC and the ext server alike. The clock starts before the subscriber callback is invoked and stops when the answer promise is fulfilled; a promise dropped without an answer counts as a failure with its elapsed time. `tl` comes from the same envelope-resolving logic as the app tier, and magics the schema does not know collapse into `tl="unknown"` so the label space stays bounded by the schema. |
 | `ton_adnl_query_failed_total` | counter | `tl` | Of those queries, the ones that answered with an error or dropped their answer promise. |
 
 Validator-engine runs DHT in client mode unless started with `--dht-server`; such nodes deliberately
@@ -253,8 +252,7 @@ The outbound mirror is **per transport**, measured where the transport accepts t
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_adnl_query_roundtrip_seconds` / `ton_rldp2_…` / `ton_quic_…` | histogram | `tl`, `le`; QUIC also `trust` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total` with the same non-`le` labels. |
-| `ton_rldp2_message_delivery_seconds` | histogram | `tl`, `le` | Transport-accept to the transfer's completion (`on_sent`) for fire-and-forget messages. Failures land in `ton_rldp2_message_delivery_failed_total{tl}`. |
+| `ton_adnl_query_roundtrip_seconds` / `ton_quic_…` | histogram | `tl`, `le`; QUIC also `trust` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total` with the same non-`le` labels. |
 | `ton_quic_message_confirmation_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to confirmation for stream-based messages: the peer transport's acknowledgement of data and FIN for unidirectional messages, or the receiver's empty receipt for legacy bidirectional messages. DATAGRAM messages have no confirmation sample. Failures land in `ton_quic_message_confirmation_failed_total` with the same non-`le` labels. |
 | `ton_quic_message_delivery_seconds` | histogram | `trust`, `tl`, `le` | Deprecated, temporary rolling-upgrade alias of `ton_quic_message_confirmation_seconds`; its matching `…_failed_total` is also an exact alias. |
 
@@ -319,7 +317,7 @@ port) and folds their stats together.
 | `ton_quic_transport_sids_total` | counter | — | **Peer-initiated** bidi streams accepted. Locally opened streams are not counted. |
 | `ton_quic_transport_sids_current` | gauge | — | Open streams with an outbound half: locally initiated bidirectional and unidirectional streams, plus peer-initiated bidirectional streams. These are three independently negotiated credit pools (4096 each by default), so the aggregate cannot identify which pool is exhausted. |
 | `ton_quic_transport_mean_rtt_seconds` | gauge | — | Connection-weighted mean smoothed RTT over open connections. |
-| `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, protocol violation, a handshake rejected over a key or identity mismatch, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter, or a handshake rejected because the path's MTU is 0. `in,internal`: connection creation failure, failing to build a stateless Retry, a fatal ngtcp2 error while handling ingress (our own OOM or callback failure), or a handshake rejected because the outbound connection it belongs to is no longer known. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. To avoid double-counting, a refused datagram is counted here only if `pkt_discarded` did not move across that `ngtcp2_conn_read_pkt` call. Because ngtcp2 exposes no per-packet attribution, a rare buffered-packet interleaving can undercount by one; see *Known gaps*. Failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. Rejected handshakes are counted by whoever rejects them — synchronously at the callback (a key that will not parse, always `invalid`), or asynchronously by the actor that deferred its verdict, which supplies the reason — so they are **not** uniformly `invalid`. |
+| `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, protocol violation, a handshake rejected over a key or identity mismatch, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter, or a handshake refused by local policy (the path's MTU is 0, or reserved-only mode). `in,internal`: connection creation failure, failing to build a stateless Retry, a fatal ngtcp2 error while handling ingress (our own OOM or callback failure), or a handshake rejected because the outbound connection it belongs to is no longer known. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. To avoid double-counting, a refused datagram is counted here only if `pkt_discarded` did not move across that `ngtcp2_conn_read_pkt` call. Because ngtcp2 exposes no per-packet attribution, a rare buffered-packet interleaving can undercount by one; see *Known gaps*. Failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. Rejected handshakes are counted by whoever rejects them — synchronously at the callback (a key that will not parse is `invalid`, a local-policy refusal `limited`), or asynchronously by the actor that deferred its verdict, which supplies the reason — so they are **not** uniformly `invalid`. |
 | `ton_quic_transport_handshakes_total` | counter | `direction`, `result` | Terminal handshake outcomes, split by who dialled (`in` = the peer dialled us, `out` = we dialled the peer — a rejection means something quite different on each side) and how it ended: `completed` once the connection is ready to carry traffic, `rejected` when the application refused the peer (a key that will not parse, an identity that does not match the one we dialed, a path with no usable MTU, an outbound connection nobody remembers), `timed_out` when the handshake did not finish within `QuicConnectionOptions::handshake_timeout` (5s) — the application never saw that one, and every caller queued behind it was failed. The three are disjoint, and every rejection also lands in `dropped{direction="in"}` under its reason — `dropped`'s `direction` is the direction of the discarded data, not of the dial, so an outbound handshake we reject shows up as `handshakes{direction="out"}` against `dropped{direction="in"}`. A handshake abandoned for another reason before the application sees it is counted in none of these outcomes: an idle timeout outside the handshake deadline path only removes the connection, so it shows up as a decrement of `connections_current` and nowhere else, while a datagram ngtcp2 refused lands in `dropped`. Only consumers built on `QuicSender` report completions — a callback implemented directly against `QuicServer` (the in-tree examples and raw tests) records rejections but not successes. |
 
 ### Batching
@@ -335,13 +333,36 @@ call. Windows currently counts descriptors accepted into its asynchronous send q
 | `ton_quic_batching_egress_gso_segments` | histogram | `le` | UDP datagrams in one accepted send descriptor. It is always 1 without GSO. |
 | `ton_quic_batching_egress_syscall_messages` | histogram | `le` | Descriptors accepted by one POSIX send call. Without `sendmmsg`, each successful `sendmsg` contributes 1. |
 
+### Flood protection
+
+Collected from `FloodGuard` on each QUIC server and summed across listening ports. These counters
+describe admission and resource decisions; they do not count every packet discarded by ngtcp2.
+Byte gauges measure the guard's accounted memory, including configured metadata reservations,
+rather than process RSS. Transport reorder buffers, TLS state, kernel buffers, and downstream
+subscriber mailboxes are outside these byte gauges. See [FloodGuard's scope](../quic/FLOOD-GUARD.md).
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_quic_flood_admit_rejected_total` | counter | `reason` | New-connection datagrams refused by `saturated`, `discouraged`, `conns_per_ip`, `conn_rate`, `global_rate`, or `half_open_per_ip` admission. Per-IP budgets are charged only after Retry proves the source address. |
+| `ton_quic_flood_closed_total` | counter | `code` | Guard-initiated closes: `ok` for inactivity, `forbidden` for reserved-only shedding, `too_many_requests` for churn, `service_unavailable` for eviction. Normal transport closes are not counted here. |
+| `ton_quic_flood_streams_failed_total` | counter | `reason` | Peer-initiated stream refusals/failures caused by `size_limit`, `deadline`, `connection_memory`, `pool_memory`, `inflight`, `churn`, or `unclassified`. |
+| `ton_quic_flood_ingress_granted_bytes_total` | counter | — | Connection-level flow-control credit granted through the shared untrusted ingress shaper; not wire bytes. |
+| `ton_quic_flood_half_open` | gauge | — | Installed inbound connections awaiting handshake classification. |
+| `ton_quic_flood_discouraged_ips` | gauge | — | IPs currently retained in the discourage table. A discouraged IP is throttled, not completely banned. |
+| `ton_quic_flood_untrusted_connections` | gauge | — | Classified untrusted inbound connections. |
+| `ton_quic_flood_shaper_waiters` | gauge | — | Connections queued for more shaped ingress credit. |
+| `ton_quic_flood_buffered_bytes` | gauge | `trust` | Reassembly storage and live stream metadata reservations. Trusted and untrusted use separate pools. |
+| `ton_quic_flood_inflight_bytes` | gauge | `trust` | Admitted request storage and processing overhead still owned by active handlers, including work whose stream or connection has closed. Message charges last through the ADNL delivery acknowledgement, which need not cover downstream subscriber work. |
+| `ton_quic_flood_untrusted_egress_bytes` | gauge | — | Stream bytes buffered for untrusted peers, on connections in either direction, and not yet acknowledged, plus the fixed stream-state reservation of every stream we opened to them that has not closed. Past 90% of the pool the fattest holders are evicted with `service_unavailable`. Trusted egress has only a per-connection cap and is not counted. |
+| `ton_quic_flood_reserved_only` | gauge | — | Number of listening QUIC servers with reserved-only mode enabled; each server contributes zero or one. |
+
 ### App
 
 | metric | type | labels | meaning |
 |---|---|---|---|
 | `ton_quic_app_bytes_total` | counter | `trust`, `kind`, `direction`, `tl` | Inner ADNL payload bytes carried over QUIC streams or DATAGRAM frames, measured outside the `quic_message`/`quic_query`/`quic_answer` wrapper. Inbound answers are counted when they successfully complete the matching local query, not merely when an answer frame reaches the wire callback. |
 | `ton_quic_app_messages_total` | counter | same | Message count. |
-| `ton_quic_app_dropped_total` | counter | `trust`, `direction`, `reason` | Fire-and-forget message sends that failed: `out,limited` when the peer's stream-count credit blocked opening a stream (`NGTCP2_ERR_STREAM_ID_BLOCKED`), `out,internal` for any other send failure. Query failures are not counted here — they propagate to the caller. Inbound cells are never incremented. |
+| `ton_quic_app_dropped_total` | counter | `trust`, `direction`, `reason` | Fire-and-forget message sends that failed: `out,limited` when the peer's stream-count credit blocked opening a stream (`NGTCP2_ERR_STREAM_ID_BLOCKED`) or the buffered-egress budget refused the message, `out,internal` for any other send failure. Query failures are not counted here — they propagate to the caller. Inbound cells are never incremented. |
 
 `trust` is the local resource class assigned to the remote local/peer identity path, not an
 authorization result.
@@ -371,53 +392,6 @@ Described in full under ADNL → *Outbound: roundtrips and deliveries*; the QUIC
 
 ---
 
-## RLDP2
-
-One collector on `Rldp`. Per-connection counters are drained into an aggregate the same way ADNL
-drains peer pairs; a dropped connection drains from `tear_down`, so counts survive connection churn.
-Removal is not an idle timeout: every use pushes the connection's deadline to
-`max(current deadline, this transfer's deadline + 120 s)`, so a transfer due at T holds its
-connection until T + 120 s. Two sites bypass the per-connection drain and write the aggregate
-directly, having no connection to attribute to: the wire bytes of a datagram from a peer with no
-permitted connection, and a reassembled message that fails to parse.
-
-### Wire
-
-| metric | type | labels | meaning |
-|---|---|---|---|
-| `ton_rldp2_wire_bytes_total` | counter | `direction` | Bytes of RLDP2 datagrams exchanged with ADNL. |
-| `ton_rldp2_wire_packets_total` | counter | `direction` | Count of those datagrams. |
-
-### Transport
-
-| metric | type | labels | meaning |
-|---|---|---|---|
-| `ton_rldp2_transport_transfers_total` | counter | `direction`, `state=completed\|failed\|timeout` | Terminal outcome of a whole transfer (a reassembled message, not a packet); errors carrying `ErrorCode::timeout` are classified as `timeout`, everything else as `failed`. |
-| `ton_rldp2_transport_connections` | gauge | — | Live connections. |
-| `ton_rldp2_transport_queries_pending` | gauge | — | Outbound queries awaiting an answer. |
-| `ton_rldp2_transport_dropped_total` | counter | `direction`, `reason` | Protocol-layer rejects: malformed TL, bad FEC type or symbol size, bad seqno, a declared `total_size` too large for a `size_t`, part index or size mismatch, undecodable FEC symbol (`invalid`); transfer over the size cap (`limited`). All are inbound; `out` and `internal` are always 0. |
-
-### App
-
-| metric | type | labels | meaning |
-|---|---|---|---|
-| `ton_rldp2_app_bytes_total` | counter | `kind`, `direction`, `tl` | Payload bytes crossing the RLDP↔app boundary. |
-| `ton_rldp2_app_messages_total` | counter | same | Message count. |
-| `ton_rldp2_app_dropped_total` | counter | `direction`, `reason` | `in,limited`: datagram from a peer with no permitted connection, or an inbound answer exceeding our query's `max_answer_size`. `out,limited`: our answer exceeded the requester's `max_answer_size`. |
-
-### Outbound latency
-
-Described in full under ADNL → *Outbound: roundtrips and deliveries*; the RLDP2 families are:
-
-| metric | type | labels | meaning |
-|---|---|---|---|
-| `ton_rldp2_query_roundtrip_seconds` | histogram | `tl`, `le` | Send-accept to answer for queries we send over RLDP2. |
-| `ton_rldp2_query_roundtrip_failed_total` | counter | `tl` | Of those, the ones that errored or timed out. |
-| `ton_rldp2_message_delivery_seconds` | histogram | `tl`, `le` | Send-accept to the transfer's completion (`on_sent`) for fire-and-forget messages. Only sends that carried a timeout are measured: without one the transfer gets no deadline and `on_sent` may never fire, so those messages are left out entirely rather than counted as never delivered. |
-| `ton_rldp2_message_delivery_failed_total` | counter | `tl` | Of those, the ones whose transfer never completed. |
-
----
-
 ## Overlay
 
 One collector on `Overlays` (the overlay manager). Records broadcast **content** — the naked TL
@@ -430,6 +404,8 @@ pairs), with a `tear_down` flush so a dying overlay's counts survive.
 |---|---|---|---|
 | `ton_overlay_broadcast_bytes_total` | counter | `direction=in\|out`, `tl` | Broadcast content bytes. `out` at the four terminal `send_broadcast*` entry points, pre-FEC-encoding, and only for content submitted to an overlay this node participates in (still counted if certificate checks later reject it). `in` at `deliver_broadcast`, post-reassembly. |
 | `ton_overlay_broadcast_messages_total` | counter | same | Broadcast count for the same events. |
+| `ton_overlay_public_peer_memberships` | gauge | `chain=master\|shard` | Entries in the public-overlay peer tables for this chain. Shard values are aggregated if more than one public shard overlay exists. |
+| `ton_overlay_public_plumtree_eager_peers_avg` | gauge | `chain=master\|shard` | Average eager-set size across every Plumtree tree in the public overlays for this chain. These peers receive full payloads rather than only IHAVEs. |
 
 Two semantics worth knowing. Sizes here are content bytes while the transport tiers count wire
 bytes, so the transport app tier's FEC-part traffic (`*_app_*` under the four FEC constructors:
@@ -444,6 +420,23 @@ delivered", not "received from peers".
 
 ---
 
+## Public rebroadcaster
+
+Collected by `FullNode`. The forwarding counter records protected or custom overlay candidates and
+finality submitted to the public-overlay send path; the overlay metrics above describe the resulting
+public topology.
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_rebroadcaster_enabled` | gauge | — | 1 when `--public-rebroadcast` is enabled. |
+| `ton_rebroadcaster_configured_fanout` | gauge | — | Configured original-sender Plumtree eager and IHAVE fanout. |
+| `ton_rebroadcaster_broadcasts_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=protected\|custom` | Unique broadcasts scheduled for forwarding into the corresponding public overlay. `source` is the first arrival to win rebroadcaster deduplication. |
+| `ton_rebroadcaster_arrivals_total` | counter | `chain=master\|shard`, `type=candidate\|finality`, `source=protected\|custom` | All eligible protected and custom overlay arrivals observed by the rebroadcaster, including the first arrival and later duplicates. |
+| `ton_rebroadcaster_last_broadcast_timestamp_seconds` | gauge | `chain=master\|shard`, `type=candidate\|finality` | Unix timestamp of the latest forwarding decision from either source; 0 until the first one. |
+| `ton_rebroadcaster_external_messages_total` | counter | `result=relayed\|no_protected_route` | Validated public external messages reaching the relay stage. `relayed` means submission to the matching protected overlay; `no_protected_route` means no matching overlay was available. |
+
+---
+
 ## Validator manager
 
 From `ValidatorManagerImpl`. All of these sit directly under the root prefix with no subsystem
@@ -455,10 +448,10 @@ The two block-receive families come first and are unchanged:
 | `ton_first_received_total` | counter | `workchain=0\|-1`, `source` | For each block that reaches "applied", one increment for the **earliest** source that delivered it. |
 | `ton_received_total` | counter | `workchain`, `source` | For each applied block, one increment **per distinct source** that delivered it, including sources that arrived after the block was applied — but only as long as the block is still in the 1000-entry LRU of receive stats, so a source that turns up much later is missed. |
 
-`source` values: `unknown`, `block_broadcast_public`, `block_broadcast_fast_sync`,
+`source` values: `unknown`, `block_broadcast_public`, `block_broadcast_protected`,
 `block_broadcast_custom`, `block_download`, `candidate_broadcast_public`,
-`candidate_broadcast_fast_sync`, `candidate_broadcast_consensus`, `candidate_broadcast_custom`,
-`candidate_finality_public`, `candidate_finality_fast_sync`, `candidate_finality_custom`,
+`candidate_broadcast_protected`, `candidate_broadcast_consensus`, `candidate_broadcast_custom`,
+`candidate_finality_public`, `candidate_finality_protected`, `candidate_finality_custom`,
 `candidate_stored`, `block_accepted`.
 
 Cardinality is fixed at 2 × 14 = 28 series per family; `workchain` is a closed two-value domain,
@@ -768,7 +761,7 @@ shares within a node (`empty / (accepted + empty)`) are the safe reading.
 
 ### Mempool
 
-Read on demand from `ExtMessagePool` as one small value snapshot. Like the ADNL, RLDP2 and overlay
+Read on demand from `ExtMessagePool` as one small value snapshot. Like the ADNL and overlay
 collectors, the validator-manager collector waits for its child actor before it emits the families.
 Values are therefore current for that scrape rather than cached. If the pool disappears while the
 request is in flight, only the mempool and applied-external families are omitted; the rest of the
@@ -857,20 +850,14 @@ Swap `messages`→`bytes` for traffic share; to fold in response volume (answers
 bytes) widen to `kind=~"query|answer"` — `kind` is an equality matcher, so a second `kind="answer"`
 would match nothing rather than add a case.
 
-**Do not reach for `{__name__=~"ton_(adnl|quic|rldp2)_app_bytes_total"}` to do all three at once.**
-`rate()` drops `__name__`; ADNL and RLDP2 then have the same label set and collide, so Prometheus
-fails the whole query with `vector cannot contain metrics with the same labelset`. QUIC's extra
-`trust` label does not repair that collision. Nothing after `rate()` can repair it —
-`label_replace` runs too late. If you want a cross-transport total, synthesize the distinguishing
-label in a recording rule, where each `rate()` is evaluated separately (this example deliberately
-aggregates QUIC trust classes):
+For a cross-transport total, synthesize a distinguishing label in a recording rule. This example
+deliberately aggregates QUIC trust classes:
 
 ```yaml
 - record: ton:app_bytes:rate5m
   expr: sum by (transport, kind, direction, tl) (
           label_replace(rate(ton_quic_app_bytes_total[5m]),  "transport", "quic",  "", "")
-       or label_replace(rate(ton_adnl_app_bytes_total[5m]),  "transport", "adnl",  "", "")
-       or label_replace(rate(ton_rldp2_app_bytes_total[5m]), "transport", "rldp2", "", ""))
+       or label_replace(rate(ton_adnl_app_bytes_total[5m]), "transport", "adnl", "", ""))
 ```
 
 **What content am I gossiping?** Broadcast content, post-FEC-reassembly:
@@ -886,9 +873,8 @@ sum by (direction) (rate(ton_quic_wire_bytes_total[5m]))
   / sum by (direction) (rate(ton_quic_app_bytes_total[5m]))
 ```
 
-Same shape for `adnl` and `rldp2` (measured on a small mixed workload: ADNL ≈ 1.3×, QUIC ≈ 1.8× —
-small-message-heavy flows pay more per-packet overhead). Remember ADNL's app tier includes rldp2's
-datagrams (`tl="rldp2.messagePart"`), so don't sum adnl and rldp2 app tiers together.
+The same shape works for ADNL (measured on a small mixed workload: ADNL ≈ 1.3×, QUIC ≈ 1.8×;
+small-message-heavy flows pay more per-packet overhead).
 
 **FEC tax**: transport-tier FEC part bytes versus reassembled content bytes:
 
@@ -922,7 +908,7 @@ sum by (tl) (rate(ton_adnl_query_failed_total[5m]))
 type — processing is our cost, roundtrip adds network + the peer:
 
 ```promql
-histogram_quantile(0.95, sum by (le) (rate(ton_rldp2_query_roundtrip_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
+histogram_quantile(0.95, sum by (le) (rate(ton_quic_query_roundtrip_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
 histogram_quantile(0.95, sum by (le) (rate(ton_adnl_query_duration_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
 ```
 
@@ -950,8 +936,10 @@ rate(ton_quic_app_dropped_total{direction="out",reason="limited"}[1m]) > 0
 ton_quic_transport_sids_current   # corroborates; read it with the caveat below
 ```
 
-The first line is the detector. `sids_current` only corroborates: it combines locally initiated bidi
-and uni streams with peer-initiated bidi streams, so it cannot isolate the budget that matters. At
+The first line is the detector. It also counts sends the buffered-egress budget refused (a peer that
+stopped acknowledging); the throttled send-failure log tells the two apart (`open stream failed`
+versus `egress ... limit exceeded`). `sids_current` only corroborates: it combines locally initiated
+bidi and uni streams with peer-initiated bidi streams, so it cannot isolate the budget that matters. At
 the defaults, those three independent limits are 4096 each. Message sends normally consume the
 peer's uni budget; old-peer fallback consumes its bidi budget.
 
@@ -965,7 +953,7 @@ sum by (reason, direction) (rate(ton_adnl_transport_dropped_total[5m]))
 ```
 
 **Where do my blocks come from?** Share of first delivery per source (a validator should see
-`candidate_broadcast_consensus` dominate; a fullnode, the broadcast/fast-sync paths):
+`candidate_broadcast_consensus` dominate; a fullnode, the broadcast/protected paths):
 
 ```promql
 sum by (source) (rate(ton_first_received_total[15m]))
@@ -1130,9 +1118,8 @@ Worth knowing before building dashboards or alerts on these.
 `ton_adnl_wire_dropped_total{direction="out",reason="invalid"|"limited"}`;
 `ton_quic_wire_dropped_total{direction="in",reason="internal"}` and
 `{direction="out",reason="invalid"}`;
-`ton_rldp2_transport_dropped_total{direction="out"}` and `{reason="internal"}`;
-four of the six cells of `ton_rldp2_app_dropped_total` and four of the six of
-`ton_adnl_app_dropped_total` (both only ever use `in,limited` and `out,limited`);
+four of the six cells of `ton_adnl_app_dropped_total` (it only ever uses `in,limited` and
+`out,limited`);
 and six of the 56 block-stats series — `candidate_stored` is unreachable in both families
 (four series), and `ton_received_total{source="unknown"}` cannot fire (two series;
 `ton_first_received_total`'s `unknown` cell *can*). The three block-broadcast sources have live

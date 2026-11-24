@@ -126,18 +126,21 @@ class JsonChar {
   explicit JsonChar(uint32 c) : c_(c) {
   }
   friend StringBuilder &operator<<(StringBuilder &sb, const JsonChar &val) {
+    auto append_error = [&]() {
+      sb << JsonChar(0xFFFD);  // U+FFFD - Replacement character
+    };
     auto c = val.c_;
     if (c < 0x10000) {
       if (0xD7FF < c && c < 0xE000) {
-        // UTF-8 correctness has already been checked
-        UNREACHABLE();
+        append_error();
+        return sb;
       }
       return sb << JsonOneChar(c);
     } else if (c <= 0x10ffff) {
       return sb << JsonOneChar(0xD7C0 + (c >> 10)) << JsonOneChar(0xDC00 + (c & 0x3FF));
     } else {
-      // UTF-8 correctness has already been checked
-      UNREACHABLE();
+      append_error();
+      return sb;
     }
   }
 

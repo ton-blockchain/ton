@@ -34,7 +34,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
             .move_as_ok();
     int finality_broadcast_mode =
         block.id.seqno() + 8 > last_mc_finalized_seqno_
-            ? (fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync)
+            ? (fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_protected)
             : 0;
     if (bus.is_collator) {
       finality_broadcast_mode &= fullnode::FullNode::broadcast_mode_custom;

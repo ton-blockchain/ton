@@ -151,15 +151,15 @@ void CellDbIn::validate_meta() {
   auto known_roots = boc_->load_known_roots().move_as_ok();
   for (auto& root : known_roots) {
     block::gen::ShardStateUnsplit::Record info;
-    block::gen::OutMsgQueueInfo::Record qinfo;
     block::ShardId shard;
-    if (!(tlb::unpack_cell(root, info) && shard.deserialize(info.shard_id.write()) &&
-          tlb::unpack_cell(info.out_msg_queue_info, qinfo))) {
-      LOG(FATAL) << "cannot create ShardDescr from a root in celldb";
-    }
+    bool is_shard_state = tlb::unpack_cell(root, info) && shard.deserialize(info.shard_id.write());
     if (!partial_check && !root_hashes.contains(root->get_hash())) {
       unknown_roots++;
-      LOG(ERROR) << "Unknown root" << ShardIdFull(shard) << ":" << info.seq_no;
+      if (is_shard_state) {
+        LOG(ERROR) << "Unknown root " << ShardIdFull(shard) << ":" << info.seq_no;
+      } else {
+        LOG(ERROR) << "Unknown root";
+      }
       constexpr bool delete_unknown_roots = false;
       if (delete_unknown_roots) {
         vm::CellStorer stor{*cell_db_};
@@ -170,7 +170,7 @@ void CellDbIn::validate_meta() {
         if (!opts_->get_celldb_in_memory()) {
           boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
         }
-        LOG(ERROR) << "Unknown root" << ShardIdFull(shard) << ":" << info.seq_no << " REMOVED";
+        LOG(ERROR) << "Unknown root REMOVED";
       }
     }
   }

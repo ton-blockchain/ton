@@ -12,7 +12,7 @@ bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& f
     case ton::ton_api::engine_validator_addControlInterface::ID:
     case ton::ton_api::engine_validator_addCustomOverlay::ID:
     case ton::ton_api::engine_validator_addDhtId::ID:
-    case ton::ton_api::engine_validator_addFastSyncClient::ID:
+    case ton::ton_api::engine_validator_addProtectedOverlayClient::ID:
     case ton::ton_api::engine_validator_addListeningPort::ID:
     case ton::ton_api::engine_validator_addLiteserver::ID:
     case ton::ton_api::engine_validator_addQuicAddr::ID:
@@ -32,7 +32,7 @@ bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& f
     case ton::ton_api::engine_validator_delCollator::ID:
     case ton::ton_api::engine_validator_delCustomOverlay::ID:
     case ton::ton_api::engine_validator_delDhtId::ID:
-    case ton::ton_api::engine_validator_delFastSyncClient::ID:
+    case ton::ton_api::engine_validator_delProtectedOverlayClient::ID:
     case ton::ton_api::engine_validator_delListeningPort::ID:
     case ton::ton_api::engine_validator_delQuicAddr::ID:
     case ton::ton_api::engine_validator_delShard::ID:
@@ -54,7 +54,7 @@ bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& f
     case ton::ton_api::engine_validator_getStats::ID:
     case ton::ton_api::engine_validator_getTime::ID:
     case ton::ton_api::engine_validator_importCertificate::ID:
-    case ton::ton_api::engine_validator_importFastSyncMemberCertificate::ID:
+    case ton::ton_api::engine_validator_importProtectedOverlayMemberCertificate::ID:
     case ton::ton_api::engine_validator_importPrivateKey::ID:
     case ton::ton_api::engine_validator_importShardOverlayCertificate::ID:
     case ton::ton_api::engine_validator_setCollatorOptionsJson::ID:

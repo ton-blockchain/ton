@@ -26,6 +26,8 @@ members = [
 [tool.ruff]
 line-length = 100
 include = ["test/integration/**/*.py", "test/tontester/**/*.py"]
+# Skip vendored projects before discovering their independent Ruff configurations.
+extend-exclude = ["third-party", "emsdk"]
 
 [tool.ruff.lint]
 # Default rules with isort

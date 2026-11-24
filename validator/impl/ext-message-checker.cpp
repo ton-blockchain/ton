@@ -69,13 +69,14 @@ td::actor::Task<ExtMessageChecker::CheckedExtMsg> ExtMessageChecker::check_inner
   result.timings.lookup = timer.elapsed();
 
   timer = td::Timer();
+  LogicalTime block_lt = (state.lt / block::ConfigInfo::get_lt_align() + 1) * block::ConfigInfo::get_lt_align();
   bool special = wc == masterchainId && config_->is_special_smartcontract(addr);
-  auto unpack_account = [shard_acc, special, utime = state.utime, lt = state.lt]() -> td::Result<block::Account> {
+  auto unpack_account = [shard_acc, special, utime = state.utime, block_lt]() -> td::Result<block::Account> {
     block::Account a;
     if (!a.unpack(shard_acc, utime, special)) {
       return td::Status::Error("Failed to unpack account state");
     }
-    a.block_lt = lt;
+    a.block_lt = block_lt;
     return std::move(a);
   };
   auto acc = CO_TRY(unpack_account());
@@ -98,16 +99,16 @@ td::actor::Task<ExtMessageChecker::CheckedExtMsg> ExtMessageChecker::check_inner
   }
 
   failure = Failure::vm_rejected;
-  CO_TRY(run_message(wc, std::move(acc), unpack_account, state.utime, state.lt + 1, message->root_cell(), exec_config));
+  CO_TRY(run_message(wc, std::move(acc), unpack_account, state.utime, block_lt, message, exec_config));
   result.timings.vm = timer.elapsed();
   co_return result;
 }
 
 td::Status ExtMessageChecker::run_message(WorkchainId wc, block::Account acc,
                                           const std::function<td::Result<block::Account>()> &rebuild_account,
-                                          UnixTime utime, LogicalTime lt, const td::Ref<vm::Cell> &msg_root,
+                                          UnixTime utime, LogicalTime lt, const td::Ref<ExtMessage> &msg,
                                           ExecConfigPair &exec_config) {
-  auto status = ExtMessageQ::run_message_on_account(wc, &acc, utime, lt, msg_root, *exec_config.nolog);
+  auto status = ExtMessageQ::run_message_on_account(wc, &acc, utime, lt, msg, *exec_config.nolog);
   if (status.is_ok()) {
     return status;
   }
@@ -119,7 +120,7 @@ td::Status ExtMessageChecker::run_message(WorkchainId wc, block::Account acc,
     return status;
   }
   auto acc_retry = r_acc.move_as_ok();
-  auto status_with_log = ExtMessageQ::run_message_on_account(wc, &acc_retry, utime, lt, msg_root, *exec_config.log);
+  auto status_with_log = ExtMessageQ::run_message_on_account(wc, &acc_retry, utime, lt, msg, *exec_config.log);
   if (status_with_log.is_error()) {
     return status_with_log;
   }

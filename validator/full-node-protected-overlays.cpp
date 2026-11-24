@@ -1,0 +1,956 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include "auto/tl/ton_api_json.h"
+#include "common/delay.h"
+#include "interfaces/validator-full-id.h"
+#include "overlay/overlays.h"
+#include "td/utils/JsonBuilder.h"
+#include "tl/tl_json.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-tl.hpp"
+
+#include "checksum.h"
+#include "full-node-protected-overlays.hpp"
+#include "full-node-serializer.hpp"
+
+namespace ton::validator::fullnode {
+
+namespace {
+
+constexpr const char *k_called_from_protected = "protected";
+constexpr std::size_t k_plumtree_stats_records_limit = 128;
+
+overlay::OverlayPrivacyRules make_protected_overlay_privacy_rules(
+    const std::vector<adnl::AdnlNodeIdShort> &current_validators_adnl) {
+  std::map<PublicKeyHash, td::uint32> authorized_keys;
+  for (const auto &id : current_validators_adnl) {
+    authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
+  }
+  return {overlay::Overlays::max_fec_broadcast_size(), overlay::CertificateFlags::AllowFec, std::move(authorized_keys)};
+}
+
+template <class T>
+bool write_jsonl(std::ofstream &file, const T &value, const char *name) {
+  auto s = td::json_encode<std::string>(td::ToJson(value), false);
+  std::erase_if(s, [](char c) { return c == '\n' || c == '\r'; });
+  file << s << "\n";
+  file.flush();
+  if (file.fail()) {
+    VLOG(full_node, WARNING) << "Failed to write " << name << " to file";
+    return false;
+  }
+  return true;
+}
+
+bool is_valid_plumtree_stats_record(const ton_api::overlay_plumtreeStatsRecord &record) {
+  auto options = overlay::PlumtreeFecOptions{};
+  auto tree_index = static_cast<td::uint32>(record.tree_index_);
+  if (record.src_.is_zero()) {
+    return false;
+  }
+  if (record.epoch_ < 0 || record.tree_index_ <= 0 || tree_index >= options.tree_slots_) {
+    return false;
+  }
+  if (record.eager_0_.size() > options.eager_limit_ || record.eager_index_.size() > options.eager_limit_) {
+    return false;
+  }
+  if (record.delivered_bcsts_ < 0 || record.parts_in_p99_bcsts_ < 0 || record.useful_avg_ms_ < 0 ||
+      record.useful_max_ms_ < 0 || record.useful_p99_ms_ < 0) {
+    return false;
+  }
+  if (static_cast<td::uint32>(record.parts_in_p99_bcsts_) > options.parts_) {
+    return false;
+  }
+  return true;
+}
+
+bool is_valid_plumtree_stats_exchange(const ton_api::overlay_plumtreeStatsExchange &exchange) {
+  constexpr std::size_t k_overlay_type_size_limit = 25;
+  if (exchange.overlay_type_.empty() || exchange.overlay_type_.size() >= k_overlay_type_size_limit ||
+      !exchange.shard_) {
+    return false;
+  }
+  if (exchange.records_.size() > k_plumtree_stats_records_limit) {
+    return false;
+  }
+  for (const auto &record : exchange.records_) {
+    if (!record || !is_valid_plumtree_stats_record(*record)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+void FullNodeProtectedOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
+  process_block_finality_broadcast(src, query);
+}
+
+void FullNodeProtectedOverlay::process_block_finality_broadcast(PublicKeyHash src,
+                                                                ton_api::tonNode_blockFinalityBroadcast &query) {
+  auto block_id = create_block_id(query.id_);
+  BlockFinalityBroadcast finality{block_id, block::BlockSignatureSet::fetch(query.signature_set_)};
+
+  VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in protected overlay from " << src << ": " << block_id;
+  td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
+                          BroadcastSource::protected_overlay, true);
+}
+
+void FullNodeProtectedOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
+  process_external_message_broadcast(query, [](td::Result<td::Unit>) {});
+}
+
+void FullNodeProtectedOverlay::process_broadcast(PublicKeyHash src,
+                                                 ton_api::tonNode_newBlockCandidateBroadcast &query) {
+  process_block_candidate_broadcast(src, query);
+}
+
+void FullNodeProtectedOverlay::process_broadcast(PublicKeyHash src,
+                                                 ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
+  process_block_candidate_broadcast(src, query);
+}
+
+void FullNodeProtectedOverlay::process_broadcast(PublicKeyHash src,
+                                                 ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
+  process_block_candidate_broadcast(src, query);
+}
+
+void FullNodeProtectedOverlay::process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
+  BlockIdExt block_id;
+  CatchainSeqno cc_seqno;
+  td::uint32 validator_set_hash;
+  td::BufferSlice data;
+  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
+                                                 overlay::Overlays::max_fec_broadcast_size(), k_called_from_protected);
+  if (S.is_error()) {
+    LOG(DEBUG) << "dropped broadcast: " << S;
+    return;
+  }
+  if (data.size() > FullNode::max_block_size()) {
+    VLOG(full_node, WARNING) << "received block candidate with too big size from " << src;
+    return;
+  }
+  if (td::sha256_bits256(data.as_slice()) != block_id.file_hash) {
+    VLOG(full_node, WARNING) << "received block candidate with incorrect file hash from " << src;
+    return;
+  }
+  VLOG(full_node, DEBUG) << "Received newBlockCandidate in protected overlay from " << src << ": " << block_id;
+  td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
+                          validator_set_hash, std::move(data), BroadcastSource::protected_overlay, true);
+}
+
+void FullNodeProtectedOverlay::process_telemetry_broadcast(
+    adnl::AdnlNodeIdShort src, const tl_object_ptr<ton_api::validator_telemetry> &telemetry) {
+  if (telemetry->adnl_id_ != src.bits256_value()) {
+    VLOG(full_node, WARNING) << "Invalid telemetry broadcast from " << src << ": adnl_id mismatch";
+    return;
+  }
+  auto now = (td::int32)td::Clocks::system();
+  if (telemetry->timestamp_ < now - 60) {
+    VLOG(full_node, WARNING) << "Invalid telemetry broadcast from " << src << ": too old ("
+                             << now - telemetry->timestamp_ << "s ago)";
+    return;
+  }
+  if (telemetry->timestamp_ > now + 60) {
+    VLOG(full_node, WARNING) << "Invalid telemetry broadcast from " << src << ": too new ("
+                             << telemetry->timestamp_ - now << "s in the future)";
+    return;
+  }
+  VLOG(full_node, DEBUG) << "Got telemetry broadcast from " << src;
+  write_jsonl(telemetry_file_, *telemetry, "telemetry");
+}
+
+void FullNodeProtectedOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
+  auto B = fetch_tl_object<ton_api::tonNode_Broadcast>(broadcast, true);
+  if (B.is_error()) {
+    if (collect_telemetry_ && src != local_id_.pubkey_hash()) {
+      auto R = fetch_tl_prefix<ton_api::validator_telemetry>(broadcast, true);
+      if (R.is_ok()) {
+        process_telemetry_broadcast(adnl::AdnlNodeIdShort{src}, R.ok());
+        return;
+      }
+    }
+    if (collect_plumtree_stats_) {
+      auto R = fetch_tl_object<ton_api::overlay_plumtreeStatsExchange>(broadcast, true);
+      if (R.is_ok()) {
+        auto msg = R.move_as_ok();
+        if (!is_valid_plumtree_stats_exchange(*msg)) {
+          VLOG(full_node, WARNING) << "Dropping invalid Plumtree stats exchange from " << src;
+          return;
+        }
+        td::actor::send_closure(full_node_, &FullNode::dump_plumtree_stats, overlay::OverlayIdShort{msg->overlay_},
+                                std::move(msg->overlay_type_), std::move(msg->shard_), adnl::AdnlNodeIdShort{src},
+                                std::move(msg->records_));
+      }
+    }
+    return;
+  }
+
+  ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto &obj) { Self->process_broadcast(src, obj); });
+}
+
+void FullNodeProtectedOverlay::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast,
+                                               td::Promise<td::Unit> promise) {
+  TRY_RESULT_PROMISE(promise, message,
+                     fetch_tl_object<ton_api::tonNode_externalMessageBroadcast>(std::move(broadcast), true));
+  if (config_.ext_messages_broadcast_disabled_) {
+    promise.set_error(td::Status::Error("rebroadcasting external messages is disabled"));
+    promise = [](td::Result<td::Unit>) {};
+  }
+  process_external_message_broadcast(*message, std::move(promise));
+}
+
+void FullNodeProtectedOverlay::process_external_message_broadcast(ton_api::tonNode_externalMessageBroadcast &message,
+                                                                  td::Promise<td::Unit> promise) {
+  auto hash = td::sha256_bits256(message.message_->data_);
+  if (!processed_ext_msg_broadcasts_.insert(hash).second) {
+    return promise.set_error(td::Status::Error("duplicate external message broadcast"));
+  }
+  if (my_ext_msg_broadcasts_.contains(hash)) {
+    promise.set_result(td::Unit());
+    return;
+  }
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
+                          std::move(message.message_->data_), 0, std::move(promise));
+}
+
+void FullNodeProtectedOverlay::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
+                                             td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(full_node_, &FullNode::handle_query, std::move(query), src, QuerySource::protected_overlay,
+                          std::move(promise));
+}
+
+void FullNodeProtectedOverlay::send_external_message(td::BufferSlice data) {
+  if (!inited_ || config_.ext_messages_broadcast_disabled_) {
+    return;
+  }
+  td::Bits256 hash = td::sha256_bits256(data);
+  if (processed_ext_msg_broadcasts_.contains(hash)) {
+    return;
+  }
+  my_ext_msg_broadcasts_.insert(hash);
+  auto B = create_serialize_tl_object<ton_api::tonNode_externalMessageBroadcast>(
+      create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)));
+  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
+                            local_id_.pubkey_hash(), 0, std::move(B));
+  } else {
+    td::actor::send_closure(
+        overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_, local_id_.pubkey_hash(),
+        overlay::Overlays::BroadcastFlagFixedNeighbours() | overlay::Overlays::BroadcastFlagNoTwostep(), std::move(B));
+  }
+}
+
+void FullNodeProtectedOverlay::send_block_finality_broadcast(BlockFinalityBroadcast finality) {
+  if (!inited_) {
+    return;
+  }
+  VLOG(full_node, DEBUG) << "Sending Plumtree blockFinalityBroadcast in protected overlay: " << finality.block_id;
+  auto broadcast_id = get_tl_object_sha_bits256(
+      create_tl_object<ton_api::tonNode_finalityBroadcastId>(create_tl_block_id(finality.block_id)));
+  auto B = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(create_tl_block_id(finality.block_id),
+                                                                               finality.sig_set->tl());
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), broadcast_id,
+                          std::move(B));
+}
+
+void FullNodeProtectedOverlay::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                    td::uint32 validator_set_hash, td::BufferSlice data) {
+  if (!inited_) {
+    return;
+  }
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
+                                               k_called_from_protected);  // compression enabled
+  if (B.is_error()) {
+    VLOG(full_node, WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
+    return;
+  }
+  VLOG(full_node, DEBUG) << "Sending Plumtree newBlockCandidate in protected overlay (with compression): " << block_id;
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
+}
+
+void FullNodeProtectedOverlay::send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) {
+  if (collect_telemetry_) {
+    process_telemetry_broadcast(local_id_, telemetry);
+  }
+  auto data = serialize_tl_object(telemetry, true);
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), 0, std::move(data));
+}
+
+void FullNodeProtectedOverlay::collect_validator_telemetry(std::string filename) {
+  if (collect_telemetry_) {
+    telemetry_file_.close();
+  }
+  collect_telemetry_ = true;
+  VLOG(full_node, WARNING) << "Collecting validator telemetry to " << filename << " (local id: " << local_id_ << ")";
+  telemetry_file_.open(filename, std::ios_base::app);
+  if (!telemetry_file_.is_open()) {
+    LOG(WARNING) << "Cannot open file " << filename << " for validator telemetry";
+  }
+}
+
+void FullNodeProtectedOverlay::set_collect_plumtree_stats(bool collect) {
+  collect_plumtree_stats_ = collect;
+}
+
+void FullNodeProtectedOverlay::send_plumtree_stats(
+    overlay::OverlayIdShort stats_overlay, std::string overlay_type, ShardIdFull shard,
+    std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) {
+  if (!inited_ || records.empty()) {
+    return;
+  }
+  auto records_count = records.size();
+  auto data = create_serialize_tl_object<ton_api::overlay_plumtreeStatsExchange>(
+      stats_overlay.bits256_value(), std::move(overlay_type), create_tl_shard_id(shard), std::move(records));
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), 0, std::move(data));
+  VLOG(full_node, DEBUG) << "Sent Plumtree stats exchange for overlay " << stats_overlay.bits256_value().to_hex()
+                         << ": " << records_count << " records";
+}
+
+void FullNodeProtectedOverlay::send_plumtree_stats_to(td::actor::ActorId<FullNodeProtectedOverlay> collector) {
+  if (!inited_ || collector.empty()) {
+    return;
+  }
+  td::actor::send_closure(overlays_, &overlay::Overlays::get_plumtree_stats_records, local_id_, overlay_id_,
+                          [collector, stats_overlay = overlay_id_, shard = shard_](
+                              td::Result<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> R) mutable {
+                            if (R.is_error()) {
+                              VLOG(full_node, WARNING)
+                                  << "Failed to get protected Plumtree stats records: " << R.move_as_error();
+                              return;
+                            }
+                            auto records = R.move_as_ok();
+                            if (records.empty()) {
+                              return;
+                            }
+                            td::actor::send_closure(collector, &FullNodeProtectedOverlay::send_plumtree_stats,
+                                                    stats_overlay, std::string{"protected"}, shard, std::move(records));
+                          });
+}
+
+void FullNodeProtectedOverlay::start_up() {
+  auto X =
+      create_hash_tl_object<ton_api::tonNode_protectedOverlayId>(zero_state_file_hash_, create_tl_shard_id(shard_));
+  td::BufferSlice b{32};
+  b.as_slice().copy_from(as_slice(X));
+  overlay_id_full_ = overlay::OverlayIdFull{std::move(b)};
+  overlay_id_ = overlay_id_full_.compute_short_id();
+  cleanup_processed_ext_msg_at_ = td::Timestamp::now();
+
+  try_init();
+}
+
+void FullNodeProtectedOverlay::try_init() {
+  // Sometimes adnl id is added to validator engine later (or not at all)
+  td::actor::send_closure(
+      adnl_, &adnl::Adnl::check_id_exists, local_id_, [SelfId = actor_id(this)](td::Result<bool> R) {
+        if (R.is_ok() && R.ok()) {
+          td::actor::send_closure(SelfId, &FullNodeProtectedOverlay::init);
+        } else {
+          delay_action([SelfId]() { td::actor::send_closure(SelfId, &FullNodeProtectedOverlay::try_init); },
+                       td::Timestamp::in(30.0));
+        }
+      });
+}
+
+void FullNodeProtectedOverlay::init() {
+  LOG(INFO) << "Creating protected overlay for shard " << shard_ << ", adnl_id=" << local_id_;
+  class Callback : public overlay::Overlays::Callback {
+   public:
+    void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
+    }
+    void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
+                       td::Promise<td::BufferSlice> promise) override {
+      td::actor::send_closure(node_, &FullNodeProtectedOverlay::receive_query, src, std::move(data),
+                              std::move(promise));
+    }
+    void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
+      td::actor::send_closure(node_, &FullNodeProtectedOverlay::receive_broadcast, src, std::move(data));
+    }
+    void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
+                         td::Promise<td::Unit> promise) override {
+      td::actor::send_closure(node_, &FullNodeProtectedOverlay::check_broadcast, src, std::move(data),
+                              std::move(promise));
+    }
+    void get_stats_extra(td::Promise<std::string> promise) override {
+      td::actor::send_closure(node_, &FullNodeProtectedOverlay::get_stats_extra, std::move(promise));
+    }
+    explicit Callback(td::actor::ActorId<FullNodeProtectedOverlay> node) : node_(node) {
+    }
+
+   private:
+    td::actor::ActorId<FullNodeProtectedOverlay> node_;
+  };
+
+  auto rules = make_protected_overlay_privacy_rules(current_validators_adnl_);
+  std::string scope = PSTRING() << R"({ "type": "protected", "shard_id": )" << shard_.shard
+                                << ", \"workchain_id\": " << shard_.workchain << " }";
+  auto local_validator_it = std::find(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id_);
+  bool is_original_sender = local_validator_it != current_validators_adnl_.end();
+  overlay::OverlayOptions options;
+  options.name_ = "protected" + shard_.to_str();
+  options.nodes_to_send_ = 3;
+  options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
+  options.local_overlay_member_flags_ =
+      receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
+  options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_PROTECTED_OVERLAY_CLIENTS;
+
+  options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
+  options.send_twostep_broadcast_ = true;
+  options.enable_plumtree_broadcast_ = true;
+  options.is_original_sender_ = is_original_sender;
+  td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
+                          overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
+                          std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
+  td::actor::send_closure(overlays_, &overlay::Overlays::update_semiprivate_authorized_nodes, local_id_, overlay_id_,
+                          std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
+                          std::vector<adnl::AdnlNodeIdShort>());
+
+  inited_ = true;
+  if (shard_.is_masterchain()) {
+    class TelemetryCallback : public ValidatorTelemetry::Callback {
+     public:
+      explicit TelemetryCallback(td::actor::ActorId<FullNodeProtectedOverlay> id) : id_(id) {
+      }
+      void send_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
+        td::actor::send_closure(id_, &FullNodeProtectedOverlay::send_validator_telemetry, std::move(telemetry));
+      }
+
+     private:
+      td::actor::ActorId<FullNodeProtectedOverlay> id_;
+    };
+    telemetry_sender_ = td::actor::create_actor<ValidatorTelemetry>(
+        "telemetry", local_id_, std::make_unique<TelemetryCallback>(actor_id(this)));
+  }
+  alarm();
+}
+
+void FullNodeProtectedOverlay::tear_down() {
+  if (inited_) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+  }
+}
+
+void FullNodeProtectedOverlay::set_validators(std::vector<PublicKeyHash> root_public_keys,
+                                              std::vector<adnl::AdnlNodeIdShort> current_validators_adnl) {
+  if (root_public_keys_ == root_public_keys && current_validators_adnl_ == current_validators_adnl) {
+    return;
+  }
+  bool was_original_sender = is_validator_adnl(local_id_);
+  root_public_keys_ = std::move(root_public_keys);
+  current_validators_adnl_ = std::move(current_validators_adnl);
+  bool is_original_sender = is_validator_adnl(local_id_);
+  for (auto it = peers_info_.begin(); it != peers_info_.end();) {
+    if (is_validator_adnl(it->first)) {
+      ++it;
+      continue;
+    }
+    if (it->second.alive) {
+      alive_peers_.remove(it->first);
+    }
+    it = peers_info_.erase(it);
+  }
+  if (inited_) {
+    if (was_original_sender != is_original_sender) {
+      td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+      init();
+    } else {
+      td::actor::send_closure(overlays_, &overlay::Overlays::update_root_member_list, local_id_, overlay_id_,
+                              current_validators_adnl_, root_public_keys_, member_certificate_,
+                              make_protected_overlay_privacy_rules(current_validators_adnl_));
+    }
+  }
+}
+
+void FullNodeProtectedOverlay::set_member_certificate(overlay::OverlayMemberCertificate member_certificate) {
+  member_certificate_ = std::move(member_certificate);
+  if (inited_) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::update_member_certificate, local_id_, overlay_id_,
+                            member_certificate_);
+  }
+}
+
+void FullNodeProtectedOverlay::set_params(bool receive_plumtree_broadcasts) {
+  bool recreate_overlay = receive_plumtree_broadcasts != receive_plumtree_broadcasts_;
+  receive_plumtree_broadcasts_ = receive_plumtree_broadcasts;
+  if (inited_ && recreate_overlay) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+    init();
+  }
+}
+
+void FullNodeProtectedOverlay::update_authorized_nodes(std::vector<adnl::AdnlNodeIdShort> add,
+                                                       std::vector<adnl::AdnlNodeIdShort> remove) {
+  authorized_nodes_.insert(add.begin(), add.end());
+  for (auto &id : remove) {
+    authorized_nodes_.erase(id);
+  }
+  if (inited_) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::update_semiprivate_authorized_nodes, local_id_, overlay_id_,
+                            std::move(add), std::move(remove));
+  }
+}
+
+td::actor::Task<QuerySender> FullNodeProtectedOverlay::get_query_sender() {
+  class QuerySenderImpl : public QuerySenderInterface {
+   public:
+    QuerySenderImpl(adnl::AdnlNodeIdShort peer_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
+                    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<FullNodeProtectedOverlay> parent,
+                    std::pair<td::uint32, td::uint32> proto_version)
+        : peer_id_(peer_id)
+        , local_id_(local_id)
+        , overlay_id_(overlay_id)
+        , overlays_(std::move(overlays))
+        , parent_(std::move(parent))
+        , proto_version_(proto_version) {
+    }
+
+    void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
+                    td::Promise<td::BufferSlice> promise) const override {
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id_, local_id_, overlay_id_, "q",
+                              std::move(promise), timeout, std::move(query), max_answer_size);
+    }
+
+    void query_finished(td::Status S) const override {
+      if (S.is_error() && S.code() == ErrorCode::timeout) {
+        td::actor::ask(parent_, &FullNodeProtectedOverlay::ping_peer, peer_id_).detach_silent();
+      }
+    }
+
+    std::string to_str() const override {
+      return PSTRING() << "peer " << peer_id_ << " in protected overlay";
+    }
+
+    std::pair<td::uint32, td::uint32> get_proto_version() const override {
+      return proto_version_;
+    }
+
+   private:
+    adnl::AdnlNodeIdShort peer_id_;
+    adnl::AdnlNodeIdShort local_id_;
+    overlay::OverlayIdShort overlay_id_;
+    td::actor::ActorId<overlay::Overlays> overlays_;
+    td::actor::ActorId<FullNodeProtectedOverlay> parent_;
+    std::pair<td::uint32, td::uint32> proto_version_;
+  };
+  if (!inited_) {
+    co_return td::Status::Error(ErrorCode::notready, "not inited");
+  }
+  if (alive_peers_.size() <= std::min<size_t>(current_validators_adnl_.size() / 2, 20)) {
+    co_return td::Status::Error(ErrorCode::notready, "too few alive nodes");
+  }
+  auto peer = alive_peers_.get_random_key();
+  if (peer == nullptr) {
+    co_return td::Status::Error(ErrorCode::notready, "no nodes");
+  }
+  auto proto_version = peers_info_[*peer].proto_version;
+  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, actor_id(this), proto_version);
+}
+
+void FullNodeProtectedOverlay::get_stats_extra(td::Promise<std::string> promise) {
+  auto res = create_tl_object<ton_api::engine_validator_protectedOverlayStats>();
+  res->shard_ = shard_.to_str();
+  for (const auto &x : current_validators_adnl_) {
+    res->validators_adnl_.push_back(x.bits256_value());
+  }
+  for (const auto &x : root_public_keys_) {
+    res->root_public_keys_.push_back(x.bits256_value());
+  }
+  if (!member_certificate_.empty()) {
+    res->member_certificate_ = member_certificate_.tl();
+  }
+  res->receive_broadcasts_ = receive_plumtree_broadcasts_;
+  promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
+}
+
+void FullNodeProtectedOverlay::alarm() {
+  CHECK(inited_);
+  alarm_timestamp() = td::Timestamp::in(td::Random::fast(1.0, 2.0));
+  if (cleanup_processed_ext_msg_at_.is_in_past()) {
+    processed_ext_msg_broadcasts_.clear();
+    my_ext_msg_broadcasts_.clear();
+    cleanup_processed_ext_msg_at_ = td::Timestamp::in(60.0);
+  }
+  if (current_validators_adnl_.empty()) {
+    return;
+  }
+  for (int iter = 0; iter < 5; ++iter) {
+    adnl::AdnlNodeIdShort peer_id =
+        current_validators_adnl_[td::Random::fast(0, (int)current_validators_adnl_.size() - 1)];
+    if (peer_id == local_id_) {
+      continue;
+    }
+    ping_peer(peer_id).start().detach_silent();
+  }
+}
+
+td::actor::Task<> FullNodeProtectedOverlay::ping_peer(adnl::AdnlNodeIdShort peer_id) {
+  CHECK(inited_);
+  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
+  auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_query, peer_id, local_id_, overlay_id_, "q",
+                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024);
+  auto r_response = co_await std::move(task).wrap();
+  if (!is_validator_adnl(peer_id)) {
+    co_return {};
+  }
+  PeerInfo &peer_info = peers_info_[peer_id];
+  if (r_response.is_error()) {
+    VLOG(full_node, DEBUG) << "Failed to ping peer " << peer_id << ": " << r_response.move_as_error();
+    if (peer_info.alive) {
+      alive_peers_.remove(peer_id);
+      peer_info.alive = false;
+    }
+    co_return {};
+  }
+  auto r_capabilities = fetch_tl_object<ton_api::tonNode_capabilities>(r_response.move_as_ok(), true);
+  if (r_capabilities.is_error()) {
+    VLOG(full_node, DEBUG) << "Failed to ping peer " << peer_id << ": " << r_capabilities.move_as_error();
+    if (peer_info.alive) {
+      alive_peers_.remove(peer_id);
+      peer_info.alive = false;
+    }
+    co_return {};
+  }
+  auto capabilities = r_capabilities.move_as_ok();
+  peer_info.proto_version =
+      std::make_pair<td::uint32, td::uint32>(capabilities->version_major_, capabilities->version_minor_);
+  if (!peer_info.alive) {
+    alive_peers_.insert(peer_id, td::Unit{});
+    peer_info.alive = true;
+  }
+  co_return {};
+}
+
+std::pair<td::actor::ActorId<FullNodeProtectedOverlay>, adnl::AdnlNodeIdShort>
+FullNodeProtectedOverlays::choose_overlay(ShardIdFull shard, bool require_validator) {
+  for (auto &p : id_to_overlays_) {
+    if (require_validator && !p.second.is_validator_) {
+      continue;
+    }
+    auto &overlays = p.second.overlays_;
+    ShardIdFull cur_shard = shard;
+    while (true) {
+      auto it = overlays.find(cur_shard);
+      if (it != overlays.end()) {
+        return {it->second.get(), p.first};
+      }
+      if (cur_shard.pfx_len() == 0) {
+        break;
+      }
+      cur_shard = shard_parent(cur_shard);
+    }
+  }
+  return {td::actor::ActorId<FullNodeProtectedOverlay>{}, adnl::AdnlNodeIdShort::zero()};
+}
+
+td::actor::ActorId<FullNodeProtectedOverlay> FullNodeProtectedOverlays::get_masterchain_overlay_for(
+    adnl::AdnlNodeIdShort adnl_id) {
+  auto it = id_to_overlays_.find(adnl_id);
+  if (it == id_to_overlays_.end()) {
+    return {};
+  }
+  auto it2 = it->second.overlays_.find(ShardIdFull{masterchainId});
+  if (it2 == it->second.overlays_.end()) {
+    return {};
+  }
+  return it2->second.get();
+}
+
+void FullNodeProtectedOverlays::send_plumtree_stats(td::actor::ActorId<FullNodeProtectedOverlay> collector,
+                                                    std::size_t overlays_limit) const {
+  if (collector.empty() || overlays_limit == 0) {
+    return;
+  }
+  std::size_t selected_overlays = 0;
+  std::set<ShardIdFull> shards;
+  for (const auto &[_, overlays_info] : id_to_overlays_) {
+    for (const auto &[shard, overlay] : overlays_info.overlays_) {
+      if (overlay.empty()) {
+        continue;
+      }
+      if (!shards.insert(shard).second) {
+        continue;
+      }
+      if (selected_overlays >= overlays_limit) {
+        return;
+      }
+      ++selected_overlays;
+      td::actor::send_closure(overlay.get(), &FullNodeProtectedOverlay::send_plumtree_stats_to, collector);
+    }
+  }
+}
+
+void FullNodeProtectedOverlays::set_config(FullNodeConfig config) {
+  config_ = config;
+  for (auto &[_, overlays_info] : id_to_overlays_) {
+    for (auto &[_, overlay] : overlays_info.overlays_) {
+      td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_config, config);
+    }
+  }
+}
+
+double FullNodeProtectedOverlays::update_overlays(
+    td::Ref<MasterchainState> state, const std::set<PublicKeyHash> &local_keys,
+    std::set<adnl::AdnlNodeIdShort> my_adnl_ids, const std::set<adnl::AdnlNodeIdShort> &local_collator_adnl_ids,
+    std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
+    const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
+    const td::actor::ActorId<overlay::Overlays> &overlays,
+    const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
+    const td::actor::ActorId<FullNode> &full_node) {
+  auto new_registry_state = ValidatorRegistryState::fetch(state);
+  std::vector<adnl::AdnlNodeIdShort> authorized_nodes_add, authorized_nodes_remove;
+  ValidatorRegistryState::scan_nodes_diff(
+      *registry_state_, *new_registry_state,
+      [&](adnl::AdnlNodeIdShort id, std::optional<ValidatorRegistryState::Node> old_node,
+          std::optional<ValidatorRegistryState::Node> new_node) {
+        bool old_auth = old_node && (old_node->roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY);
+        bool new_auth = new_node && (new_node->roles & ValidatorRegistryState::ROLE_PROTECTED_OVERLAY);
+        if (old_auth == new_auth) {
+          return;
+        }
+        if (old_auth) {
+          authorized_nodes_remove.push_back(id);
+          authorized_nodes_.erase(id);
+        } else {
+          authorized_nodes_add.push_back(id);
+          authorized_nodes_.insert(id);
+        }
+      });
+  registry_state_ = std::move(new_registry_state);
+
+  monitoring_shards.insert(ShardIdFull{masterchainId});
+  std::set<ShardIdFull> all_shards;
+  all_shards.insert(ShardIdFull{masterchainId});
+  for (const auto &desc : state->get_shards()) {
+    ShardIdFull shard = desc->shard();
+    td::uint32 monitor_min_split = state->monitor_min_split_depth(shard.workchain);
+    if (shard.pfx_len() > static_cast<int>(monitor_min_split)) {
+      shard = shard_prefix(shard, monitor_min_split);
+    }
+    all_shards.insert(shard);
+  }
+
+  // On new keyblock - update validator set
+  bool updated_validators = false;
+  if (!last_key_block_seqno_ || last_key_block_seqno_.value() != state->last_key_block_id().seqno()) {
+    updated_validators = true;
+    last_key_block_seqno_ = state->last_key_block_id().seqno();
+    root_public_keys_.clear();
+    current_validators_adnl_.clear();
+    validator_key_to_adnl_ids_.clear();
+    validator_authority_until_.clear();
+
+    UnixTime current_until = 0;
+    UnixTime next_until = 0;
+    auto config = state->get_config_holder();
+    if (config.is_error()) {
+      LOG(ERROR) << "Failed to read validator-set lifetimes: " << config.move_as_error();
+    } else {
+      auto config_holder = config.move_as_ok();
+      current_until = config_holder->get_validator_set_start_stop(0).second;
+      next_until = config_holder->get_validator_set_start_stop(1).second;
+    }
+    // Previous validators remain authorized through the current set, and current validators through the next set.
+    // The next set's own end is the last horizon known for next validators in this state.
+    UnixTime set_authority_until[3] = {current_until, std::max(current_until, next_until), next_until};
+
+    // Previous, current and next validator sets
+    for (int i = -1; i <= 1; ++i) {
+      auto val_set = state->get_total_validator_set(i);
+      if (val_set.is_null()) {
+        continue;
+      }
+      for (const ValidatorDescr &val : val_set->export_vector()) {
+        PublicKeyHash public_key_hash = ValidatorFullId{val.key}.compute_short_id();
+        adnl::AdnlNodeIdShort adnl_id{val.addr.is_zero() ? public_key_hash.bits256_value() : val.addr};
+        root_public_keys_.push_back(public_key_hash);
+        current_validators_adnl_.push_back(adnl_id);
+        validator_key_to_adnl_ids_.emplace(public_key_hash, adnl_id);
+        validator_authority_until_[public_key_hash] =
+            std::max(validator_authority_until_[public_key_hash], set_authority_until[i + 1]);
+      }
+    }
+    std::sort(root_public_keys_.begin(), root_public_keys_.end());
+    root_public_keys_.erase(std::unique(root_public_keys_.begin(), root_public_keys_.end()), root_public_keys_.end());
+    std::sort(current_validators_adnl_.begin(), current_validators_adnl_.end());
+    current_validators_adnl_.erase(std::unique(current_validators_adnl_.begin(), current_validators_adnl_.end()),
+                                   current_validators_adnl_.end());
+  }
+
+  double authority_until = 0.0;
+  for (const PublicKeyHash &key : local_keys) {
+    auto [begin, end] = validator_key_to_adnl_ids_.equal_range(key);
+    for (auto it = begin; it != end; ++it) {
+      my_adnl_ids.insert(it->second);
+    }
+    auto authority = validator_authority_until_.find(key);
+    if (authority != validator_authority_until_.end()) {
+      authority_until = std::max(authority_until, static_cast<double>(authority->second));
+    }
+  }
+
+  // Remove overlays for removed adnl ids and shards
+  for (auto it = id_to_overlays_.begin(); it != id_to_overlays_.end();) {
+    if (my_adnl_ids.count(it->first)) {
+      auto &overlays_info = it->second;
+      for (auto it2 = overlays_info.overlays_.begin(); it2 != overlays_info.overlays_.end();) {
+        if (all_shards.count(it2->first)) {
+          ++it2;
+        } else {
+          it2 = overlays_info.overlays_.erase(it2);
+        }
+      }
+      ++it;
+    } else {
+      it = id_to_overlays_.erase(it);
+    }
+  }
+
+  if (updated_validators) {
+    for (auto &[local_id, overlays_info] : id_to_overlays_) {
+      overlays_info.is_validator_ =
+          std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
+      for (auto &[_, overlay] : overlays_info.overlays_) {
+        td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_validators, root_public_keys_,
+                                current_validators_adnl_);
+      }
+    }
+  }
+
+  // Cleanup outdated certificates
+  double now = td::Clocks::system();
+  for (auto &[_, certificates] : member_certificates_) {
+    certificates.erase(std::remove_if(certificates.begin(), certificates.end(),
+                                      [&](const overlay::OverlayMemberCertificate &certificate) {
+                                        return certificate.is_expired(now);
+                                      }),
+                       certificates.end());
+  }
+
+  for (adnl::AdnlNodeIdShort local_id : my_adnl_ids) {
+    bool is_new = !id_to_overlays_.count(local_id);
+    auto &overlays_info = id_to_overlays_[local_id];
+    // Update local roles and current_certificate
+    if (is_new) {
+      overlays_info.is_validator_ =
+          std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
+    }
+    overlays_info.is_collator_ = local_collator_adnl_ids.contains(local_id);
+    bool changed_certificate = false;
+    // Check if certificate is outdated or no longer authorized by current root keys
+    if (!overlays_info.current_certificate_.empty() && overlays_info.current_certificate_.is_expired(now)) {
+      changed_certificate = true;
+      overlays_info.current_certificate_ = {};
+    }
+    if (!overlays_info.current_certificate_.empty() && updated_validators &&
+        !std::binary_search(root_public_keys_.begin(), root_public_keys_.end(),
+                            overlays_info.current_certificate_.issued_by().compute_short_id())) {
+      changed_certificate = true;
+      overlays_info.current_certificate_ = {};
+    }
+    auto certificate_authority_until = [&](const overlay::OverlayMemberCertificate &certificate) {
+      auto issuer = validator_authority_until_.find(certificate.issued_by().compute_short_id());
+      return issuer == validator_authority_until_.end()
+                 ? 0.0
+                 : std::min(static_cast<double>(certificate.expire_at()), static_cast<double>(issuer->second));
+    };
+    double current_certificate_authority_until = overlays_info.current_certificate_.empty()
+                                                     ? 0.0
+                                                     : certificate_authority_until(overlays_info.current_certificate_);
+    auto it = member_certificates_.find(local_id);
+    if (it != member_certificates_.end()) {
+      for (const overlay::OverlayMemberCertificate &certificate : it->second) {
+        double candidate_authority_until = certificate_authority_until(certificate);
+        if (candidate_authority_until > current_certificate_authority_until ||
+            (candidate_authority_until == current_certificate_authority_until &&
+             certificate.is_newer(overlays_info.current_certificate_))) {
+          changed_certificate = true;
+          overlays_info.current_certificate_ = certificate;
+          current_certificate_authority_until = candidate_authority_until;
+        }
+      }
+    }
+
+    // Remove if it is not authorized
+    if (!overlays_info.is_validator_ && overlays_info.current_certificate_.empty() &&
+        !authorized_nodes_.contains(local_id)) {
+      id_to_overlays_.erase(local_id);
+      continue;
+    }
+    authority_until = std::max(authority_until, current_certificate_authority_until);
+    if (authorized_nodes_.contains(local_id)) {
+      authority_until = std::max<double>(authority_until, state->get_unix_time() + 3600 * 12);
+    }
+
+    // Update shard overlays
+    for (ShardIdFull shard : all_shards) {
+      bool receive_plumtree_broadcasts =
+          !overlays_info.is_validator_ && !overlays_info.is_collator_ && monitoring_shards.contains(shard);
+      auto &overlay = overlays_info.overlays_[shard];
+      if (overlay.empty()) {
+        overlay = td::actor::create_actor<FullNodeProtectedOverlay>(
+            PSTRING() << "ProtectedOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
+            current_validators_adnl_, overlays_info.current_certificate_, receive_plumtree_broadcasts, config_,
+            broadcast_speed_multiplier, keyring, adnl, overlays, validator_manager, full_node);
+        td::actor::send_closure(overlay, &FullNodeProtectedOverlay::update_authorized_nodes,
+                                std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
+                                std::vector<adnl::AdnlNodeIdShort>());
+      } else {
+        td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_params, receive_plumtree_broadcasts);
+        if (changed_certificate) {
+          td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_member_certificate,
+                                  overlays_info.current_certificate_);
+        }
+        if (!authorized_nodes_add.empty() || !authorized_nodes_remove.empty()) {
+          td::actor::send_closure(overlay, &FullNodeProtectedOverlay::update_authorized_nodes, authorized_nodes_add,
+                                  authorized_nodes_remove);
+        }
+      }
+    }
+  }
+
+  return authority_until;
+}
+
+void FullNodeProtectedOverlays::add_member_certificate(adnl::AdnlNodeIdShort local_id,
+                                                       overlay::OverlayMemberCertificate member_certificate) {
+  if (member_certificate.empty() || member_certificate.is_expired()) {
+    return;
+  }
+  auto &certificates = member_certificates_[local_id];
+  auto issued_by = member_certificate.issued_by().compute_short_id();
+  for (auto &certificate : certificates) {
+    if (certificate.issued_by().compute_short_id() == issued_by) {
+      if (member_certificate.is_newer(certificate)) {
+        certificate = std::move(member_certificate);
+      }
+      return;
+    }
+  }
+
+  certificates.push_back(std::move(member_certificate));
+  // Overlays will be updated in the next update_overlays
+}
+
+}  // namespace ton::validator::fullnode
