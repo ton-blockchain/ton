@@ -70,10 +70,28 @@ class Adnl : public AdnlSenderInterface {
    public:
     virtual void receive_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) {
     }
+    // Delivery with an acknowledgement: the promise resolves once the message has been handled. The
+    // default routes to receive_message and acks immediately; override to defer the ack to real work.
+    virtual void receive_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
+                                 td::Promise<td::Unit> promise) {
+      receive_message(src, dst, std::move(data));
+      promise.set_value(td::Unit{});
+    }
     virtual void receive_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
                                td::Promise<td::BufferSlice> promise) {
     }
     virtual ~Callback() = default;
+  };
+
+  class LocalIdCallback {
+   public:
+    virtual void local_id_added(AdnlNodeIdFull id_full, AdnlAddressList address_list) {
+    }
+    virtual void local_id_updated(AdnlNodeIdShort id, AdnlAddressList address_list) {
+    }
+    virtual void local_id_deleted(AdnlNodeIdShort id) {
+    }
+    virtual ~LocalIdCallback() = default;
   };
 
   static constexpr td::uint32 get_mtu() {
@@ -95,6 +113,9 @@ class Adnl : public AdnlSenderInterface {
   // adds address list for nodes from config
   virtual void add_static_nodes_from_config(AdnlNodesList nodes) = 0;
 
+  virtual void add_static_peer(AdnlNode node) = 0;
+  virtual void del_static_peer(AdnlNodeIdShort id) = 0;
+
   // adds local id. After that you can send/receive messages from/to this id
   void add_id(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint8 cat) {
     add_id_ex(std::move(id), std::move(addr_list), cat, 0);
@@ -107,6 +128,9 @@ class Adnl : public AdnlSenderInterface {
   // subscribe to (some) messages(+queries) to this local id
   virtual void subscribe(AdnlNodeIdShort dst, std::string prefix, std::unique_ptr<Callback> callback) = 0;
   virtual void unsubscribe(AdnlNodeIdShort dst, std::string prefix) = 0;
+
+  // subscribe to local id status updates
+  virtual void add_local_id_callback(std::unique_ptr<LocalIdCallback> callback) = 0;
 
   // register (main) dht node
   // it will be used to send queries to DHT from adnl

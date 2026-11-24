@@ -5,8 +5,6 @@ async function main() {
     const tests = JSON.parse((await fs.readFile('../legacy_tests.json')).toString('utf-8'))
 
     for (const [filename, hashstr] of tests) {
-        if (filename.includes('storage-provider')) continue;
-
         const mod = await compileWasm()
 
         const response = await compileFile(mod, filename);

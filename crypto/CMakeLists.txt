@@ -226,7 +226,6 @@ set(SMC_ENVELOPE_SOURCE
   smc-envelope/HighloadWalletV2.cpp
   smc-envelope/ManualDns.cpp
   smc-envelope/MultisigWallet.cpp
-  smc-envelope/PaymentChannel.cpp
   smc-envelope/SmartContract.cpp
   smc-envelope/SmartContractCode.cpp
   smc-envelope/WalletInterface.cpp
@@ -387,7 +386,7 @@ target_link_libraries(src_parser PUBLIC ton_crypto_core)
 add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_block PUBLIC ton_crypto_core tdactor tl_api)
+target_link_libraries(ton_block PUBLIC ton_crypto_core tdactor tl_api keys)
 if (MINGW)
   # Resolve circular static linking between ton_block and ton_crypto on MinGW.
   target_link_libraries(ton_block PUBLIC ton_crypto)
@@ -523,8 +522,6 @@ if (NOT CMAKE_CROSSCOMPILING OR USE_EMSCRIPTEN)
 
   GenFif(DEST smartcont/auto/dns-manual-code SOURCE smartcont/dns-manual-code.fc NAME dns-manual)
   GenFif(DEST smartcont/auto/dns-auto-code SOURCE smartcont/dns-auto-code.fc NAME dns-auto)
-
-  GenFif(DEST smartcont/auto/payment-channel-code SOURCE smartcont/payment-channel-code.fc NAME payment-channel)
 
   GenFif(DEST smartcont/auto/simple-wallet-ext-code SOURCE smartcont/simple-wallet-ext-code.fc NAME simple-wallet-ext)
 endif()

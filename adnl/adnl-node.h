@@ -37,6 +37,7 @@ class AdnlNode {
   }
   AdnlNode(const AdnlNode& from) : pub_(from.pub_), addr_list_(from.addr_list_) {
   }
+  AdnlNode& operator=(AdnlNode&&) = default;
   static td::Result<AdnlNode> create(const tl_object_ptr<ton_api::adnl_node>& obj);
 
   tl_object_ptr<ton_api::adnl_node> tl() const {

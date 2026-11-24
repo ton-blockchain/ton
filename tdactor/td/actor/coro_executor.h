@@ -186,8 +186,15 @@ struct Executor {
 template <class P>
 ActorMessageCoroutineSafe<P>::~ActorMessageCoroutineSafe() {
   if (continuation_) {
-    SchedulerExecutor{}.schedule(
-        continuation_.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed")));
+    auto next =
+        continuation_.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed"));
+    if (core::SchedulerContext::get_ptr()) {
+      SchedulerExecutor{}.schedule(next);
+    } else {
+      // No scheduler loop to defer to (mailbox torn down outside a scheduler context): resume the
+      // waiter inline so it unwinds and releases the actor references it holds. noop is safe to resume.
+      next.resume();
+    }
   }
 }
 

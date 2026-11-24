@@ -23,16 +23,6 @@ else
   export CCACHE_DISABLE=1
 fi
 
-# Avoid -march=native with shared CI ccache to prevent illegal instructions.
-if [ "${GITHUB_ACTIONS}" = "true" ] || [ "$with_ccache" = true ]; then
-  HOST_ARCH="$(uname -m)"
-  if [ "${HOST_ARCH}" = "x86_64" ]; then
-    TON_ARCH="x86-64"
-  elif [ "${HOST_ARCH}" = "aarch64" ] || [ "${HOST_ARCH}" = "arm64" ]; then
-    TON_ARCH="armv8-a"
-  fi
-fi
-
 if [ ! -d "build" ]; then
   mkdir build
   cd build
@@ -42,8 +32,9 @@ else
 fi
 
 CMAKE_EXTRA_ARGS=()
+# Leave TON_ARCH unset to use the CMake default (native), independently of ccache.
 if [ -n "${TON_ARCH}" ]; then
-  CMAKE_EXTRA_ARGS+=(-DTON_ARCH=${TON_ARCH})
+  CMAKE_EXTRA_ARGS+=("-DTON_ARCH=${TON_ARCH}")
 fi
 
 cmake -GNinja .. \
@@ -55,21 +46,20 @@ cmake -GNinja .. \
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
 if [ "$with_tests" = true ]; then
-ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
+ninja fift func tolk tonlib tonlibjson tonlib-cli \
       validator-engine lite-client validator-engine-console blockchain-explorer \
-      generate-random-id json2tlo dht-server http-proxy rldp-http-proxy dht-ping-servers dht-resolve \
+      generate-random-id json2tlo dht-server http-proxy dht-ping-servers dht-resolve \
       create-state emulator proxy-liteserver all-tests
       test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
-ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
+ninja fift func tolk tonlib tonlibjson tonlib-cli \
       validator-engine lite-client validator-engine-console blockchain-explorer \
-      generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \
+      generate-random-id json2tlo dht-server http-proxy \
       create-state emulator proxy-liteserver dht-ping-servers dht-resolve
       test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
 
 # simple binaries' test
-./storage/storage-daemon/storage-daemon -V || exit 1
 ./validator-engine/validator-engine -V || exit 1
 ./lite-client/lite-client -V || exit 1
 ./crypto/fift  -V || exit 1
@@ -91,10 +81,9 @@ if [ "$with_artifacts" = true ]; then
   rm -rf artifacts
   mkdir artifacts
   mv build/tonlib/libtonlibjson.so.0.5 build/tonlib/libtonlibjson.so
-  cp build/storage/storage-daemon/storage-daemon build/storage/storage-daemon/storage-daemon-cli \
-     build/crypto/fift build/crypto/tlbc build/crypto/func build/tolk/tolk build/crypto/create-state build/blockchain-explorer/blockchain-explorer \
+  cp build/crypto/fift build/crypto/tlbc build/crypto/func build/tolk/tolk build/crypto/create-state build/blockchain-explorer/blockchain-explorer \
      build/validator-engine-console/validator-engine-console build/tonlib/tonlib-cli build/utils/proxy-liteserver \
-     build/tonlib/libtonlibjson.so build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy \
+     build/tonlib/libtonlibjson.so build/http/http-proxy \
      build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine \
      build/utils/generate-random-id build/utils/json2tlo build/emulator/libemulator.so \
      build/dht/dht-ping-servers build/dht/dht-resolve \

@@ -262,7 +262,6 @@ class BridgeImpl final : public IValidatorGroup {
 
     bus->session_id = params_.session_id;
     bus->overlays = params_.overlays;
-    bus->adnl_sender = params_.adnl_sender;
 
     auto [stop_waiter, stop_promise] = td::actor::StartedTask<>::make_bridge();
     stop_waiter_ = std::move(stop_waiter);

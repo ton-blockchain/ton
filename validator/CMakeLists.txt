@@ -145,8 +145,8 @@ set(FULL_NODE_SOURCE
   full-node-custom-overlays.cpp
   full-node-serializer.hpp
   full-node-serializer.cpp
-  full-node-fast-sync-overlays.hpp
-  full-node-fast-sync-overlays.cpp
+  full-node-protected-overlays.hpp
+  full-node-protected-overlays.cpp
 
   net/download-block-new.hpp
   net/download-block-new.cpp

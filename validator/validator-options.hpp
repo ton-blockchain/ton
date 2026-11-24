@@ -179,6 +179,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::Ref<ExtMessagePoolOptions> get_ext_message_pool_options() const override {
     return ext_message_pool_options_;
   }
+  td::Ref<RegistryVotingConfig> get_registry_voting_config() const override {
+    return registry_voting_config_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -301,6 +304,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_ext_message_pool_options(td::Ref<ExtMessagePoolOptions> value) override {
     ext_message_pool_options_ = std::move(value);
   }
+  void set_registry_voting_config(td::Ref<RegistryVotingConfig> value) override {
+    registry_voting_config_ = std::move(value);
+  }
 
   ValidatorManagerOptionsImpl* make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -359,6 +365,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::string db_event_fifo_path_;
   std::vector<NoncriticalParamsOverride> noncritical_params_overrides_;
   td::Ref<ExtMessagePoolOptions> ext_message_pool_options_{true};
+  td::Ref<RegistryVotingConfig> registry_voting_config_{true};
 };
 
 }  // namespace validator

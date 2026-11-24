@@ -1937,6 +1937,7 @@ void ValidatorManagerImpl::start_up() {
       "extmessagecleanup", ext_message_pool_.get(), actor_id(this));
   td::mkdir(db_root_ + "/tmp/").ensure();
   td::mkdir(db_root_ + "/catchains/").ensure();
+  validator_registry_watcher_ = ValidatorRegistryWatcher::create(actor_id(this), keyring_, adnl_);
 
   auto Q =
       td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::actor::ActorOwn<adnl::AdnlExtServer>> R) {
@@ -2258,9 +2259,8 @@ void ValidatorManagerImpl::new_masterchain_block() {
   }
 
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::update_last_masterchain_state, last_masterchain_state_);
-  for (auto &[_, actor] : validator_registry_watchers_) {
-    td::actor::send_closure(actor, &ValidatorRegistryWatcher::update, last_masterchain_state_, opts_);
-  }
+  td::actor::send_closure(validator_registry_watcher_, &ValidatorRegistryWatcher::update, last_masterchain_state_,
+                          opts_);
   if (last_masterchain_seqno_ % 1024 == 0) {
     LOG(WARNING) << "applied masterchain block " << last_masterchain_block_id_;
   } else {
@@ -2296,7 +2296,6 @@ void ValidatorManagerImpl::update_shards() {
       .opts = opts_,
       .keyring = keyring_,
       .overlays = overlays_,
-      .quic = quic_,
       .db_root = db_root_,
       .validator_keys = validator_keys_,
       .local_collator_adnl_ids = local_collator_adnl_ids_,
@@ -3161,10 +3160,9 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<quic::QuicSender> quic,
-    td::actor::ActorId<overlay::Overlays> overlays) {
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  quic, overlays);
+                                                                  overlays);
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {

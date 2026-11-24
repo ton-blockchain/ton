@@ -96,7 +96,7 @@ class ExtMessageChecker : public td::actor::Actor {
   // logging to reconstruct the same detailed error message as before (the VM is deterministic).
   td::Status run_message(WorkchainId wc, block::Account acc,
                          const std::function<td::Result<block::Account>()> &rebuild_account, UnixTime utime,
-                         LogicalTime lt, const td::Ref<vm::Cell> &msg_root, ExecConfigPair &exec_config);
+                         LogicalTime lt, const td::Ref<ExtMessage> &msg, ExecConfigPair &exec_config);
 
   struct CachedState {
     BlockIdExt block_id;

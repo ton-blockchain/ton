@@ -65,8 +65,12 @@ class ValidatorEngineConsole : public td::actor::Actor {
   }
   void add_query_runner(std::unique_ptr<QueryRunner> runner) {
     auto name = runner->name();
-    query_runners_[name] = std::move(runner);
     alternate_names_[simplify_name(name)] = name;
+    for (const auto& alias : runner->aliases()) {
+      alternate_names_[alias] = name;
+      alternate_names_[simplify_name(alias)] = name;
+    }
+    query_runners_[name] = std::move(runner);
   }
   QueryRunner* get_query(std::string name) {
     auto it = alternate_names_.find(name);
