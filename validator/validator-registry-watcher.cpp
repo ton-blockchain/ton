@@ -231,9 +231,6 @@ std::unique_ptr<ValidatorRegistryState> ValidatorRegistryState::fetch(Ref<Master
   }
   auto registry_config = r_registry_config.move_as_ok();
   auto mc_config = Ref<MasterchainStateQ>{mc_state}->get_config();
-  if (!mc_config->is_special_smartcontract(registry_config.contract_address)) {
-    return create_empty();
-  }
   auto accounts_dict = mc_config->get_accounts_dict();
   const StdSmcAddress& addr = registry_config.contract_address;
   auto account_cs = accounts_dict.lookup(addr);

@@ -732,7 +732,9 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
     new_state.log = std::move(log);
     new_state.libraries = std::move(libraries);
   }
-  new_state.loaded_libraries = std::move(loaded_libraries);
+  if (global_version < 18) {
+    new_state.loaded_libraries = std::move(loaded_libraries);
+  }
   new_state.max_library_loads = max_library_loads;
   new_state.stack_trace = stack_trace;
   new_state.max_data_depth = max_data_depth;
@@ -747,6 +749,9 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
   if (global_version >= 10) {
     new_state.log = std::move(log);
     new_state.libraries = std::move(libraries);
+  }
+  if (global_version >= 18) {
+    new_state.loaded_libraries = std::move(loaded_libraries);
   }
   new_state.chksgn_counter = chksgn_counter;
   new_state.free_gas_consumed = free_gas_consumed;

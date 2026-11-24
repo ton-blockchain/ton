@@ -121,6 +121,7 @@ class LiteQuery : public td::actor::Actor {
   void continue_getState(BlockIdExt blkid, Ref<ShardState> state);
   void continue_getZeroState(BlockIdExt blkid, td::BufferSlice state);
   void perform_sendMessage(td::BufferSlice ext_msg);
+  td::actor::Task<> perform_sendMessage_inner(td::BufferSlice ext_msg);
   void perform_getAccountState(BlockIdExt blkid, WorkchainId workchain, StdSmcAddress addr, int mode);
   void continue_getAccountState_0(Ref<MasterchainState> mc_state, BlockIdExt blkid);
   void continue_getAccountState();

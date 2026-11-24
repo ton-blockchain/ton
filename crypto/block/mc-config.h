@@ -163,6 +163,9 @@ class McShardHashI : public td::CntObject {
 struct StorageUsed {
   td::uint64 cells = 0, bits = 0;
 };
+struct StorageUsedFull {
+  td::uint64 cells = 0, bits = 0, refs = 0;
+};
 
 struct McShardHash : public McShardHashI {
   ton::BlockIdExt blk_;
