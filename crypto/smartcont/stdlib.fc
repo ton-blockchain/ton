@@ -186,18 +186,18 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 ;;; The total count of visited cells `x` cannot exceed non-negative [max_cells];
 ;;; otherwise the computation is aborted before visiting the `(max_cells + 1)`-st cell and
 ;;; a zero flag is returned to indicate failure. If [c] is `null`, returns `x = y = z = 0`.
-(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
+(int, int, int, int) compute_data_size?(cell c, int max_cells) asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 ;;; Similar to [compute_data_size?], but accepting a `slice` [s] instead of a `cell`.
 ;;; The returned value of `x` does not take into account the cell that contains the `slice` [s] itself;
 ;;; however, the data bits and the cell references of [s] are accounted for in `y` and `z`.
-(int, int, int) slice_compute_data_size(slice s, int max_cells) impure asm "SDATASIZE";
+(int, int, int, int) slice_compute_data_size?(slice s, int max_cells) asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 ;;; A non-quiet version of [compute_data_size?] that throws a cell overflow exception (`8`) on failure.
-(int, int, int, int) compute_data_size?(cell c, int max_cells) asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
+(int, int, int) compute_data_size(cell c, int max_cells) impure asm "CDATASIZE";
 
 ;;; A non-quiet version of [slice_compute_data_size?] that throws a cell overflow exception (8) on failure.
-(int, int, int, int) slice_compute_data_size?(cell c, int max_cells) asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
+(int, int, int) slice_compute_data_size(slice c, int max_cells) impure asm "SDATASIZE";
 
 ;;; Throws an exception with exit_code excno if cond is not 0 (commented since implemented in compilator)
 ;; () throw_if(int excno, int cond) impure asm "THROWARGIF";
