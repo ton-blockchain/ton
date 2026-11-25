@@ -2552,8 +2552,8 @@ bool DictionaryFixed::scan_diff(DictionaryFixed& dict2, const scan_diff_func_t& 
 }
 
 bool DictionaryFixed::dict_validate_check(Ref<Cell> dict, td::BitPtr key_buffer, int n, int total_key_len,
-                                          const DictionaryFixed::foreach_func_t& foreach_func,
-                                          bool invert_first, int prefix_len) const {
+                                          const DictionaryFixed::foreach_func_t& foreach_func, bool invert_first,
+                                          int prefix_len) const {
   //LOG(DEBUG) << "dict_validate_check for " << total_key_len - n << "-bit key prefix " << (key_buffer - n + total_key_len).to_hex(total_key_len - n);
   if (dict.is_null()) {
     return true;

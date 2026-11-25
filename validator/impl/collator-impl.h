@@ -97,13 +97,15 @@ class CollatorBase {
 
   block::Account* lookup_account(td::ConstBitPtr addr) const;
   td::Result<std::unique_ptr<block::Account>> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,
-                                                              bool force_create, const block::Config* config);
+                                                                bool force_create, const block::Config* config);
   td::Result<block::Account*> make_account(td::ConstBitPtr addr, bool force_create, const block::Config* config);
   bool update_account_dict(const block::transaction::Transaction& trans);
   void update_account_storage_dict_info(const block::transaction::Transaction& trans);
   bool process_account_storage_dict(block::Account& account);
-  td::Result<std::unique_ptr<block::transaction::Transaction>> create_ordinary_transaction(
-      Ref<vm::Cell> msg_root, block::Account* acc, bool external, LogicalTime after_lt);
+  td::Result<std::unique_ptr<block::transaction::Transaction>> create_ordinary_transaction(Ref<vm::Cell> msg_root,
+                                                                                           block::Account* acc,
+                                                                                           bool external,
+                                                                                           LogicalTime after_lt);
   static td::Result<std::unique_ptr<block::transaction::Transaction>> impl_create_ordinary_transaction(
       Ref<vm::Cell> msg_root, block::Account* acc, UnixTime utime, LogicalTime lt,
       block::StoragePhaseConfig* storage_phase_cfg, block::ComputePhaseConfig* compute_phase_cfg,
@@ -394,9 +396,9 @@ class Collator final : public td::actor::Actor, private CollatorBase {
   bool register_new_msgs(block::transaction::Transaction& trans, td::optional<block::MsgMetadata> msg_metadata);
   bool process_new_messages(bool& enqueue_only);
   const char* check_message_deferring(const block::NewOutMsg& msg, const StdSmcAddress& src_addr,
-                                     std::map<StdSmcAddress, td::uint32>& sender_generated_messages_count,
-                                     bool has_unprocessed_deferred_messages, td::uint64 out_msg_queue_size,
-                                     size_t new_msgs_from_dispatch, bool is_special = false);
+                                      std::map<StdSmcAddress, td::uint32>& sender_generated_messages_count,
+                                      bool has_unprocessed_deferred_messages, td::uint64 out_msg_queue_size,
+                                      size_t new_msgs_from_dispatch, bool is_special = false);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();
   bool precheck_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt);
@@ -481,8 +483,10 @@ class Collator final : public td::actor::Actor, private CollatorBase {
   td::actor::Task<bool> process_virtual_internals();
   td::actor::Task<bool> process_virtual_messages(bool& enqueue_only);
   bool virtual_shard_budget_exhausted(unsigned cls, bool need_stop = true);
-  td::Result<std::unique_ptr<block::transaction::Transaction>> create_virtual_transaction(
-      Ref<vm::Cell> msg_root, const StdSmcAddress& addr, bool external, LogicalTime after_lt);
+  td::Result<std::unique_ptr<block::transaction::Transaction>> create_virtual_transaction(Ref<vm::Cell> msg_root,
+                                                                                          const StdSmcAddress& addr,
+                                                                                          bool external,
+                                                                                          LogicalTime after_lt);
   td::actor::Task<> finalize_virtual_accounts();
   td::actor::Task<Ref<vm::Cell>> generate_virtual_update();
   void collect_virtual_proofs(std::vector<Ref<vm::Cell>>& storage_roots);

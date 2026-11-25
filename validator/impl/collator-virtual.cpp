@@ -496,8 +496,8 @@ void Collator::VirtualShards::end_publish(block::BlockLimitStatus& common) {
 }
 
 Collator::VirtualShards::Request* Collator::VirtualShards::plan(Collator& parent, Ref<vm::Cell> message,
-                                                              const StdSmcAddress& address, bool external,
-                                                              LogicalTime after_lt) {
+                                                                const StdSmcAddress& address, bool external,
+                                                                LogicalTime after_lt) {
   auto request = std::make_unique<Request>();
   request->owner = owner(address);
   request->address = address;

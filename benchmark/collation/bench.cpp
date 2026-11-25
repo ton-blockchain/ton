@@ -419,16 +419,16 @@ class InMemoryManager final : public ton::validator::ValidatorManagerImpl {
   void wait_neighbor_msg_queue_proofs(
       ton::ShardIdFull, std::vector<ton::BlockIdExt> blocks, td::Timestamp,
       td::Promise<std::map<ton::BlockIdExt, td::Ref<ton::validator::OutMsgQueueProof>>> promise) override {
-    if (mc_state_.is_null() || std::any_of(blocks.begin(), blocks.end(), [&](const auto& block) {
-          return block != mc_id_ && block != prev_id_;
-        })) {
+    if (mc_state_.is_null() || std::any_of(blocks.begin(), blocks.end(),
+                                           [&](const auto& block) { return block != mc_id_ && block != prev_id_; })) {
       promise.set_error(td::Status::Error("in-memory manager cannot provide a partial or unknown neighbor proof"));
       return;
     }
     std::map<ton::BlockIdExt, td::Ref<ton::validator::OutMsgQueueProof>> result;
     for (const auto& id : blocks) {
       auto root = id == mc_id_ ? mc_state_->root_cell() : prev_state_->root_cell();
-      result.emplace(id, td::Ref<ton::validator::OutMsgQueueProof>{true, id, std::move(root), td::Ref<vm::Cell>{}, true});
+      result.emplace(id,
+                     td::Ref<ton::validator::OutMsgQueueProof>{true, id, std::move(root), td::Ref<vm::Cell>{}, true});
     }
     promise.set_value(std::move(result));
   }
