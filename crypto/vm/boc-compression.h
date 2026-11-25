@@ -38,10 +38,6 @@ td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed,
                                                                        unsigned max_decompressed_size);
 
-td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots);
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed,
-                                                                                 unsigned max_decompressed_size);
-
 td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots,
                                          CompressionAlgorithm algo = CompressionAlgorithm::BaselineLZ4);
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size);

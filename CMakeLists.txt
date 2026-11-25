@@ -657,6 +657,9 @@ endif()
 add_executable(test-cells test/test-td-main.cpp ${CELLS_TEST_SOURCE})
 target_link_libraries(test-cells PRIVATE ton_crypto)
 
+add_executable(test-boc-compression test/test-td-main.cpp ${BOC_COMPRESSION_TEST_SOURCE})
+target_link_libraries(test-boc-compression PRIVATE ton_crypto)
+
 add_executable(test-fift test/test-td-main.cpp ${FIFT_TEST_SOURCE})
 target_link_libraries(test-fift PRIVATE fift-lib)
 
@@ -741,6 +744,7 @@ if (HAS_PARENT)
           ${TDDB_TEST_SOURCE}
           ${FEC_TEST_SOURCE}
           ${ED25519_TEST_SOURCE}
+          ${BOC_COMPRESSION_TEST_SOURCE}
           ${TONDB_TEST_SOURCE}
           ${BIGNUM_TEST_SOURCE}
           ${CELLS_TEST_SOURCE}
@@ -758,6 +762,7 @@ ton_test(test-bigint)
 ton_test(test-vm ${TEST_OPTIONS})
 ton_test(test-fift ${TEST_OPTIONS})
 ton_test(test-cells ${TEST_OPTIONS})
+ton_test(test-boc-compression ${TEST_OPTIONS})
 ton_test(test-smartcont)
 ton_test(test-net)
 ton_test(test-tdactor)

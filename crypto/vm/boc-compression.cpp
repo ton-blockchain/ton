@@ -68,6 +68,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
   return roots;
 }
 
+namespace {
+
 inline void append_uint(td::BitString& bs, unsigned long long val, unsigned bits) {
   bs.reserve_bitslice(bits).bits().store_uint(val, bits);
 }
@@ -121,39 +123,62 @@ td::RefInt256 process_shard_accounts_vertex(vm::CellSlice& cs_left, vm::CellSlic
   return td::RefInt256{};
 }
 
-td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
-  const bool kMURemoveSubtreeSums = true;
-  // Input validation
-  if (boc_roots.empty()) {
-    return td::Status::Error("No root cells were provided for serialization");
-  }
-  for (const auto& root : boc_roots) {
-    if (root.is_null()) {
-      return td::Status::Error("Cannot serialize a null cell reference into a bag of cells");
+// Single-use operation state; each public compression call creates a fresh instance.
+class ImprovedStructureCompressor {
+ public:
+  td::Result<td::BufferSlice> compress(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
+    // Input validation
+    if (boc_roots.empty()) {
+      return td::Status::Error("No root cells were provided for serialization");
     }
+    for (const auto& root : boc_roots) {
+      if (root.is_null()) {
+        return td::Status::Error("Cannot serialize a null cell reference into a bag of cells");
+      }
+    }
+
+    TRY_STATUS(import_roots(boc_roots));
+    prepare_graph();
+    TRY_STATUS(topological_sort());
+    write_header_and_metadata();
+    write_direct_edges();
+    write_data_prefixes();
+    write_remaining_edges();
+    pad_to_byte_boundary();
+    write_data_suffixes();
+    pad_to_byte_boundary();
+    return compress_serialized();
   }
 
-  // Initialize data structures for graph representation
-  td::HashMap<vm::Cell::Hash, unsigned> cell_hashes;
-  std::vector<std::array<unsigned, 4>> boc_graph;
-  std::vector<unsigned> refs_cnt;
-  std::vector<td::BitSlice> cell_data;
-  std::vector<unsigned> cell_type;
-  std::vector<unsigned> pb_level_mask;
-  std::vector<unsigned> root_indexes;
-  unsigned total_size_estimate = 0;
+ private:
+  static constexpr bool kMURemoveSubtreeSums = true;
 
-  // Build graph representation using recursive lambda
-  const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell, const td::Ref<vm::Cell>& main_mu_cell,
-                               bool under_mu_right = false, td::Ref<vm::Cell> left_cell = td::Ref<vm::Cell>(),
-                               td::RefInt256* sum_diff_out = nullptr) -> td::Result<unsigned> {
+  td::HashMap<vm::Cell::Hash, unsigned> cell_hashes_;
+  std::vector<std::array<unsigned, 4>> boc_graph_;
+  std::vector<unsigned> refs_cnt_;
+  std::vector<td::BitSlice> cell_data_;
+  std::vector<unsigned> cell_type_;
+  std::vector<unsigned> pb_level_mask_;
+  std::vector<unsigned> root_indexes_;
+  unsigned total_size_estimate_ = 0;
+  unsigned node_count_ = 0;
+  std::vector<std::vector<unsigned>> reverse_graph_;
+  unsigned edge_count_ = 0;
+  std::vector<unsigned> is_data_small_;
+  std::vector<unsigned> topo_order_;
+  std::vector<unsigned> rank_;
+  td::BitString result_;
+
+  td::Result<unsigned> build_graph(td::Ref<vm::Cell> cell, const td::Ref<vm::Cell>& main_mu_cell,
+                                   bool under_mu_right = false, td::Ref<vm::Cell> left_cell = td::Ref<vm::Cell>(),
+                                   td::RefInt256* sum_diff_out = nullptr) {
     if (cell.is_null()) {
       return td::Status::Error("Error while importing a cell during serialization: cell is null");
     }
 
     auto cell_hash = cell->get_hash();
-    auto it = cell_hashes.find(cell_hash);
-    if (it != cell_hashes.end()) {
+    auto it = cell_hashes_.find(cell_hash);
+    if (it != cell_hashes_.end()) {
       // The graph node is stored only once, but balance aggregation is per edge.
       // A repeated right node must still contribute its diff against the left
       // node paired with this particular occurrence.
@@ -168,8 +193,8 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       return it->second;
     }
 
-    unsigned current_cell_id = td::narrow_cast<unsigned>(boc_graph.size());
-    cell_hashes.emplace(cell_hash, current_cell_id);
+    unsigned current_cell_id = td::narrow_cast<unsigned>(boc_graph_.size());
+    cell_hashes_.emplace(cell_hash, current_cell_id);
 
     bool is_special = false;
     vm::CellSlice cell_slice = vm::load_cell_slice_special(cell, is_special);
@@ -179,109 +204,115 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     td::BitSlice cell_bitslice = cell_slice.as_bitslice();
 
     // Initialize new cell in graph
-    boc_graph.emplace_back();
-    refs_cnt.emplace_back(cell_slice.size_refs());
-    cell_type.emplace_back(static_cast<unsigned>(cell_slice.special_type()));
-    pb_level_mask.push_back(0);
+    boc_graph_.emplace_back();
+    refs_cnt_.emplace_back(cell_slice.size_refs());
+    cell_type_.emplace_back(static_cast<unsigned>(cell_slice.special_type()));
+    pb_level_mask_.push_back(0);
 
     DCHECK(cell_slice.size_refs() <= 4);
 
     // Process special cell of type PrunnedBranch
     if (cell_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch) {
       DCHECK(cell_slice.size() >= 16);
-      cell_data.emplace_back(cell_bitslice.subslice(16, cell_bitslice.size() - 16));
-      pb_level_mask.back() = cell_slice.data()[1];
+      cell_data_.emplace_back(cell_bitslice.subslice(16, cell_bitslice.size() - 16));
+      pb_level_mask_.back() = cell_slice.data()[1];
     } else {
-      cell_data.emplace_back(cell_bitslice);
+      cell_data_.emplace_back(cell_bitslice);
     }
 
-    total_size_estimate += cell_bitslice.size();
+    total_size_estimate_ += cell_bitslice.size();
 
     // Process cell references
     if (kMURemoveSubtreeSums && cell_slice.special_type() == vm::CellTraits::SpecialType::MerkleUpdate &&
         main_mu_cell.not_null() && cell_hash == main_mu_cell->get_hash()) {
       // Left branch: traverse normally
-      TRY_RESULT(child_left_id, self(self, cell_slice.prefetch_ref(0), main_mu_cell));
-      boc_graph[current_cell_id][0] = child_left_id;
+      TRY_RESULT(child_left_id, build_graph(cell_slice.prefetch_ref(0), main_mu_cell));
+      boc_graph_[current_cell_id][0] = child_left_id;
       // Right branch: traverse paired with left and compute diffs inline
       TRY_RESULT(child_right_id,
-                 self(self, cell_slice.prefetch_ref(1), main_mu_cell, true, cell_slice.prefetch_ref(0)));
-      boc_graph[current_cell_id][1] = child_right_id;
+                 build_graph(cell_slice.prefetch_ref(1), main_mu_cell, true, cell_slice.prefetch_ref(0)));
+      boc_graph_[current_cell_id][1] = child_right_id;
     } else if (under_mu_right && left_cell.not_null()) {
       // Inline computation for RIGHT subtree nodes under MerkleUpdate
       vm::CellSlice cs_left(NoVm(), left_cell);
       td::RefInt256 sum_child_diff = td::make_refint(0);
       // Recurse children first
       for (unsigned i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, true, cs_left.prefetch_ref(i),
-                                  &sum_child_diff));
-        boc_graph[current_cell_id][i] = child_id;
+        TRY_RESULT(child_id, build_graph(cell_slice.prefetch_ref(i), main_mu_cell, true, cs_left.prefetch_ref(i),
+                                         &sum_child_diff));
+        boc_graph_[current_cell_id][i] = child_id;
       }
 
       // Compute this vertex diff and check skippable condition
       td::RefInt256 vertex_diff = process_shard_accounts_vertex(cs_left, cell_slice);
       if (!is_special && vertex_diff.not_null() && sum_child_diff.not_null() && cmp(sum_child_diff, vertex_diff) == 0) {
-        cell_data[current_cell_id] = td::BitSlice();
-        pb_level_mask[current_cell_id] = 9;
+        cell_data_[current_cell_id] = td::BitSlice();
+        pb_level_mask_[current_cell_id] = 9;
       }
       if (sum_diff_out && vertex_diff.not_null()) {
         *sum_diff_out += vertex_diff;
       }
     } else {
       for (unsigned i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, under_mu_right));
-        boc_graph[current_cell_id][i] = child_id;
+        TRY_RESULT(child_id, build_graph(cell_slice.prefetch_ref(i), main_mu_cell, under_mu_right));
+        boc_graph_[current_cell_id][i] = child_id;
       }
     }
 
     return current_cell_id;
-  };
-
-  // Build the graph starting from roots
-  for (auto root : boc_roots) {
-    td::Ref<vm::Cell> main_mu_cell;
-    bool root_is_special;
-    vm::CellSlice root_slice = vm::load_cell_slice_special(root, root_is_special);
-    if (root_slice.is_valid() && root_slice.size_refs() > kMUCellOrderInRoot) {
-      main_mu_cell = root_slice.prefetch_ref(kMUCellOrderInRoot);
-    }
-
-    TRY_RESULT(root_cell_id, build_graph(build_graph, root, main_mu_cell));
-    root_indexes.push_back(root_cell_id);
   }
 
-  // Check graph properties
-  const unsigned node_count = td::narrow_cast<unsigned>(boc_graph.size());
-  std::vector<std::vector<unsigned>> reverse_graph(node_count);
-  unsigned edge_count = 0;
+  td::Status import_roots(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
+    // Build the graph starting from roots
+    for (auto root : boc_roots) {
+      td::Ref<vm::Cell> main_mu_cell;
+      bool root_is_special;
+      vm::CellSlice root_slice = vm::load_cell_slice_special(root, root_is_special);
+      if (root_slice.is_valid() && root_slice.size_refs() > kMUCellOrderInRoot) {
+        main_mu_cell = root_slice.prefetch_ref(kMUCellOrderInRoot);
+      }
 
-  // Build reverse graph
-  for (unsigned i = 0; i < node_count; ++i) {
-    for (unsigned child_index = 0; child_index < refs_cnt[i]; ++child_index) {
-      unsigned child = boc_graph[i][child_index];
-      ++edge_count;
-      reverse_graph[child].push_back(i);
+      TRY_RESULT(root_cell_id, build_graph(root, main_mu_cell));
+      root_indexes_.push_back(root_cell_id);
     }
+
+    return td::Status::OK();
   }
 
-  // Process cell data sizes
-  std::vector<unsigned> is_data_small(node_count, 0);
-  for (unsigned i = 0; i < node_count; ++i) {
-    if (cell_type[i] != 1) {
-      is_data_small[i] = cell_data[i].size() < 128;
+  void prepare_graph() {
+    // Check graph properties
+    node_count_ = td::narrow_cast<unsigned>(boc_graph_.size());
+    reverse_graph_.resize(node_count_);
+    edge_count_ = 0;
+
+    // Build reverse graph
+    for (unsigned i = 0; i < node_count_; ++i) {
+      for (unsigned child_index = 0; child_index < refs_cnt_[i]; ++child_index) {
+        unsigned child = boc_graph_[i][child_index];
+        ++edge_count_;
+        reverse_graph_[child].push_back(i);
+      }
     }
+
+    // Process cell data sizes
+    is_data_small_.resize(node_count_, 0);
+    for (unsigned i = 0; i < node_count_; ++i) {
+      if (cell_type_[i] != 1) {
+        is_data_small_[i] = cell_data_[i].size() < 128;
+      }
+    }
+
+    rank_.resize(node_count_);
   }
 
-  // Perform topological sort
-  std::vector<unsigned> topo_order, rank(node_count);
-  const auto topological_sort = [&]() -> td::Status {
+  td::Status topological_sort() {
     std::vector<unsigned> queue;
-    queue.reserve(node_count);
-    std::vector<unsigned> in_degree(node_count);
+    queue.reserve(node_count_);
+    std::vector<unsigned> in_degree(node_count_);
 
     // Calculate in-degrees and initialize queue
-    for (unsigned i = 0; i < node_count; ++i) {
-      in_degree[i] = refs_cnt[i];
+    for (unsigned i = 0; i < node_count_; ++i) {
+      in_degree[i] = refs_cnt_[i];
       if (in_degree[i] == 0) {
         queue.push_back(i);
       }
@@ -292,13 +323,13 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     }
 
     std::sort(queue.begin(), queue.end(), [&](unsigned lhs, unsigned rhs) {
-      bool lhs_is_ordinary = cell_type[lhs] == 0;
-      bool rhs_is_ordinary = cell_type[rhs] == 0;
+      bool lhs_is_ordinary = cell_type_[lhs] == 0;
+      bool rhs_is_ordinary = cell_type_[rhs] == 0;
       if (lhs_is_ordinary != rhs_is_ordinary) {
         return lhs_is_ordinary;
       }
-      if (cell_data[lhs].size() != cell_data[rhs].size()) {
-        return cell_data[lhs].size() < cell_data[rhs].size();
+      if (cell_data_[lhs].size() != cell_data_[rhs].size()) {
+        return cell_data_[lhs].size() < cell_data_[rhs].size();
       }
       return lhs < rhs;
     });
@@ -308,162 +339,167 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     while (!queue.empty()) {
       unsigned node = queue.back();
       queue.pop_back();
-      topo_order.push_back(node);
+      topo_order_.push_back(node);
 
-      for (unsigned parent : reverse_graph[node]) {
+      for (unsigned parent : reverse_graph_[node]) {
         if (--in_degree[parent] == 0) {
           queue.push_back(parent);
         }
       }
     }
 
-    if (topo_order.size() != node_count) {
+    if (topo_order_.size() != node_count_) {
       return td::Status::Error("Invalid graph structure");
     }
 
-    std::reverse(topo_order.begin(), topo_order.end());
+    std::reverse(topo_order_.begin(), topo_order_.end());
     return td::Status::OK();
-  };
-
-  TRY_STATUS(topological_sort());
-
-  // Calculate index of vertices in topsort
-  for (unsigned i = 0; i < node_count; ++i) {
-    rank[topo_order[i]] = i;
   }
 
-  // Build compressed representation
-  td::BitString result;
-  total_size_estimate += node_count * 10u * 8u;
-  result.reserve_bits(total_size_estimate);
-
-  // Store roots information
-  const unsigned root_count = td::narrow_cast<unsigned>(root_indexes.size());
-  append_uint(result, root_count, 32);
-  for (unsigned root_ind : root_indexes) {
-    append_uint(result, rank[root_ind], 32);
-  }
-
-  // Store node count
-  append_uint(result, node_count, 32);
-
-  // Store cell types and sizes
-  for (unsigned i = 0; i < node_count; ++i) {
-    unsigned node = topo_order[i];
-    unsigned current_cell_type = bool(cell_type[node]) + pb_level_mask[node];
-    append_uint(result, current_cell_type, 4);
-    unsigned current_refs_cnt = refs_cnt[node];
-    if (cell_type[node] == 1 && cell_data[node].size() == 0) {
-      DCHECK(current_refs_cnt == 0);
-      current_refs_cnt = 1;
+  void write_header_and_metadata() {
+    // Calculate index of vertices in topsort
+    for (unsigned i = 0; i < node_count_; ++i) {
+      rank_[topo_order_[i]] = i;
     }
-    append_uint(result, current_refs_cnt, 4);
 
-    if (cell_type[node] != 1 && current_cell_type != 9) {
-      if (is_data_small[node]) {
-        append_uint(result, 1, 1);
-        append_uint(result, cell_data[node].size(), 7);
-      } else {
-        append_uint(result, 0, 1);
-        append_uint(result, 1 + cell_data[node].size() / 8, 7);
+    // Build compressed representation
+    total_size_estimate_ += node_count_ * 10u * 8u;
+    result_.reserve_bits(total_size_estimate_);
+
+    // Store roots information
+    const unsigned root_count = td::narrow_cast<unsigned>(root_indexes_.size());
+    append_uint(result_, root_count, 32);
+    for (unsigned root_ind : root_indexes_) {
+      append_uint(result_, rank_[root_ind], 32);
+    }
+
+    // Store node count
+    append_uint(result_, node_count_, 32);
+
+    // Store cell types and sizes
+    for (unsigned i = 0; i < node_count_; ++i) {
+      unsigned node = topo_order_[i];
+      unsigned current_cell_type = bool(cell_type_[node]) + pb_level_mask_[node];
+      append_uint(result_, current_cell_type, 4);
+      unsigned current_refs_cnt = refs_cnt_[node];
+      if (cell_type_[node] == 1 && cell_data_[node].size() == 0) {
+        DCHECK(current_refs_cnt == 0);
+        current_refs_cnt = 1;
+      }
+      append_uint(result_, current_refs_cnt, 4);
+
+      if (cell_type_[node] != 1 && current_cell_type != 9) {
+        if (is_data_small_[node]) {
+          append_uint(result_, 1, 1);
+          append_uint(result_, cell_data_[node].size(), 7);
+        } else {
+          append_uint(result_, 0, 1);
+          append_uint(result_, 1 + cell_data_[node].size() / 8, 7);
+        }
       }
     }
   }
 
-  // Store edge information
-  auto edge_bits = result.reserve_bitslice(edge_count).bits();
-  for (unsigned i = 0; i < node_count; ++i) {
-    unsigned node = topo_order[i];
-    for (unsigned child_index = 0; child_index < refs_cnt[node]; ++child_index) {
-      unsigned child = boc_graph[node][child_index];
-      edge_bits.store_uint(rank[child] == i + 1, 1);
-      ++edge_bits;
+  void write_direct_edges() {
+    // Store edge information
+    auto edge_bits = result_.reserve_bitslice(edge_count_).bits();
+    for (unsigned i = 0; i < node_count_; ++i) {
+      unsigned node = topo_order_[i];
+      for (unsigned child_index = 0; child_index < refs_cnt_[node]; ++child_index) {
+        unsigned child = boc_graph_[node][child_index];
+        edge_bits.store_uint(rank_[child] == i + 1, 1);
+        ++edge_bits;
+      }
     }
   }
 
-  // Store cell data
-  for (unsigned node : topo_order) {
-    if (pb_level_mask[node] == 9) {
-      continue;
+  void write_data_prefixes() {
+    // Store cell data
+    for (unsigned node : topo_order_) {
+      if (pb_level_mask_[node] == 9) {
+        continue;
+      }
+      if (cell_type_[node] != 1 && !is_data_small_[node]) {
+        continue;
+      }
+      result_.append(cell_data_[node].subslice(0, cell_data_[node].size() % 8));
     }
-    if (cell_type[node] != 1 && !is_data_small[node]) {
-      continue;
-    }
-    result.append(cell_data[node].subslice(0, cell_data[node].size() % 8));
   }
 
-  // Store BOC graph with optimized encoding
-  for (unsigned i = 0; i < node_count; ++i) {
-    unsigned node = topo_order[i];
-    if (node_count <= i + 3) {
-      continue;
-    }
-
-    for (unsigned j = 0; j < refs_cnt[node]; ++j) {
-      if (rank[boc_graph[node][j]] <= i + 1) {
+  void write_remaining_edges() {
+    // Store BOC graph with optimized encoding
+    for (unsigned i = 0; i < node_count_; ++i) {
+      unsigned node = topo_order_[i];
+      if (node_count_ <= i + 3) {
         continue;
       }
 
-      unsigned delta = rank[boc_graph[node][j]] - i - 2;  // Always >= 0 because of above check
-      unsigned remaining_nodes = node_count - i - 3;      // Always > 0 because of above node count check
-      unsigned required_bits = 32u - td::count_leading_zeroes32(remaining_nodes);
+      for (unsigned j = 0; j < refs_cnt_[node]; ++j) {
+        if (rank_[boc_graph_[node][j]] <= i + 1) {
+          continue;
+        }
 
-      if (required_bits < 8 - (result.size() + 1) % 8 + 1) {
-        append_uint(result, delta, required_bits);
-      } else if (delta < (1u << (8 - (result.size() + 1) % 8))) {
-        unsigned available_bits = 8 - (result.size() + 1) % 8;
-        append_uint(result, 1, 1);
-        append_uint(result, delta, available_bits);
+        unsigned delta = rank_[boc_graph_[node][j]] - i - 2;  // Always >= 0 because of above check
+        unsigned remaining_nodes = node_count_ - i - 3;       // Always > 0 because of above node count check
+        unsigned required_bits = 32u - td::count_leading_zeroes32(remaining_nodes);
+
+        if (required_bits < 8 - (result_.size() + 1) % 8 + 1) {
+          append_uint(result_, delta, required_bits);
+        } else if (delta < (1u << (8 - (result_.size() + 1) % 8))) {
+          unsigned available_bits = 8 - (result_.size() + 1) % 8;
+          append_uint(result_, 1, 1);
+          append_uint(result_, delta, available_bits);
+        } else {
+          append_uint(result_, 0, 1);
+          append_uint(result_, delta, required_bits);
+        }
+      }
+    }
+  }
+
+  void pad_to_byte_boundary() {
+    while (result_.size() % 8) {
+      append_uint(result_, 0, 1);
+    }
+  }
+
+  void write_data_suffixes() {
+    // Store remaining cell data
+    for (unsigned node : topo_order_) {
+      if (pb_level_mask_[node] == 9) {
+        continue;
+      }
+      if (cell_type_[node] == 1 || is_data_small_[node]) {
+        unsigned prefix_size = cell_data_[node].size() % 8;
+        result_.append(cell_data_[node].subslice(prefix_size, cell_data_[node].size() - prefix_size));
       } else {
-        append_uint(result, 0, 1);
-        append_uint(result, delta, required_bits);
+        unsigned data_size = cell_data_[node].size() + 1;
+        unsigned padding = (8 - data_size % 8) % 8;
+
+        if (padding) {
+          append_uint(result_, 0, padding);
+        }
+        append_uint(result_, 1, 1);
+        result_.append(cell_data_[node]);
       }
     }
   }
 
-  // Pad result to byte boundary
-  while (result.size() % 8) {
-    append_uint(result, 0, 1);
+  td::Result<td::BufferSlice> compress_serialized() {
+    // Create final compressed buffer
+    td::BufferSlice serialized((const char*)result_.bits().get_byte_ptr(), result_.size() / 8);
+
+    td::BufferSlice compressed = td::lz4_compress(serialized);
+
+    // Add decompressed size at the beginning
+    td::BufferSlice compressed_with_size(compressed.size() + kDecompressedSizeBytes);
+    auto size_slice = td::BitSliceWrite(compressed_with_size.as_slice().ubegin(), kDecompressedSizeBytes * 8);
+    size_slice.bits().store_uint(serialized.size(), kDecompressedSizeBytes * 8);
+    memcpy(compressed_with_size.data() + kDecompressedSizeBytes, compressed.data(), compressed.size());
+
+    return compressed_with_size;
   }
-
-  // Store remaining cell data
-  for (unsigned node : topo_order) {
-    if (pb_level_mask[node] == 9) {
-      continue;
-    }
-    if (cell_type[node] == 1 || is_data_small[node]) {
-      unsigned prefix_size = cell_data[node].size() % 8;
-      result.append(cell_data[node].subslice(prefix_size, cell_data[node].size() - prefix_size));
-    } else {
-      unsigned data_size = cell_data[node].size() + 1;
-      unsigned padding = (8 - data_size % 8) % 8;
-
-      if (padding) {
-        append_uint(result, 0, padding);
-      }
-      append_uint(result, 1, 1);
-      result.append(cell_data[node]);
-    }
-  }
-
-  // Final padding
-  while (result.size() % 8) {
-    append_uint(result, 0, 1);
-  }
-
-  // Create final compressed buffer
-  td::BufferSlice serialized((const char*)result.bits().get_byte_ptr(), result.size() / 8);
-
-  td::BufferSlice compressed = td::lz4_compress(serialized);
-
-  // Add decompressed size at the beginning
-  td::BufferSlice compressed_with_size(compressed.size() + kDecompressedSizeBytes);
-  auto size_slice = td::BitSliceWrite(compressed_with_size.as_slice().ubegin(), kDecompressedSizeBytes * 8);
-  size_slice.bits().store_uint(serialized.size(), kDecompressedSizeBytes * 8);
-  memcpy(compressed_with_size.data() + kDecompressedSizeBytes, compressed.data(), compressed.size());
-
-  return compressed_with_size;
-}
+};
 
 // Helper: write ShardAccounts augmentation (DepthBalanceInfo with grams) into builder
 bool write_depth_balance_grams(vm::CellBuilder& cb, const td::RefInt256& grams) {
@@ -497,293 +533,354 @@ bool is_merkle_update_node(td::uint8 is_special, td::uint8 pb_level_mask, const 
   return first_byte == static_cast<td::uint8>(vm::CellTraits::SpecialType::MerkleUpdate);
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed,
-                                                                                 unsigned max_decompressed_size) {
-  constexpr unsigned kMaxCellDataLengthBits = 1024;
-  constexpr unsigned kMaxNodeCount = (1u << 20);
-
-  // Check minimum input size for decompressed size header
-  if (compressed.size() < kDecompressedSizeBytes) {
-    return td::Status::Error("BOC decompression failed: input too small for header");
+// Single-use operation state; the owning buffer outlives all decoded bit views.
+class ImprovedStructureDecompressor {
+ public:
+  td::Result<std::vector<td::Ref<vm::Cell>>> decompress(td::Slice compressed, unsigned max_decompressed_size) {
+    TRY_STATUS(decompress_frame(compressed, max_decompressed_size));
+    TRY_STATUS(read_header());
+    TRY_STATUS(read_metadata());
+    TRY_STATUS(read_direct_edges());
+    TRY_STATUS(read_prefixes());
+    TRY_STATUS(read_remaining_edges());
+    TRY_STATUS(read_padding());
+    TRY_STATUS(read_suffixes());
+    TRY_STATUS(validate_depth());
+    return reconstruct_roots();
   }
 
-  // Read decompressed size
-  constexpr unsigned kSizeBits = kDecompressedSizeBytes * 8;
-  unsigned decompressed_size =
-      td::narrow_cast<unsigned>(td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits));
-  compressed.remove_prefix(kDecompressedSizeBytes);
-  if (decompressed_size > max_decompressed_size) {
-    return td::Status::Error("BOC decompression failed: invalid decompressed size");
-  }
+ private:
+  static constexpr unsigned kMaxCellDataLengthBits = 1024;
+  static constexpr unsigned kMaxNodeCount = (1u << 20);
+  static constexpr unsigned kNoNode = std::numeric_limits<unsigned>::max();
 
-  // Decompress LZ4 data
-  TRY_RESULT(decompressed_size_int, td::narrow_cast_safe<int>(decompressed_size));
-  TRY_RESULT(serialized, td::lz4_decompress(compressed, decompressed_size_int));
+  // The bit reader and cell-data views borrow from this buffer for the whole operation.
+  td::BufferSlice serialized_;
+  td::BitSlice bit_reader_;
+  unsigned decompressed_size_ = 0;
+  unsigned orig_size_ = 0;
+  unsigned root_count_ = 0;
+  unsigned node_count_ = 0;
+  std::vector<unsigned> root_indexes_;
+  std::vector<td::uint16> cell_data_length_;
+  std::vector<td::uint8> is_data_small_;
+  std::vector<td::uint8> is_special_;
+  std::vector<td::uint8> cell_refs_cnt_;
+  std::vector<td::uint8> is_depth_balance_;
+  std::vector<td::uint8> pb_level_mask_;
+  std::vector<td::BitSlice> cell_data_prefix_;
+  std::vector<td::BitSlice> cell_data_suffix_;
+  std::vector<std::array<td::uint32, 4>> boc_graph_;
+  std::vector<td::uint16> node_depth_;
+  std::vector<td::Ref<vm::Cell>> nodes_;
 
-  if (serialized.size() != decompressed_size) {
-    return td::Status::Error("BOC decompression failed: decompressed size mismatch");
-  }
-
-  // Initialize bit reader
-  td::BitSlice bit_reader(serialized.as_slice().ubegin(), td::narrow_cast<unsigned>(serialized.as_slice().size() * 8));
-  unsigned orig_size = bit_reader.size();
-
-  // Read root count
-  TRY_RESULT(root_count, read_uint(bit_reader, 32));
-  if (root_count == 0 || root_count > BagOfCells::default_max_roots) {
-    return td::Status::Error("BOC decompression failed: invalid root count");
-  }
-  // We assume that each root should take at least 1 byte in the decompressed payload.
-  if (root_count > decompressed_size) {
-    return td::Status::Error("BOC decompression failed: invalid root count");
-  }
-
-  std::vector<unsigned> root_indexes(root_count);
-  for (unsigned i = 0; i < root_count; ++i) {
-    TRY_RESULT(root_index, read_uint(bit_reader, 32));
-    root_indexes[i] = root_index;
-  }
-
-  // Read number of nodes from header
-  TRY_RESULT(node_count, read_uint(bit_reader, 32));
-  if (node_count == 0) {
-    return td::Status::Error("BOC decompression failed: invalid node count");
-  }
-  if (node_count > kMaxNodeCount) {
-    return td::Status::Error("BOC decompression failed: invalid node count");
-  }
-
-  // We assume that each cell should take at least 1 byte, even effectively serialized
-  // Otherwise it means that provided node_count is incorrect
-  if (node_count > decompressed_size) {
-    return td::Status::Error("BOC decompression failed: incorrect node count provided");
-  }
-
-  // Validate root indexes
-  for (unsigned i = 0; i < root_count; ++i) {
-    if (root_indexes[i] >= node_count) {
-      return td::Status::Error("BOC decompression failed: invalid root index");
-    }
-  }
-
-  // Initialize data structures
-  std::vector<td::uint16> cell_data_length(node_count);
-  std::vector<td::uint8> is_data_small(node_count, 0);
-  std::vector<td::uint8> is_special(node_count, 0);
-  std::vector<td::uint8> cell_refs_cnt(node_count, 0);
-  std::vector<td::uint8> is_depth_balance(node_count, 0);
-  std::vector<td::uint8> pb_level_mask(node_count, 0);
-
-  // Cell data bits are stored as two views into the decompressed bitstream, and later fed into vm::CellBuilder to finalize the nodes.
-  std::vector<td::BitSlice> cell_data_prefix(node_count);
-  std::vector<td::BitSlice> cell_data_suffix(node_count);
-
-  std::vector<std::array<td::uint32, 4>> boc_graph(node_count);
-  for (auto& a : boc_graph) {
-    a.fill(0);
-  }
-
-  // Read cell metadata
-  for (unsigned i = 0; i < node_count; ++i) {
-    // Check enough bits for cell type and refs count
-    if (bit_reader.size() < 8) {
-      return td::Status::Error("BOC decompression failed: not enough bits for cell metadata");
+  td::Status decompress_frame(td::Slice compressed, unsigned max_decompressed_size) {
+    // Check minimum input size for decompressed size header
+    if (compressed.size() < kDecompressedSizeBytes) {
+      return td::Status::Error("BOC decompression failed: input too small for header");
     }
 
-    unsigned cell_type = td::narrow_cast<unsigned>(bit_reader.bits().get_uint(4));
-    is_special[i] = (cell_type == 9 ? 0 : static_cast<td::uint8>(bool(cell_type)));
-    is_depth_balance[i] = (cell_type == 9);
-    if (is_special[i]) {
-      pb_level_mask[i] = static_cast<td::uint8>(cell_type - 1);
+    // Read decompressed size
+    constexpr unsigned kSizeBits = kDecompressedSizeBytes * 8;
+    decompressed_size_ =
+        td::narrow_cast<unsigned>(td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits));
+    compressed.remove_prefix(kDecompressedSizeBytes);
+    if (decompressed_size_ > max_decompressed_size) {
+      return td::Status::Error("BOC decompression failed: invalid decompressed size");
     }
-    bit_reader.advance(4);
 
-    cell_refs_cnt[i] = static_cast<td::uint8>(bit_reader.bits().get_uint(4));
-    bit_reader.advance(4);
-    if (cell_refs_cnt[i] > 4) {
-      return td::Status::Error("BOC decompression failed: invalid cell refs count");
+    // Decompress LZ4 data
+    TRY_RESULT(decompressed_size_int, td::narrow_cast_safe<int>(decompressed_size_));
+    TRY_RESULT_ASSIGN(serialized_, td::lz4_decompress(compressed, decompressed_size_int));
+
+    if (serialized_.size() != decompressed_size_) {
+      return td::Status::Error("BOC decompression failed: decompressed size mismatch");
     }
-    if (is_depth_balance[i]) {
-      cell_data_length[i] = 0;
-    } else if (pb_level_mask[i]) {
-      unsigned coef = td::count_bits32(pb_level_mask[i]);
-      cell_data_length[i] = static_cast<td::uint16>((256 + 16) * coef);
-      if (cell_refs_cnt[i] == 1) {
-        cell_refs_cnt[i] = 0;
-        cell_data_length[i] = 0;
-      } else if (cell_refs_cnt[i] > 1) {
-        return td::Status::Error("BOC decompression failed: pruned branch cannot have references");
+
+    // Initialize bit reader
+    bit_reader_ =
+        td::BitSlice(serialized_.as_slice().ubegin(), td::narrow_cast<unsigned>(serialized_.as_slice().size() * 8));
+    orig_size_ = bit_reader_.size();
+    return td::Status::OK();
+  }
+
+  td::Status read_header() {
+    // Read root count
+    TRY_RESULT_ASSIGN(root_count_, read_uint(bit_reader_, 32));
+    if (root_count_ == 0 || root_count_ > BagOfCells::default_max_roots) {
+      return td::Status::Error("BOC decompression failed: invalid root count");
+    }
+    // We assume that each root should take at least 1 byte in the decompressed payload.
+    if (root_count_ > decompressed_size_) {
+      return td::Status::Error("BOC decompression failed: invalid root count");
+    }
+
+    root_indexes_.resize(root_count_);
+    for (unsigned i = 0; i < root_count_; ++i) {
+      TRY_RESULT(root_index, read_uint(bit_reader_, 32));
+      root_indexes_[i] = root_index;
+    }
+
+    // Read number of nodes from header
+    TRY_RESULT_ASSIGN(node_count_, read_uint(bit_reader_, 32));
+    if (node_count_ == 0) {
+      return td::Status::Error("BOC decompression failed: invalid node count");
+    }
+    if (node_count_ > kMaxNodeCount) {
+      return td::Status::Error("BOC decompression failed: invalid node count");
+    }
+
+    // We assume that each cell should take at least 1 byte, even effectively serialized
+    // Otherwise it means that provided node_count is incorrect
+    if (node_count_ > decompressed_size_) {
+      return td::Status::Error("BOC decompression failed: incorrect node count provided");
+    }
+
+    // Validate root indexes
+    for (unsigned i = 0; i < root_count_; ++i) {
+      if (root_indexes_[i] >= node_count_) {
+        return td::Status::Error("BOC decompression failed: invalid root index");
       }
-    } else {
-      // Check enough bits for data length metadata
-      if (bit_reader.size() < 8) {
-        return td::Status::Error("BOC decompression failed: not enough bits for data length");
+    }
+
+    // Initialize data structures
+    cell_data_length_.resize(node_count_);
+    is_data_small_.resize(node_count_, 0);
+    is_special_.resize(node_count_, 0);
+    cell_refs_cnt_.resize(node_count_, 0);
+    is_depth_balance_.resize(node_count_, 0);
+    pb_level_mask_.resize(node_count_, 0);
+
+    // Cell data bits are stored as two views into the decompressed bitstream, and later fed into vm::CellBuilder to finalize the nodes.
+    cell_data_prefix_.resize(node_count_);
+    cell_data_suffix_.resize(node_count_);
+
+    boc_graph_.resize(node_count_);
+    for (auto& a : boc_graph_) {
+      a.fill(0);
+    }
+    return td::Status::OK();
+  }
+
+  td::Status read_metadata() {
+    // Read cell metadata
+    for (unsigned i = 0; i < node_count_; ++i) {
+      // Check enough bits for cell type and refs count
+      if (bit_reader_.size() < 8) {
+        return td::Status::Error("BOC decompression failed: not enough bits for cell metadata");
       }
 
-      is_data_small[i] = static_cast<td::uint8>(bit_reader.bits().get_uint(1));
-      bit_reader.advance(1);
-      cell_data_length[i] = static_cast<td::uint16>(bit_reader.bits().get_uint(7));
-      bit_reader.advance(7);
+      unsigned cell_type = td::narrow_cast<unsigned>(bit_reader_.bits().get_uint(4));
+      is_special_[i] = (cell_type == 9 ? 0 : static_cast<td::uint8>(bool(cell_type)));
+      is_depth_balance_[i] = (cell_type == 9);
+      if (is_special_[i]) {
+        pb_level_mask_[i] = static_cast<td::uint8>(cell_type - 1);
+      }
+      bit_reader_.advance(4);
 
-      if (!is_data_small[i]) {
-        cell_data_length[i] = static_cast<td::uint16>(cell_data_length[i] * 8);
-        if (!cell_data_length[i]) {
-          cell_data_length[i] = static_cast<td::uint16>(cell_data_length[i] + 1024);
+      cell_refs_cnt_[i] = static_cast<td::uint8>(bit_reader_.bits().get_uint(4));
+      bit_reader_.advance(4);
+      if (cell_refs_cnt_[i] > 4) {
+        return td::Status::Error("BOC decompression failed: invalid cell refs count");
+      }
+      if (is_depth_balance_[i]) {
+        cell_data_length_[i] = 0;
+      } else if (pb_level_mask_[i]) {
+        unsigned coef = td::count_bits32(pb_level_mask_[i]);
+        cell_data_length_[i] = static_cast<td::uint16>((256 + 16) * coef);
+        if (cell_refs_cnt_[i] == 1) {
+          cell_refs_cnt_[i] = 0;
+          cell_data_length_[i] = 0;
+        } else if (cell_refs_cnt_[i] > 1) {
+          return td::Status::Error("BOC decompression failed: pruned branch cannot have references");
+        }
+      } else {
+        // Check enough bits for data length metadata
+        if (bit_reader_.size() < 8) {
+          return td::Status::Error("BOC decompression failed: not enough bits for data length");
+        }
+
+        is_data_small_[i] = static_cast<td::uint8>(bit_reader_.bits().get_uint(1));
+        bit_reader_.advance(1);
+        cell_data_length_[i] = static_cast<td::uint16>(bit_reader_.bits().get_uint(7));
+        bit_reader_.advance(7);
+
+        if (!is_data_small_[i]) {
+          cell_data_length_[i] = static_cast<td::uint16>(cell_data_length_[i] * 8);
+          if (!cell_data_length_[i]) {
+            cell_data_length_[i] = static_cast<td::uint16>(cell_data_length_[i] + 1024);
+          }
+        }
+      }
+
+      // Validate cell data length
+      if (cell_data_length_[i] > kMaxCellDataLengthBits) {
+        return td::Status::Error("BOC decompression failed: invalid cell data length");
+      }
+    }
+    return td::Status::OK();
+  }
+
+  td::Status read_direct_edges() {
+    // Read direct edge connections
+    for (unsigned i = 0; i < node_count_; ++i) {
+      for (unsigned j = 0; j < cell_refs_cnt_[i]; ++j) {
+        TRY_RESULT(edge_connection, read_uint(bit_reader_, 1));
+        if (edge_connection) {
+          boc_graph_[i][j] = i + 1;
         }
       }
     }
-
-    // Validate cell data length
-    if (cell_data_length[i] > kMaxCellDataLengthBits) {
-      return td::Status::Error("BOC decompression failed: invalid cell data length");
-    }
+    return td::Status::OK();
   }
 
-  // Read direct edge connections
-  for (unsigned i = 0; i < node_count; ++i) {
-    for (unsigned j = 0; j < cell_refs_cnt[i]; ++j) {
-      TRY_RESULT(edge_connection, read_uint(bit_reader, 1));
-      if (edge_connection) {
-        boc_graph[i][j] = i + 1;
+  td::Status read_prefixes() {
+    // Read initial cell data
+    for (unsigned i = 0; i < node_count_; ++i) {
+      if (is_depth_balance_[i]) {
+        continue;
       }
+      unsigned remainder_bits = cell_data_length_[i] % 8;
+      if (bit_reader_.size() < remainder_bits) {
+        return td::Status::Error("BOC decompression failed: not enough bits for initial cell data");
+      }
+      cell_data_prefix_[i] = bit_reader_.subslice(0, remainder_bits);
+      bit_reader_.advance(remainder_bits);
+      cell_data_length_[i] = static_cast<td::uint16>(cell_data_length_[i] - remainder_bits);
     }
+    return td::Status::OK();
   }
 
-  // Read initial cell data
-  for (unsigned i = 0; i < node_count; ++i) {
-    if (is_depth_balance[i]) {
-      continue;
-    }
-    unsigned remainder_bits = cell_data_length[i] % 8;
-    if (bit_reader.size() < remainder_bits) {
-      return td::Status::Error("BOC decompression failed: not enough bits for initial cell data");
-    }
-    cell_data_prefix[i] = bit_reader.subslice(0, remainder_bits);
-    bit_reader.advance(remainder_bits);
-    cell_data_length[i] = static_cast<td::uint16>(cell_data_length[i] - remainder_bits);
-  }
-
-  // Decode remaining edge connections
-  for (unsigned i = 0; i < node_count; ++i) {
-    if (node_count <= i + 3) {
-      for (unsigned j = 0; j < cell_refs_cnt[i]; ++j) {
-        if (!boc_graph[i][j]) {
-          boc_graph[i][j] = i + 2;
+  td::Status read_remaining_edges() {
+    // Decode remaining edge connections
+    for (unsigned i = 0; i < node_count_; ++i) {
+      if (node_count_ <= i + 3) {
+        for (unsigned j = 0; j < cell_refs_cnt_[i]; ++j) {
+          if (!boc_graph_[i][j]) {
+            boc_graph_[i][j] = i + 2;
+          }
         }
+        continue;
       }
-      continue;
-    }
 
-    for (unsigned j = 0; j < cell_refs_cnt[i]; ++j) {
-      if (!boc_graph[i][j]) {
-        unsigned pref_size = orig_size - bit_reader.size();
-        unsigned remaining_nodes = node_count - i - 3;  // Always > 0 because of above node count check
-        unsigned required_bits = 32u - td::count_leading_zeroes32(remaining_nodes);
+      for (unsigned j = 0; j < cell_refs_cnt_[i]; ++j) {
+        if (!boc_graph_[i][j]) {
+          unsigned pref_size = orig_size_ - bit_reader_.size();
+          unsigned remaining_nodes = node_count_ - i - 3;  // Always > 0 because of above node count check
+          unsigned required_bits = 32u - td::count_leading_zeroes32(remaining_nodes);
 
-        if (required_bits < 8 - (pref_size + 1) % 8 + 1) {
-          TRY_RESULT_ASSIGN(boc_graph[i][j], read_uint(bit_reader, required_bits));
-          boc_graph[i][j] += i + 2;
-        } else {
-          TRY_RESULT(edge_connection, read_uint(bit_reader, 1));
-          if (edge_connection) {
-            pref_size = orig_size - bit_reader.size();
-            unsigned available_bits = 8 - pref_size % 8;
-            TRY_RESULT_ASSIGN(boc_graph[i][j], read_uint(bit_reader, available_bits));
-            boc_graph[i][j] += i + 2;
+          if (required_bits < 8 - (pref_size + 1) % 8 + 1) {
+            TRY_RESULT_ASSIGN(boc_graph_[i][j], read_uint(bit_reader_, required_bits));
+            boc_graph_[i][j] += i + 2;
           } else {
-            TRY_RESULT_ASSIGN(boc_graph[i][j], read_uint(bit_reader, required_bits));
-            boc_graph[i][j] += i + 2;
+            TRY_RESULT(edge_connection, read_uint(bit_reader_, 1));
+            if (edge_connection) {
+              pref_size = orig_size_ - bit_reader_.size();
+              unsigned available_bits = 8 - pref_size % 8;
+              TRY_RESULT_ASSIGN(boc_graph_[i][j], read_uint(bit_reader_, available_bits));
+              boc_graph_[i][j] += i + 2;
+            } else {
+              TRY_RESULT_ASSIGN(boc_graph_[i][j], read_uint(bit_reader_, required_bits));
+              boc_graph_[i][j] += i + 2;
+            }
           }
         }
       }
     }
-  }
 
-  // Check if all graph connections are valid
-  for (unsigned node = 0; node < node_count; ++node) {
-    for (unsigned j = 0; j < cell_refs_cnt[node]; ++j) {
-      unsigned child_node = boc_graph[node][j];
-      if (child_node >= node_count) {
-        return td::Status::Error("BOC decompression failed: invalid graph connection");
+    // Check if all graph connections are valid
+    for (unsigned node = 0; node < node_count_; ++node) {
+      for (unsigned j = 0; j < cell_refs_cnt_[node]; ++j) {
+        unsigned child_node = boc_graph_[node][j];
+        if (child_node >= node_count_) {
+          return td::Status::Error("BOC decompression failed: invalid graph connection");
+        }
+        if (child_node <= node) {
+          return td::Status::Error("BOC decompression failed: circular reference in graph");
+        }
       }
-      if (child_node <= node) {
-        return td::Status::Error("BOC decompression failed: circular reference in graph");
+    }
+    return td::Status::OK();
+  }
+
+  td::Status read_padding() {
+    // Align to byte boundary
+    while ((orig_size_ - bit_reader_.size()) % 8) {
+      TRY_RESULT(bit, read_uint(bit_reader_, 1));
+      if (bit != 0) {
+        return td::Status::Error("BOC decompression failed: non-zero padding bits");
       }
     }
+    return td::Status::OK();
   }
 
-  // Align to byte boundary
-  while ((orig_size - bit_reader.size()) % 8) {
-    TRY_RESULT(bit, read_uint(bit_reader, 1));
-    if (bit != 0) {
-      return td::Status::Error("BOC decompression failed: non-zero padding bits");
-    }
-  }
-
-  // Read remaining cell data
-  for (unsigned i = 0; i < node_count; ++i) {
-    if (is_depth_balance[i]) {
-      continue;
-    }
-    unsigned padding_bits = 0;
-    if (!pb_level_mask[i] && !is_data_small[i]) {
-      while (bit_reader.size() > 0 && bit_reader.bits()[0] == 0) {
+  td::Status read_suffixes() {
+    // Read remaining cell data
+    for (unsigned i = 0; i < node_count_; ++i) {
+      if (is_depth_balance_[i]) {
+        continue;
+      }
+      unsigned padding_bits = 0;
+      if (!pb_level_mask_[i] && !is_data_small_[i]) {
+        while (bit_reader_.size() > 0 && bit_reader_.bits()[0] == 0) {
+          ++padding_bits;
+          bit_reader_.advance(1);
+        }
+        TRY_STATUS(read_uint(bit_reader_, 1));
         ++padding_bits;
-        bit_reader.advance(1);
       }
-      TRY_STATUS(read_uint(bit_reader, 1));
-      ++padding_bits;
-    }
-    if (cell_data_length[i] < padding_bits) {
-      return td::Status::Error("BOC decompression failed: invalid cell data length");
-    }
-    unsigned remaining_data_bits = cell_data_length[i] - padding_bits;
-    if (bit_reader.size() < remaining_data_bits) {
-      return td::Status::Error("BOC decompression failed: not enough bits for remaining cell data");
+      if (cell_data_length_[i] < padding_bits) {
+        return td::Status::Error("BOC decompression failed: invalid cell data length");
+      }
+      unsigned remaining_data_bits = cell_data_length_[i] - padding_bits;
+      if (bit_reader_.size() < remaining_data_bits) {
+        return td::Status::Error("BOC decompression failed: not enough bits for remaining cell data");
+      }
+
+      cell_data_suffix_[i] = bit_reader_.subslice(0, remaining_data_bits);
+      bit_reader_.advance(remaining_data_bits);
     }
 
-    cell_data_suffix[i] = bit_reader.subslice(0, remaining_data_bits);
-    bit_reader.advance(remaining_data_bits);
-  }
-
-  // Strict end-of-stream: allow only final zero padding to byte boundary.
-  if (bit_reader.size() > 7) {
-    return td::Status::Error("BOC decompression failed: trailing unused data");
-  }
-  while (bit_reader.size() > 0) {
-    TRY_RESULT(bit, read_uint(bit_reader, 1));
-    if (bit != 0) {
+    // Strict end-of-stream: allow only final zero padding to byte boundary.
+    if (bit_reader_.size() > 7) {
       return td::Status::Error("BOC decompression failed: trailing unused data");
     }
-  }
-
-  // Early depth guard: reject graphs that can't fit CellTraits::max_depth before reconstruction.
-  // The graph invariant child > parent guarantees reverse-order DP.
-  std::vector<td::uint16> node_depth(node_count, 0);
-  for (unsigned remaining_nodes = node_count; remaining_nodes > 0; --remaining_nodes) {
-    unsigned node = remaining_nodes - 1;
-    td::uint16 max_child_depth = 0;
-    for (unsigned j = 0; j < cell_refs_cnt[node]; ++j) {
-      max_child_depth = std::max(max_child_depth, node_depth[boc_graph[node][j]]);
-    }
-    if (cell_refs_cnt[node] != 0) {
-      if (max_child_depth >= CellTraits::max_depth) {
-        return td::Status::Error("BOC decompression failed: cell depth too large");
+    while (bit_reader_.size() > 0) {
+      TRY_RESULT(bit, read_uint(bit_reader_, 1));
+      if (bit != 0) {
+        return td::Status::Error("BOC decompression failed: trailing unused data");
       }
-      node_depth[node] = static_cast<td::uint16>(max_child_depth + 1);
     }
+    return td::Status::OK();
   }
 
-  // Build cell tree
-  std::vector<td::Ref<vm::Cell>> nodes(node_count);
+  td::Status validate_depth() {
+    // Early depth guard: reject graphs that can't fit CellTraits::max_depth before reconstruction.
+    // The graph invariant child > parent guarantees reverse-order DP.
+    node_depth_.resize(node_count_, 0);
+    for (unsigned remaining_nodes = node_count_; remaining_nodes > 0; --remaining_nodes) {
+      unsigned node = remaining_nodes - 1;
+      td::uint16 max_child_depth = 0;
+      for (unsigned j = 0; j < cell_refs_cnt_[node]; ++j) {
+        max_child_depth = std::max(max_child_depth, node_depth_[boc_graph_[node][j]]);
+      }
+      if (cell_refs_cnt_[node] != 0) {
+        if (max_child_depth >= CellTraits::max_depth) {
+          return td::Status::Error("BOC decompression failed: cell depth too large");
+        }
+        node_depth_[node] = static_cast<td::uint16>(max_child_depth + 1);
+      }
+    }
+    return td::Status::OK();
+  }
 
-  auto finalize_node_from_builder = [&](unsigned idx, vm::CellBuilder& cb) -> td::Status {
+  td::Status finalize_node_from_builder(unsigned idx, vm::CellBuilder& cb) {
     try {
-      for (unsigned j = 0; j < cell_refs_cnt[idx]; ++j) {
-        cb.store_ref(nodes[boc_graph[idx][j]]);
+      for (unsigned j = 0; j < cell_refs_cnt_[idx]; ++j) {
+        cb.store_ref(nodes_[boc_graph_[idx][j]]);
       }
       try {
-        nodes[idx] = cb.finalize(is_special[idx] != 0);
+        nodes_[idx] = cb.finalize(is_special_[idx] != 0);
       } catch (vm::CellBuilder::CellWriteError&) {
         return td::Status::Error(PSTRING() << "BOC decompression failed: failed to finalize node (CellWriteError)");
       }
@@ -791,34 +888,31 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
       return td::Status::Error(PSTRING() << "BOC decompression failed: failed to finalize node (VmError)");
     }
     return td::Status::OK();
-  };
+  }
 
   // Default finalize: reconstruct builder from stored bit-slices and finalize.
-  auto finalize_node = [&](unsigned idx) -> td::Status {
-    if (is_depth_balance[idx]) {
+  td::Status finalize_node(unsigned idx) {
+    if (is_depth_balance_[idx]) {
       return td::Status::Error("BOC decompression failed: depth-balance node must be reconstructed under MerkleUpdate");
     }
     vm::CellBuilder cb;
-    if (pb_level_mask[idx]) {
-      cb.store_long((1 << 8) + pb_level_mask[idx], 16);
+    if (pb_level_mask_[idx]) {
+      cb.store_long((1 << 8) + pb_level_mask_[idx], 16);
     }
-    cb.store_bits(cell_data_prefix[idx]);
-    cb.store_bits(cell_data_suffix[idx]);
+    cb.store_bits(cell_data_prefix_[idx]);
+    cb.store_bits(cell_data_suffix_[idx]);
     return finalize_node_from_builder(idx, cb);
-  };
-
-  const unsigned kNoNode = std::numeric_limits<unsigned>::max();
+  }
 
   // Recursive build of right subtree under MerkleUpdate, pairing with the left subtree and computing sum diffs.
-  const auto build_right_under_mu = [&](auto&& self, unsigned right_idx, unsigned left_idx,
-                                        td::RefInt256* sum_diff_out) -> td::Status {
-    if (left_idx != kNoNode && nodes[left_idx].is_null()) {
+  td::Status build_right_under_mu(unsigned right_idx, unsigned left_idx, td::RefInt256* sum_diff_out) {
+    if (left_idx != kNoNode && nodes_[left_idx].is_null()) {
       return td::Status::Error("BOC decompression failed: missing reconstructed left node under MerkleUpdate");
     }
-    if (nodes[right_idx].not_null()) {
+    if (nodes_[right_idx].not_null()) {
       if (left_idx != kNoNode && sum_diff_out) {
-        vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
-        vm::CellSlice cs_right(NoVm(), nodes[right_idx]);
+        vm::CellSlice cs_left(NoVm(), nodes_[left_idx]);
+        vm::CellSlice cs_right(NoVm(), nodes_[right_idx]);
         td::RefInt256 vertex_diff = process_shard_accounts_vertex(cs_left, cs_right);
         if (vertex_diff.not_null()) {
           *sum_diff_out += vertex_diff;
@@ -828,17 +922,17 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     }
     td::RefInt256 cur_right_left_diff;
     td::RefInt256 sum_child_diff = td::make_refint(0);
-    for (unsigned j = 0; j < cell_refs_cnt[right_idx]; ++j) {
-      unsigned right_child = boc_graph[right_idx][j];
-      unsigned left_child = (left_idx != kNoNode && j < cell_refs_cnt[left_idx]) ? boc_graph[left_idx][j] : kNoNode;
-      TRY_STATUS(self(self, right_child, left_child, &sum_child_diff));
+    for (unsigned j = 0; j < cell_refs_cnt_[right_idx]; ++j) {
+      unsigned right_child = boc_graph_[right_idx][j];
+      unsigned left_child = (left_idx != kNoNode && j < cell_refs_cnt_[left_idx]) ? boc_graph_[left_idx][j] : kNoNode;
+      TRY_STATUS(build_right_under_mu(right_child, left_child, &sum_child_diff));
     }
     // If this vertex was depth-balance-compressed, reconstruct its data from left + children sum
-    if (is_depth_balance[right_idx]) {
+    if (is_depth_balance_[right_idx]) {
       if (left_idx == kNoNode) {
         return td::Status::Error("BOC decompression failed: depth-balance left vertex has no grams");
       }
-      vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
+      vm::CellSlice cs_left(NoVm(), nodes_[left_idx]);
       td::RefInt256 left_grams = extract_balance_from_depth_balance_info(cs_left);
       if (left_grams.is_null()) {
         return td::Status::Error("BOC decompression failed: depth-balance left vertex has no grams");
@@ -857,62 +951,69 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     }
 
     if (cur_right_left_diff.is_null() && left_idx != kNoNode) {
-      vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
-      vm::CellSlice cs_right(NoVm(), nodes[right_idx]);
+      vm::CellSlice cs_left(NoVm(), nodes_[left_idx]);
+      vm::CellSlice cs_right(NoVm(), nodes_[right_idx]);
       cur_right_left_diff = process_shard_accounts_vertex(cs_left, cs_right);
     }
     if (sum_diff_out && cur_right_left_diff.not_null()) {
       *sum_diff_out += cur_right_left_diff;
     }
     return td::Status::OK();
-  };
+  }
 
   // General recursive build that handles the single MerkleUpdate node (if present) by pairing left/right subtrees.
-  const auto build_node = [&](auto&& self, unsigned idx, const unsigned main_mu_cell_idx) -> td::Status {
-    if (nodes[idx].not_null()) {
+  td::Status build_node(unsigned idx, const unsigned main_mu_cell_idx) {
+    if (nodes_[idx].not_null()) {
       return td::Status::OK();
     }
 
     const bool is_mu_node =
         (idx == main_mu_cell_idx) &&
-        is_merkle_update_node(is_special[idx], pb_level_mask[idx], cell_data_prefix[idx], cell_data_suffix[idx]);
+        is_merkle_update_node(is_special_[idx], pb_level_mask_[idx], cell_data_prefix_[idx], cell_data_suffix_[idx]);
     if (is_mu_node) {
-      if (cell_refs_cnt[idx] != 2) {
+      if (cell_refs_cnt_[idx] != 2) {
         return td::Status::Error("BOC decompression failed: MerkleUpdate node expected to have 2 references");
       }
-      const unsigned left_idx = boc_graph[idx][0];
-      const unsigned right_idx = boc_graph[idx][1];
+      const unsigned left_idx = boc_graph_[idx][0];
+      const unsigned right_idx = boc_graph_[idx][1];
 
-      TRY_STATUS(self(self, left_idx, kNoNode));
-      TRY_STATUS(build_right_under_mu(build_right_under_mu, right_idx, left_idx, nullptr));
+      TRY_STATUS(build_node(left_idx, kNoNode));
+      TRY_STATUS(build_right_under_mu(right_idx, left_idx, nullptr));
       TRY_STATUS(finalize_node(idx));
       return td::Status::OK();
     }
 
-    for (unsigned j = 0; j < cell_refs_cnt[idx]; ++j) {
-      TRY_STATUS(self(self, boc_graph[idx][j], main_mu_cell_idx));
+    for (unsigned j = 0; j < cell_refs_cnt_[idx]; ++j) {
+      TRY_STATUS(build_node(boc_graph_[idx][j], main_mu_cell_idx));
     }
     TRY_STATUS(finalize_node(idx));
     return td::Status::OK();
-  };
+  }
 
-  // Build from roots using recursive DFS (depth is pre-validated by the DP guard above).
-  for (unsigned root_index : root_indexes) {
-    unsigned main_mu_cell_idx = kNoNode;
-    if (cell_refs_cnt[root_index] > kMUCellOrderInRoot) {
-      main_mu_cell_idx = boc_graph[root_index][kMUCellOrderInRoot];
+  td::Result<std::vector<td::Ref<vm::Cell>>> reconstruct_roots() {
+    // Build cell tree
+    nodes_.resize(node_count_);
+
+    // Build from roots using recursive DFS (depth is pre-validated by the DP guard above).
+    for (unsigned root_index : root_indexes_) {
+      unsigned main_mu_cell_idx = kNoNode;
+      if (cell_refs_cnt_[root_index] > kMUCellOrderInRoot) {
+        main_mu_cell_idx = boc_graph_[root_index][kMUCellOrderInRoot];
+      }
+      TRY_STATUS(build_node(root_index, main_mu_cell_idx));
     }
-    TRY_STATUS(build_node(build_node, root_index, main_mu_cell_idx));
-  }
 
-  std::vector<td::Ref<vm::Cell>> root_nodes;
-  root_nodes.reserve(root_count);
-  for (unsigned index : root_indexes) {
-    root_nodes.push_back(nodes[index]);
-  }
+    std::vector<td::Ref<vm::Cell>> root_nodes;
+    root_nodes.reserve(root_count_);
+    for (unsigned index : root_indexes_) {
+      root_nodes.push_back(nodes_[index]);
+    }
 
-  return root_nodes;
-}
+    return root_nodes;
+  }
+};
+
+}  // namespace
 
 td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots, CompressionAlgorithm algo) {
   // Check for empty input
@@ -924,7 +1025,7 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
   if (algo == CompressionAlgorithm::BaselineLZ4) {
     TRY_RESULT_ASSIGN(compressed, boc_compress_baseline_lz4(boc_roots));
   } else if (algo == CompressionAlgorithm::ImprovedStructureLZ4) {
-    TRY_RESULT_ASSIGN(compressed, boc_compress_improved_structure_lz4(boc_roots));
+    TRY_RESULT_ASSIGN(compressed, ImprovedStructureCompressor().compress(boc_roots));
   } else {
     return td::Status::Error("Unknown compression algorithm");
   }
@@ -952,7 +1053,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, 
     case CompressionAlgorithm::BaselineLZ4:
       return boc_decompress_baseline_lz4(compressed, max_decompressed_size_uns);
     case CompressionAlgorithm::ImprovedStructureLZ4:
-      return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size_uns);
+      return ImprovedStructureDecompressor().decompress(compressed, max_decompressed_size_uns);
   }
   return td::Status::Error("Unknown compression algorithm");
 }
