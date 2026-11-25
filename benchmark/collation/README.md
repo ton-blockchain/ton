@@ -30,9 +30,9 @@ compile loudly — adjust `gton/bench_disk_corpus_test.go` or pin `--gton-ref`.
 
 Everything else is opt-in (`--help`):
 
-- `--virtual-shards N` — address partitions: 0 (disabled, default) 
+- `--virtual-shards N` — address partitions: 0 (disabled, default)
   or a power of two from 1 to 64. Use `--threads N` to set
-  scheduler threads. 
+  scheduler threads.
 - `--workload W` — `jetton` (default): Wallet V5 jetton transfers, four
   transactions per transfer; `transfer`: plain non-bounceable W5 -> W5 TON
   transfers, two transactions per transfer. Both build the identical
