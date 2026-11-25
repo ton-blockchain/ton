@@ -118,7 +118,9 @@ class NewCellStorageStat {
   void set_zero() {
     seen_.clear();
     proof_seen_.clear();
-    mu_left_seen_.clear();
+    for (auto& seen : mu_left_seen_) {
+      seen.clear();
+    }
     stat_.set_zero();
     proof_stat_.set_zero();
   }
