@@ -2689,8 +2689,8 @@ void ValidatorEngine::try_add_full_node_adnl_addr(ton::PublicKeyHash id, td::Pro
   if (!full_node_.empty() && id != full_node_id_.pubkey_hash()) {
     unregister_protected_overlay_certificate_callback(full_node_id_);
     // Match the optional registration in register_shard_overlay_certificate_callback().
-    if (!full_node_id_.is_zero() && (accept_shard_overlay_certificates_from_any_validator_ ||
-                                    !accept_shard_overlay_certificates_from_.empty())) {
+    if (!full_node_id_.is_zero() &&
+        (accept_shard_overlay_certificates_from_any_validator_ || !accept_shard_overlay_certificates_from_.empty())) {
       td::actor::send_closure(
           adnl_.get(), &ton::adnl::Adnl::unsubscribe, full_node_id_,
           ton::adnl::Adnl::int_to_bytestring(ton::ton_api::engine_validator_importShardOverlayCertificate::ID));
