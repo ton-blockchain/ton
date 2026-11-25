@@ -22,8 +22,8 @@ constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_BENCHMARK) = verbosity_WARNING;
 
 constexpr const char* k_called_from_validator_session = "validator_session";
 
-td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, size_t& decompressed_size,
-                                                    std::string called_from, td::Bits256 root_hash) {
+td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, std::string called_from,
+                                                    td::Bits256 root_hash) {
   vm::BagOfCells boc1;
   TRY_STATUS(boc1.deserialize(block));
   if (boc1.get_root_count() != 1) {
@@ -33,14 +33,12 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
   TRY_RESULT(collated_roots, vm::std_boc_deserialize_multi(collated_data, vm::BagOfCells::default_max_roots, true));
   roots.insert(roots.end(), collated_roots.begin(), collated_roots.end());
   auto t_compression_start = td::Time::now();
-  TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(roots), 2));
-  decompressed_size = data.size();
-  td::BufferSlice compressed = td::lz4_compress(data);
+  TRY_RESULT(compressed, vm::boc_compress(roots, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   LOG(DEBUG) << "Compressing block candidate: " << block.size() + collated_data.size() << " -> " << compressed.size();
   VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark serialize_candidate block_id=" << root_hash.to_hex()
                                     << " called_from=" << called_from
                                     << " time_sec=" << (td::Time::now() - t_compression_start)
-                                    << " compression=" << "compressed"
+                                    << " compression=" << "compressedV2_ImprovedStructureLZ4"
                                     << " original_size=" << block.size() + collated_data.size()
                                     << " compressed_size=" << compressed.size();
   return compressed;
@@ -87,11 +85,10 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
 }  // namespace
 
 td::Result<td::BufferSlice> serialize_payload(const tl_object_ptr<ton_api::validatorSession_candidate>& block) {
-  size_t decompressed_size;
-  TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_, decompressed_size,
-                                                 k_called_from_validator_session, block->root_hash_))
-  return create_serialize_tl_object<ton_api::validatorSession_compressedCandidate>(
-      0, block->src_, block->round_, block->root_hash_, (int)decompressed_size, std::move(compressed));
+  TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_, k_called_from_validator_session,
+                                                 block->root_hash_));
+  return create_serialize_tl_object<ton_api::validatorSession_compressedCandidateV2>(
+      0, block->src_, block->round_, block->root_hash_, std::move(compressed));
 }
 
 td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_payload(td::Slice data,

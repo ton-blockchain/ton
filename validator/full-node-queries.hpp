@@ -46,8 +46,7 @@ class BlockFullSender : public td::actor::Actor {
     stop();
   }
   void finish_query() {
-    promise_.set_result(
-        serialize_block_full(block_id_, proof_, data_, is_proof_link_, false));  // compression_enabled = false
+    promise_.set_result(serialize_block_full(block_id_, proof_, data_, is_proof_link_));
     stop();
   }
   void start_up() override {
@@ -173,8 +172,7 @@ class NextBlocksFullSender : public td::actor::Actor {
       auto proof_task = td::actor::ask(manager_, &ValidatorManagerInterface::get_block_proof_from_db, handle);
       auto block = co_await std::move(block_task);
       auto proof = co_await std::move(proof_task);
-      auto obj = CO_TRY(serialize_block_full_obj(block->block_id(), proof->data(), block->data(), false,
-                                                 /* compression_enabled = */ true));
+      auto obj = CO_TRY(serialize_block_full_obj(block->block_id(), proof->data(), block->data(), false));
       size_t serialized_size = td::tl_calc_length(*obj);
       if (total_size + serialized_size > MAX_TOTAL_SIZE && !result_.empty()) {
         break;

@@ -312,8 +312,7 @@ void FullNodeShardImpl::send_external_message(td::BufferSlice data) {
 
 void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                              td::BufferSlice data) {
-  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
-                                               k_called_from_public);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, k_called_from_public);
   if (B.is_error()) {
     VLOG(full_node, WARNING) << "failed to serialize Plumtree block candidate broadcast: " << B.move_as_error();
     return;
