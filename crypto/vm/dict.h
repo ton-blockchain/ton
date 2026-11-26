@@ -241,6 +241,9 @@ class DictionaryFixed : public DictionaryBase {
   bool combine_with(DictionaryFixed& dict2);
   bool scan_diff(DictionaryFixed& dict2, const scan_diff_func_t& diff_func, int check_mode = 0);
   bool validate_check(const foreach_func_t& foreach_func, bool invert_first = false);
+  // Validate the top through prefix_len key bits, including nodes whose labels reach or cross the boundary.
+  // Augmentation checks may also read child data. prefix_len == 0 checks only the root node.
+  bool validate_prefix(int prefix_len);
   bool validate_all();
   DictIterator null_iterator();
   DictIterator init_iterator(bool backw = false, bool invert_first = false);
@@ -319,7 +322,8 @@ class DictionaryFixed : public DictionaryBase {
   bool dict_scan_diff(Ref<Cell> dict1, Ref<Cell> dict2, td::BitPtr key_buffer, int n, int total_key_len,
                       const scan_diff_func_t& diff_func, int mode = 0, int skip1 = 0, int skip2 = 0) const;
   bool dict_validate_check(Ref<Cell> dict, td::BitPtr key_buffer, int n, int total_key_len,
-                           const foreach_func_t& foreach_func, bool invert_first = false) const;
+                           const foreach_func_t& foreach_func, bool invert_first = false,
+                           int prefix_len = max_key_bits) const;
 };
 
 class DictIterator {

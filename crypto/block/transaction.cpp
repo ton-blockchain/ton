@@ -4220,6 +4220,28 @@ void Transaction::extract_out_msgs(std::vector<LtCellRef>& list) {
 }
 }  // namespace transaction
 
+Account::Checkpoint Account::checkpoint() const {
+  Checkpoint checkpoint;
+  checkpoint.state = static_cast<const AccountStateFields&>(*this);
+  checkpoint.transaction_count = transactions.size();
+  if (account_storage_stat) {
+    checkpoint.storage_stat = account_storage_stat.value().checkpoint();
+  }
+  return checkpoint;
+}
+
+void Account::rollback(Checkpoint&& checkpoint) {
+  CHECK(transactions.size() >= checkpoint.transaction_count);
+  static_cast<AccountStateFields&>(*this) = std::move(checkpoint.state);
+  transactions.resize(checkpoint.transaction_count);
+  if (!checkpoint.storage_stat) {
+    account_storage_stat = {};
+  } else {
+    CHECK(account_storage_stat);
+    account_storage_stat.value().rollback(checkpoint.storage_stat.unwrap());
+  }
+}
+
 /**
  * Adds a transaction to the account's transaction list.
  *

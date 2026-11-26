@@ -71,6 +71,10 @@ class UsageCell : public Cell {
     return cell_->is_loaded();
   }
 
+  Ref<Cell> untrack() const override {
+    return cell_->untrack();
+  }
+
   // hash and level
   LevelMask get_level_mask() const override {
     return cell_->get_level_mask();

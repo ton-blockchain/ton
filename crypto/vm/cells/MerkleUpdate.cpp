@@ -16,8 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
+
 #include "td/utils/HashMap.h"
 #include "td/utils/HashSet.h"
+#include "td/utils/ScopeGuard.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/MerkleUpdate.h"
 
@@ -225,20 +228,7 @@ td::Result<Ref<Cell>> MerkleUpdate::apply_raw(Ref<Cell> from, Ref<Cell> update_f
 td::Result<std::pair<Ref<Cell>, Ref<Cell>>> MerkleUpdate::generate_raw(Ref<Cell> from, Ref<Cell> to,
                                                                        CellUsageTree *usage_tree) {
   // create Merkle update cell->new_cell
-  TRY_RESULT(update_to, MerkleProof::generate_raw(to, [tree = usage_tree](const Ref<Cell> &cell) {
-               CellUsageTree::NodePtr node;
-               if (cell->is_loaded()) {
-                 auto loaded_cell = cell->load_cell().move_as_ok();
-                 if (loaded_cell.data_cell->size_refs() == 0 &&
-                     (loaded_cell.data_cell->size() <= 8 + 16 + 256 || loaded_cell.data_cell->get_level() > 0)) {
-                   return false;
-                 }
-                 node = loaded_cell.tree_node;
-               } else {
-                 node = cell->get_tree_node();
-               }
-               return !node.empty() && node.mark_path(tree);
-             }));
+  TRY_RESULT(update_to, generate_to_raw(to, usage_tree));
   TRY_RESULT(update_from, MerkleProof::generate_raw(from, usage_tree, true));
   return std::make_pair(std::move(update_from), std::move(update_to));
 }
@@ -268,6 +258,43 @@ td::Result<Ref<Cell>> MerkleUpdate::generate(Ref<Cell> from, Ref<Cell> to, CellU
   }
   TRY_RESULT(res, generate_raw(std::move(from), std::move(to), usage_tree));
   return CellBuilder::create_merkle_update(res.first, res.second);
+}
+
+td::Result<Ref<Cell>> MerkleUpdate::generate_to_raw(Ref<Cell> to, td::Span<CellUsageTree *> usage_trees,
+                                                    td::Span<Ref<Cell>> subproofs) {
+  if (to.is_null() || usage_trees.empty() ||
+      std::find(usage_trees.begin(), usage_trees.end(), nullptr) != usage_trees.end()) {
+    return td::Status::Error("invalid new root or usage forest");
+  }
+  for (auto *tree : usage_trees) {
+    tree->set_ignore_loads(true);
+  }
+  SCOPE_EXIT {
+    for (auto *tree : usage_trees) {
+      tree->set_ignore_loads(false);
+    }
+  };
+  return MerkleProof::generate_raw(
+      to,
+      [&](const Ref<Cell> &cell) {
+        CellUsageTree::NodePtr node;
+        if (cell->is_loaded()) {
+          auto loaded_cell = cell->load_cell().move_as_ok();
+          if (loaded_cell.data_cell->size_refs() == 0 &&
+              (loaded_cell.data_cell->size() <= 8 + 16 + 256 || loaded_cell.data_cell->get_level() > 0)) {
+            return false;
+          }
+          node = loaded_cell.tree_node;
+        } else {
+          node = cell->get_tree_node();
+        }
+        if (auto tree = node.find_from_trees(usage_trees)) {
+          tree->mark_path(node.node_id());
+          return true;
+        }
+        return false;
+      },
+      subproofs);
 }
 
 namespace detail {

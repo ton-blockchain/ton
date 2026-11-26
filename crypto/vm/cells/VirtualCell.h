@@ -65,6 +65,11 @@ class VirtualCell : public Cell {
     return cell_->is_loaded();
   }
 
+  Ref<Cell> untrack() const override {
+    auto cell = cell_->untrack();
+    return cell == cell_ ? Ref<Cell>(this) : create(effective_level_, std::move(cell));
+  }
+
   // hash and level
   LevelMask get_level_mask() const override {
     return cell_->get_level_mask().apply(effective_level_);

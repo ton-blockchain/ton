@@ -288,6 +288,7 @@ struct BlockLimitStatus {
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
   vm::MerkleUpdateLeftStat merkle_update_left_stat;
+  vm::NewCellStorageStat::Stat additional_stat;
   unsigned accounts{}, transactions{}, extra_out_msgs{};
   td::uint64 pending_msg_descrs = 0;
   td::uint64 collated_data_size_estimate = 0;
@@ -298,6 +299,7 @@ struct BlockLimitStatus {
   void reset() {
     cur_lt = limits.start_lt;
     st_stat.set_zero();
+    additional_stat.set_zero();
     transactions = accounts = 0;
     gas_used = 0;
     extra_out_msgs = 0;
