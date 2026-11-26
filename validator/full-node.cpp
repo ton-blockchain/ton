@@ -53,6 +53,20 @@ namespace {
 
 constexpr td::uint64 k_plumtree_stats_file_limit = 128 << 20;
 
+const char *broadcast_overlay_name(BroadcastSource source) {
+  switch (source) {
+    case BroadcastSource::public_overlay:
+      return "public";
+    case BroadcastSource::protected_overlay:
+      return "protected";
+    case BroadcastSource::consensus_overlay:
+      return "private";
+    case BroadcastSource::custom_overlay:
+      return "custom";
+  }
+  UNREACHABLE();
+}
+
 template <class T>
 bool write_jsonl(std::ofstream &file, const T &value, const char *name) {
   auto s = td::json_encode<std::string>(td::ToJson(value), false);
@@ -890,6 +904,8 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
 
 void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
                                                     bool send_to_custom) {
+  VLOG(full_node, WARNING) << "Broadcast receive type=finality block_id=" << finality.block_id
+                           << " overlay=" << broadcast_overlay_name(source);
   if (send_to_custom) {
     send_block_finality_broadcast_to_custom_overlays(finality);
   }
@@ -916,6 +932,8 @@ void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast final
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::uint32 validator_set_hash, td::BufferSlice data,
                                                      BroadcastSource source, bool send_to_custom) {
+  VLOG(full_node, WARNING) << "Broadcast receive type=candidate block_id=" << block_id
+                           << " overlay=" << broadcast_overlay_name(source) << " data_size=" << data.size();
   if (send_to_custom) {
     send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   }

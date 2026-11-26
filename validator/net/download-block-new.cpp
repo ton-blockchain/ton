@@ -197,6 +197,8 @@ void DownloadBlockNew::got_data_from_db(td::BufferSlice data) {
 }
 
 void DownloadBlockNew::checked_block_proof() {
+  VLOG(full_node, WARNING) << "Block data receive type=query block_id=" << block_.id
+                           << " data_size=" << block_.data.size();
   finish_query();
 }
 

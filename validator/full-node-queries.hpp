@@ -46,7 +46,11 @@ class BlockFullSender : public td::actor::Actor {
     stop();
   }
   void finish_query() {
-    promise_.set_result(serialize_block_full(block_id_, proof_, data_, is_proof_link_));
+    auto result = serialize_block_full(block_id_, proof_, data_, is_proof_link_);
+    if (result.is_ok()) {
+      VLOG(full_node, WARNING) << "Block data send type=query block_id=" << block_id_ << " data_size=" << data_.size();
+    }
+    promise_.set_result(std::move(result));
     stop();
   }
   void start_up() override {
@@ -178,6 +182,8 @@ class NextBlocksFullSender : public td::actor::Actor {
         break;
       }
       total_size += serialized_size;
+      VLOG(full_node, WARNING) << "Block data send type=query block_id=" << block->block_id()
+                               << " data_size=" << block->data().size();
       result_.push_back(std::move(obj));
       if (total_size > MAX_TOTAL_SIZE) {
         break;
@@ -277,7 +283,9 @@ class FullNodeQueryHandler {
     if (!handle->received()) {
       co_return td::Status::Error(ErrorCode::notready, "unknown block");
     }
-    co_return co_await td::actor::ask(manager_, &ValidatorManagerInterface::get_block_data, handle);
+    auto data = co_await td::actor::ask(manager_, &ValidatorManagerInterface::get_block_data, handle);
+    VLOG(full_node, WARNING) << "Block data send type=query block_id=" << block_id << " data_size=" << data.size();
+    co_return data;
   }
 
   td::actor::Task<td::BufferSlice> process_query(ton_api::tonNode_downloadBlockFull query, adnl::AdnlNodeIdShort src,

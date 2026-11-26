@@ -32,7 +32,6 @@ namespace ton::validator::fullnode {
 
 namespace {
 
-constexpr const char *k_called_from_protected = "protected";
 constexpr std::size_t k_plumtree_stats_records_limit = 128;
 
 overlay::OverlayPrivacyRules make_protected_overlay_privacy_rules(
@@ -137,7 +136,7 @@ void FullNodeProtectedOverlay::process_block_candidate_broadcast(PublicKeyHash s
   td::uint32 validator_set_hash;
   td::BufferSlice data;
   auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
-                                                 overlay::Overlays::max_fec_broadcast_size(), k_called_from_protected);
+                                                 overlay::Overlays::max_fec_broadcast_size());
   if (S.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << S;
     return;
@@ -261,11 +260,12 @@ void FullNodeProtectedOverlay::send_block_finality_broadcast(BlockFinalityBroadc
   if (!inited_) {
     return;
   }
-  VLOG(full_node, DEBUG) << "Sending Plumtree blockFinalityBroadcast in protected overlay: " << finality.block_id;
   auto broadcast_id = get_tl_object_sha_bits256(
       create_tl_object<ton_api::tonNode_finalityBroadcastId>(create_tl_block_id(finality.block_id)));
   auto B = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(create_tl_block_id(finality.block_id),
                                                                                finality.sig_set->tl());
+  VLOG(full_node, WARNING) << "Broadcast send type=finality block_id=" << finality.block_id
+                           << " overlay=protected overlay_id=" << overlay_id_ << " data_size=" << B.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), broadcast_id,
                           std::move(B));
@@ -276,12 +276,13 @@ void FullNodeProtectedOverlay::send_block_candidate(BlockIdExt block_id, Catchai
   if (!inited_) {
     return;
   }
-  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, k_called_from_protected);
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data);
   if (B.is_error()) {
     VLOG(full_node, WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(full_node, DEBUG) << "Sending Plumtree newBlockCandidate in protected overlay (with compression): " << block_id;
+  VLOG(full_node, WARNING) << "Broadcast send type=candidate block_id=" << block_id
+                           << " overlay=protected overlay_id=" << overlay_id_ << " data_size=" << data.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }

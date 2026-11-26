@@ -163,6 +163,7 @@ td::actor::Task<> DownloadNextBlocks::process_block(tl_object_ptr<ton_api::tonNo
   }
   co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::validate_block_is_next_proof, handle_->id(),
                           id, std::move(proof));
+  VLOG(full_node, WARNING) << "Block data receive type=query block_id=" << id << " data_size=" << block_data.size();
   ReceivedBlock result{.id = id, .data = std::move(block_data)};
   handle_ = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::got_next_masterchain_block,
                                     std::move(result));
