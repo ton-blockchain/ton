@@ -151,7 +151,7 @@ class BlockSignatureSetBase : public BlockSignatureSet {
       }
 
       auto E = ton::PublicKey{ton::pubkeys::Ed25519{validator->key}}.create_encryptor().move_as_ok();
-      TRY_STATUS(E->check_signature(data, sig.signature.as_slice()));
+      TRY_STATUS(E->check_signature(data, sig.signature.as_slice(), td::SignatureDomain::Consensus));
       weight += validator->weight;
     }
 

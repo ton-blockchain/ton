@@ -113,9 +113,9 @@ BlockIdExt ChainState::assert_normal() const {
 }
 #endif
 
-td::Ref<ChainState> ChainState::apply(const BlockCandidate& candidate) const {
+td::Ref<ChainState> ChainState::apply(const BlockCandidate& candidate, td::Ref<vm::Cell> block_root) const {
   try {
-    auto block = create_block(candidate.id, candidate.data.clone()).move_as_ok();
+    auto block = create_block(candidate.id, candidate.data.clone(), std::move(block_root)).move_as_ok();
 
     block::gen::Block::Record rec;
     bool rc = block::gen::unpack_cell(block->root_cell(), rec);

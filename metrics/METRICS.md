@@ -994,6 +994,9 @@ rate(ton_perf_op_ticks_total{op="Ed25519_verify_signature"}[5m])
   / rate(ton_perf_ops_total{op="Ed25519_verify_signature"}[5m])
 ```
 
+The verification average includes cache hits. The `_generic`, `_vm`, `_consensus`, and `_no_cache`
+timers measure calls that reach OpenSSL.
+
 A verification rate far above the signing rate means inbound work — block signature sets, DHT and
 overlay traffic — rather than our own block production; a sudden jump with no matching block rate is
 the shape of a signature-flood.
