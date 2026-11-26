@@ -291,7 +291,7 @@ struct ValidationStats {
   tl_object_ptr<ton_api::validatorStats_validatedBlock> tl() const {
     return create_tl_object<ton_api::validatorStats_validatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, validated_at, self.bits256_value(), valid, comment,
-        actual_bytes, actual_collated_data_bytes, total_time, actual_time, work_time.total.real, work_time.total.cpu,
+        actual_bytes, actual_collated_data_bytes, total_time, work_time.total.real, actual_time, work_time.total.cpu,
         time_stats, work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl(),
         parallel_accounts_validation, wait_validate_global_balance_time);
   }
