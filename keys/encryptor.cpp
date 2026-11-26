@@ -67,8 +67,8 @@ td::Result<td::BufferSlice> EncryptorEd25519::encrypt(td::Slice data) {
   return std::move(msg);
 }
 
-td::Status EncryptorEd25519::check_signature(td::Slice message, td::Slice signature) {
-  return td::status_prefix(pub_.verify_signature(message, signature), "bad signature: ");
+td::Status EncryptorEd25519::check_signature(td::Slice message, td::Slice signature, td::SignatureDomain domain) {
+  return td::status_prefix(pub_.verify_signature(message, signature, domain), "bad signature: ");
 }
 
 td::Result<td::BufferSlice> DecryptorEd25519::decrypt(td::Slice data) {
