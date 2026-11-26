@@ -13,9 +13,13 @@
 
 namespace ton::validator::consensus {
 
-td::Result<double> get_candidate_gen_utime_exact(const BlockCandidate& candidate) {
-  TRY_RESULT(cdata_roots,
-             vm::std_boc_deserialize_multi(candidate.collated_data, vm::BagOfCells::default_max_roots, true));
+td::Result<double> get_candidate_gen_utime_exact(const BlockCandidate& candidate, CandidateRootsRef roots) {
+  std::vector<td::Ref<vm::Cell>> decoded_roots;
+  if (roots.is_null()) {
+    TRY_RESULT_ASSIGN(decoded_roots,
+                      vm::std_boc_deserialize_multi(candidate.collated_data, vm::BagOfCells::default_max_roots, true));
+  }
+  const auto& cdata_roots = roots.not_null() ? roots->collated_roots : decoded_roots;
   for (const td::Ref<vm::Cell>& root : cdata_roots) {
     if (!block::gen::t_ConsensusExtraData.validate_ref(10000, root)) {
       continue;
