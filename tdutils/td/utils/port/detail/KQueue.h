@@ -63,13 +63,17 @@ class KQueue final : public PollBase {
 
  private:
   vector<struct kevent> events_;
+  vector<struct kevent> changes_;
   int changes_n_;
+  int events_n_ = 0;
   NativeFd kq_;
   ListNode list_root_;
 
   int update(int nevents, const timespec *timeout, bool may_fail = false);
 
   void invalidate(int native_fd);
+
+  void invalidate_events(int native_fd);
 
   void flush_changes(bool may_fail = false);
 
