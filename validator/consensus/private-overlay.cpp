@@ -160,8 +160,15 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       // extra = create_serialize_tl_object<tl::broadcastExtra>(0, event->candidate->id.slot, nullptr);
       extra = create_serialize_tl_object<tl::broadcastExtraLegacy>(event->candidate->id.slot);
     }
+    auto payload = event->candidate->serialize_for_broadcast();
+    if (!event->candidate->is_empty()) {
+      const auto& block = std::get<BlockCandidate>(event->candidate->block);
+      LOG(WARNING) << "Broadcast send type=candidate block_id=" << event->candidate->block_id()
+                   << " overlay=private overlay_id=" << overlay_id_
+                   << " data_size=" << block.data.size() + block.collated_data.size();
+    }
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_with_extra, local_adnl_id_, overlay_id_,
-                            local_broadcast_src_, 0, event->candidate->serialize_for_broadcast(), std::move(extra));
+                            local_broadcast_src_, 0, std::move(payload), std::move(extra));
   }
 
  private:
@@ -243,6 +250,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
     if (!candidate->is_empty()) {
       const BlockCandidate& block = std::get<BlockCandidate>(candidate->block);
+      LOG(WARNING) << "Broadcast receive type=candidate block_id=" << block.id
+                   << " overlay=private overlay_id=" << overlay_id_ << " source=" << src
+                   << " data_size=" << block.data.size() + block.collated_data.size();
       td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate, block.clone());
     }
 

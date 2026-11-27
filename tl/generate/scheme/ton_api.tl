@@ -340,8 +340,6 @@ tonNode.finalityBroadcastId id:tonNode.blockIdExt = tonNode.FinalityBroadcastId;
 tonNode.blockFinalityBroadcast id:tonNode.blockIdExt signature_set:tonNode.SignatureSet = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 // signature may be empty, at least for now
-tonNode.newBlockCandidateBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              collator_signature:tonNode.blockSignature data:bytes = tonNode.Broadcast;
 tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.newBlockCandidateBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int

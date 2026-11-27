@@ -415,6 +415,10 @@ int main(int argc, char **argv) {
     validator_roots.push_back(node_index);
   }
   auto expected_delivery = reachable_nodes(known_peers, validator_roots);
+  auto unreachable = graph.nodes.size() - count_true(expected_delivery);
+  for (auto node_index : validators) {
+    expected_delivery[node_index] = false;
+  }
   auto expected_delivered = count_true(expected_delivery);
 
   ton::overlay::OverlayOptions opts;
@@ -462,9 +466,11 @@ int main(int argc, char **argv) {
       for (auto peer_index : known_peers[i]) {
         peer_ids.push_back(nodes[peer_index].adnl_id);
       }
+      auto node_opts = opts;
+      node_opts.is_original_sender_ = graph.nodes[i].is_validator;
       td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::create_private_overlay_ex, nodes[i].adnl_id,
                               ton::overlay::OverlayIdFull(overlay_id_full.clone()), std::move(peer_ids),
-                              std::make_unique<DeliveryCallback>(delivery, i), rules, "", opts);
+                              std::make_unique<DeliveryCallback>(delivery, i), rules, "", std::move(node_opts));
     }
   });
   pump_scheduler(scheduler, 128);
@@ -474,7 +480,7 @@ int main(int argc, char **argv) {
   std::cout << "Plumtree graph simulation: mode=" << broadcast_mode_name(settings.broadcast_mode)
             << ", all-validators-send, nodes=" << graph.nodes.size() << ", validators=" << validators.size()
             << ", senders=" << validators.size() << ", tree_slots=" << opts.plumtree_fec_options_.tree_slots_
-            << ", expected=" << expected_delivered << ", unreachable=" << (graph.nodes.size() - expected_delivered);
+            << ", expected=" << expected_delivered << ", unreachable=" << unreachable;
   std::cout << ", broadcasts=" << settings.broadcast_count
             << ", payload=" << format_bytes(static_cast<double>(settings.payload_bytes)) << "\n";
   print_table_header();
@@ -564,6 +570,9 @@ int main(int argc, char **argv) {
     all_expected_delivered = all_expected_delivered && expected_remaining == 0;
     auto delivery_ms = delivery->delivery_times();
     auto delivered_flags = delivery->delivered_flags();
+    for (auto node_index : validators) {
+      CHECK(!delivered_flags[node_index]);
+    }
     auto delivered_hashes = delivery->delivered_hashes();
     auto delivered_sources = delivery->delivered_source_hashes();
     auto sent_bytes = network->sent_bytes_count() - sent_bytes_before;

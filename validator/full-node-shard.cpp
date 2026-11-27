@@ -51,7 +51,6 @@ namespace fullnode {
 
 namespace {
 
-constexpr const char *k_called_from_public = "public";
 constexpr size_t k_ed25519_signature_size = 64;
 constexpr td::uint32 k_public_plumtree_stats_store_limit = 3000;
 
@@ -232,10 +231,6 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ex
   process_external_message_broadcast(query, [](td::Result<td::Unit>) {});
 }
 
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src,
                                           ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);
@@ -252,7 +247,7 @@ void FullNodeShardImpl::process_block_candidate_broadcast(PublicKeyHash src, ton
   td::uint32 validator_set_hash;
   td::BufferSlice data;
   auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
-                                                 overlay::Overlays::max_fec_broadcast_size(), k_called_from_public);
+                                                 overlay::Overlays::max_fec_broadcast_size());
   if (S.is_error()) {
     VLOG(full_node, WARNING) << "received bad block candidate from " << src << " : " << S;
     return;
@@ -312,26 +307,27 @@ void FullNodeShardImpl::send_external_message(td::BufferSlice data) {
 
 void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                              td::BufferSlice data) {
-  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
-                                               k_called_from_public);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data);
   if (B.is_error()) {
     VLOG(full_node, WARNING) << "failed to serialize Plumtree block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(full_node, DEBUG) << "Sending Plumtree newBlockCandidate: " << block_id;
   auto payload = B.move_as_ok();
   auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
+  VLOG(full_node, WARNING) << "Broadcast send type=candidate block_id=" << block_id
+                           << " overlay=public overlay_id=" << overlay_id_ << " data_size=" << data.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, adnl_id_, overlay_id_, source,
                           overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
 }
 
 void FullNodeShardImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality) {
-  VLOG(full_node, DEBUG) << "Sending Plumtree blockFinalityBroadcast in public overlay: " << finality.block_id;
   auto broadcast_id = get_tl_object_sha_bits256(
       create_tl_object<ton_api::tonNode_finalityBroadcastId>(create_tl_block_id(finality.block_id)));
   auto payload = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(
       create_tl_block_id(finality.block_id), finality.sig_set->tl());
   auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
+  VLOG(full_node, WARNING) << "Broadcast send type=finality block_id=" << finality.block_id
+                           << " overlay=public overlay_id=" << overlay_id_ << " data_size=" << payload.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree, adnl_id_, overlay_id_, source,
                           overlay::Overlays::BroadcastFlagAnySender(), broadcast_id, std::move(payload));
 }

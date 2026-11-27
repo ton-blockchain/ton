@@ -27,12 +27,6 @@
 
 namespace ton::validator::fullnode {
 
-namespace {
-
-constexpr const char *k_called_from_custom = "custom";
-
-}  // namespace
-
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
   if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
     VLOG(full_node, DEBUG) << "Dropping block finality broadcast in private overlay \"" << name_
@@ -62,10 +56,6 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
       .detach();
 }
 
-void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src,
                                               ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);
@@ -87,7 +77,7 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
   td::uint32 validator_set_hash;
   td::BufferSlice data;
   auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
-                                                 overlay::Overlays::max_fec_broadcast_size(), k_called_from_custom);
+                                                 overlay::Overlays::max_fec_broadcast_size());
   if (S.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << S;
     return;
@@ -143,10 +133,10 @@ void FullNodeCustomOverlay::send_block_finality_broadcast(BlockFinalityBroadcast
   if (!inited_) {
     return;
   }
-  VLOG(full_node, DEBUG) << "Sending blockFinalityBroadcast to custom overlay \"" << name_
-                         << "\": " << finality.block_id;
   auto B = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(create_tl_block_id(finality.block_id),
                                                                                finality.sig_set->tl());
+  VLOG(full_node, WARNING) << "Broadcast send type=finality block_id=" << finality.block_id
+                           << " overlay=custom overlay_id=" << overlay_id_ << " data_size=" << B.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
 }
@@ -156,13 +146,13 @@ void FullNodeCustomOverlay::send_block_candidate(BlockIdExt block_id, CatchainSe
   if (!inited_) {
     return;
   }
-  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
-                                               k_called_from_custom);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data);
   if (B.is_error()) {
     VLOG(full_node, WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(full_node, DEBUG) << "Sending newBlockCandidate in custom overlay \"" << name_ << "\": " << block_id;
+  VLOG(full_node, WARNING) << "Broadcast send type=candidate block_id=" << block_id
+                           << " overlay=custom overlay_id=" << overlay_id_ << " data_size=" << data.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }

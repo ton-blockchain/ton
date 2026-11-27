@@ -54,20 +54,14 @@ void ValidateBroadcast::start_up() {
                          << " last_key_block_seqno=" << last_known_masterchain_block_handle_->id().seqno();
   alarm_timestamp() = timeout_;
 
-  if (!signatures_only_) {
-    auto hash = sha256_bits256(broadcast_.data.as_slice());
-    if (hash != broadcast_.block_id.file_hash) {
-      abort_query(td::Status::Error(ErrorCode::protoviolation, "filehash mismatch"));
-      return;
-    }
+  auto hash = sha256_bits256(broadcast_.data.as_slice());
+  if (hash != broadcast_.block_id.file_hash) {
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "filehash mismatch"));
+    return;
   }
 
   if (broadcast_.block_id.is_masterchain()) {
     if (last_masterchain_block_handle_->id().id.seqno >= broadcast_.block_id.id.seqno) {
-      if (signatures_only_) {
-        abort_query(td::Status::Error(ErrorCode::cancelled, "block is too old"));
-        return;
-      }
       finish_query();
       return;
     }
@@ -254,11 +248,6 @@ void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
 
 void ValidateBroadcast::checked_signatures() {
   VLOG(validator, DEBUG) << "checked_signatures";
-  if (signatures_only_) {
-    finish_query();
-    return;
-  }
-
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &ValidateBroadcast::abort_query, R.move_as_error_prefix("db error: "));

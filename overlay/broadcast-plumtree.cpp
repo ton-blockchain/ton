@@ -1204,6 +1204,10 @@ void BroadcastsPlumtree::Impl::signed_fec(OverlayImpl *overlay, PlumtreeOutbound
   }
   auto broadcast_ref = broadcast_ref_r.move_as_ok();
   auto &broadcast = *broadcast_ref.state;
+  // We already have the full payload; keep the parts for forwarding/repair without decoding or delivering it locally.
+  broadcast.delivered = true;
+  broadcast.decoder = {};
+  overlay->register_delivered_broadcast(broadcast.broadcast_id);
   if (get_part(payload.broadcast_id, payload.part_index, payload.tree_index)) {
     return;
   }
@@ -1213,18 +1217,6 @@ void BroadcastsPlumtree::Impl::signed_fec(OverlayImpl *overlay, PlumtreeOutbound
                                   std::move(signed_part.first), std::move(payload.data));
 
   forward_payload(overlay, payload.broadcast_id, *part, adnl::AdnlNodeIdShort::zero());
-  auto decoded = decode_fec_part(overlay, broadcast, payload.part_index);
-  if (decoded.is_error()) {
-    VLOG(PLUMTREE_WARNING) << overlay << ": failed to process local Plumtree part: " << decoded.move_as_error();
-    return;
-  }
-  auto decoded_broadcast = decoded.move_as_ok();
-  if (!decoded_broadcast.data.empty()) {
-    check_and_deliver(overlay, decoded_broadcast.source, decoded_broadcast.check_result,
-                      std::move(decoded_broadcast.data))
-        .start()
-        .detach();
-  }
 
   if (!broadcast.overlay_limiter_registered) {
     overlay->get_broadcasts_limiter(payload.source, cert.get()).register_broadcast(payload.full_data_size);
@@ -1297,7 +1289,6 @@ void BroadcastsPlumtree::Impl::signed_simple(OverlayImpl *overlay, PlumtreeOutbo
   VLOG(PLUMTREE_INFO) << overlay << ": Plumtree SIMPLE_SEND sender broadcast_id=" << state_ptr->broadcast_id.to_hex()
                       << " data_size=" << state_ptr->data.size() << " tree_index=" << state_ptr->part.tree_index
                       << " full_sent=" << state_ptr->part.full_sends;
-  check_and_deliver(overlay, state_ptr->part.source, check, state_ptr->data.clone()).start().detach();
 }
 
 td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
@@ -1435,7 +1426,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
   send_useful(overlay, from, *part, broadcast_id);
   forward_payload(overlay, broadcast_id, *part, from);
 
-  auto useful_part = broadcast->decoder_parts.size() < options_.k_;
+  auto useful_part = !broadcast->delivered && broadcast->decoder_parts.size() < options_.k_;
   auto decoded = CO_TRY(decode_fec_part(overlay, *broadcast, part_index));
   if (useful_part) {
     plumtree_stats_.note_useful_delivery(timestamp, tree_index == PLUMTREE_SIMPLE_TREE_INDEX);
