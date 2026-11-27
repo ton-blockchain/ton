@@ -116,11 +116,6 @@ void FullNodeProtectedOverlay::process_broadcast(PublicKeyHash src, ton_api::ton
 }
 
 void FullNodeProtectedOverlay::process_broadcast(PublicKeyHash src,
-                                                 ton_api::tonNode_newBlockCandidateBroadcast &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
-void FullNodeProtectedOverlay::process_broadcast(PublicKeyHash src,
                                                  ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);
 }

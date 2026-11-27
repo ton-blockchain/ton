@@ -56,10 +56,6 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
       .detach();
 }
 
-void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src,
                                               ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);

@@ -160,9 +160,6 @@ td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_Broadcast& obj
                                                  td::BufferSlice& data, int max_decompressed_data_size) {
   td::Status S;
   ton_api::downcast_call(obj, td::overloaded(
-                                  [&](ton_api::tonNode_newBlockCandidateBroadcast&) {
-                                    S = td::Status::Error("Uncompressed block candidate broadcasts are not supported");
-                                  },
                                   [&](ton_api::tonNode_newBlockCandidateBroadcastCompressed& f) {
                                     S = deserialize_block_candidate_broadcast(f, block_id, cc_seqno, validator_set_hash,
                                                                               data, max_decompressed_data_size);

@@ -231,10 +231,6 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ex
   process_external_message_broadcast(query, [](td::Result<td::Unit>) {});
 }
 
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src,
                                           ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);
