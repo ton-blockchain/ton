@@ -695,9 +695,6 @@ target_link_libraries(test-tddb PRIVATE tdutils tddb ${CMAKE_THREAD_LIBS_INIT} m
 add_executable(test-fec test/test-td-main.cpp ${FEC_TEST_SOURCE})
 target_link_libraries(test-fec PRIVATE tdfec tdutils ${CMAKE_THREAD_LIBS_INIT})
 
-add_executable(test-hello-world test/test-hello-world.cpp )
-target_link_libraries(test-hello-world tl_api ton_crypto)
-
 add_executable(test-adnl test/test-adnl.cpp)
 target_link_libraries(test-adnl adnl adnltest dht tl_api)
 add_executable(test-dht test/test-dht.cpp)
