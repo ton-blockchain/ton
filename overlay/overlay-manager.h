@@ -54,8 +54,7 @@ class OverlayManager : public Overlays {
                                 std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope,
                                 OverlayOptions opts) override;
   void create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                  std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
-                                  OverlayMemberCertificate certificate, std::unique_ptr<Callback> callback,
+                                  std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                                   OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) override;
   void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
@@ -89,11 +88,8 @@ class OverlayManager : public Overlays {
   void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, OverlayPrivacyRules rules) override;
   void update_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, PublicKeyHash key,
                           std::shared_ptr<Certificate> cert) override;
-  void update_member_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                                 OverlayMemberCertificate certificate) override;
   void update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                               std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
-                               OverlayMemberCertificate certificate, OverlayPrivacyRules rules) override;
+                               std::vector<adnl::AdnlNodeIdShort> nodes, OverlayPrivacyRules rules) override;
   void get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, td::uint32 max_peers,
                                 td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) override;
 
@@ -101,7 +97,7 @@ class OverlayManager : public Overlays {
                      td::Promise<td::BufferSlice> promise);
   void receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data);
 
-  void register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, OverlayMemberCertificate cert,
+  void register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                         td::actor::ActorOwn<Overlay> overlay);
   void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) override;
 
@@ -121,11 +117,7 @@ class OverlayManager : public Overlays {
   }
 
  private:
-  struct OverlayDescription {
-    td::actor::ActorOwn<Overlay> overlay;
-    OverlayMemberCertificate member_certificate;
-  };
-  std::map<adnl::AdnlNodeIdShort, std::map<OverlayIdShort, OverlayDescription>> overlays_;
+  std::map<adnl::AdnlNodeIdShort, std::map<OverlayIdShort, td::actor::ActorOwn<Overlay>>> overlays_;
 
   // Broadcast content: outbound recorded here directly, inbound drained from the per-overlay actors.
   metrics::Labeled<metrics::TlTrafficBucket, metrics::Direction> broadcasts_;

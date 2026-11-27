@@ -211,7 +211,7 @@ overlay.broadcastFec.partId broadcast_hash:int256 data_hash:int256 seqno:int = o
 
 overlay.broadcast.toSign hash:int256 date:int = overlay.broadcast.ToSign;
 
-overlay.memberCertificateId node:adnl.id.short flags:int slot:int expire_at:int = overlay.MemberCertificateId;
+// Legacy membership certificates are parsed for compatibility, but no longer grant overlay membership.
 overlay.memberCertificate issued_by:PublicKey flags:int slot:int expire_at:int signature:bytes = overlay.MemberCertificate;
 overlay.emptyMemberCertificate = overlay.MemberCertificate;
 overlay.certificate issued_by:PublicKey expire_at:int max_size:int signature:bytes = overlay.Certificate;
@@ -377,7 +377,6 @@ tonNode.outMsgQueueProof queue_proofs:bytes block_state_proofs:bytes msg_counts:
 tonNode.outMsgQueueProofEmpty = tonNode.OutMsgQueueProof;
 
 tonNode.forgetPeer = tonNode.ForgetPeer;
-tonNode.newProtectedOverlayMemberCertificate#739ff5af adnl_id:int256 certificate:overlay.MemberCertificate = tonNode.NewProtectedOverlayMemberCertificate;
 
 
 ---functions---
@@ -571,16 +570,13 @@ engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
 engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
-engine.validator.fastSyncMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.FastSyncMemberCertificate;
-engine.validator.fastSyncOverlayClient adnl_id:int256 slot:int = engine.validator.FastSyncOverlayClient;
 engine.validator.collatorNodeWhitelist enabled:Bool adnl_ids:(vector int256) = engine.validator.CollatorNodeWhitelist;
 engine.validator.extMessagePoolConfig max_mempool_messages:int
     num_regular_checkers:int num_priority_checkers:int max_admission_waiters:int
     max_ext_msg_per_addr:int max_ext_msg_per_addr_time_window:double
     local_ls_message_priority:int = engine.validator.ExtMessagePoolConfig;
-engine.validator.extraConfig state_serializer_enabled:Bool fast_sync_member_certificates:(vector engine.validator.fastSyncMemberCertificate)
+engine.validator.extraConfig state_serializer_enabled:Bool
     collator_node_whitelist:engine.validator.collatorNodeWhitelist
-    fast_sync_overlay_clients:(vector engine.validator.fastSyncOverlayClient)
     ext_message_pool_config:engine.validator.extMessagePoolConfig = engine.validator.ExtraConfig;
 engine.validator.config addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
@@ -677,8 +673,8 @@ engine.validator.shardOverlayStats.neighbour id:string verison_major:int version
     roundtrip:double unreliability:double = engine.validator.shardOverlayStats.Neighbour;
 engine.validator.shardOverlayStats shard:string active:Bool
     neighbours:(vector engine.validator.shardOverlayStats.neighbour) = engine.validator.ShardOverlayStats;
-engine.validator.protectedOverlayStats shard:string validators_adnl:(vector int256) root_public_keys:(vector int256)
-    member_certificate:overlay.MemberCertificate receive_broadcasts:Bool = engine.validator.ProtectedOverlayStats;
+engine.validator.protectedOverlayStats shard:string validators_adnl:(vector int256)
+    receive_broadcasts:Bool = engine.validator.ProtectedOverlayStats;
 
 engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
@@ -770,11 +766,6 @@ engine.validator.showCollatorNodeWhitelist = engine.validator.CollatorNodeWhitel
 engine.validator.setCollatorsList list:engine.validator.collatorsList = engine.validator.Success;
 engine.validator.clearCollatorsList = engine.validator.Success;
 engine.validator.showCollatorsList = engine.validator.CollatorsList;
-
-engine.validator.signOverlayMemberCertificate sign_by:int256 adnl_id:int256 slot:int expire_at:int = overlay.MemberCertificate;
-engine.validator.importProtectedOverlayMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.Success;
-engine.validator.addProtectedOverlayClient adnl_id:int256 slot:int = engine.validator.Success;
-engine.validator.delProtectedOverlayClient adnl_id:int256 = engine.validator.Success;
 
 engine.validator.setShardBlockVerifierConfig config:engine.validator.shardBlockVerifierConfig = engine.validator.Success;
 engine.validator.showShardBlockVerifierConfig = engine.validator.ShardBlockVerifierConfig;

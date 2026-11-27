@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <algorithm>
 #include <any>
 #include <map>
 #include <memory>
@@ -88,9 +89,6 @@ class OverlayPeer {
     CHECK(get_id() == node.adnl_id_short());
     node_.update(std::move(node));
   }
-  void update_certificate(OverlayMemberCertificate cert) {
-    node_.update_certificate(std::move(cert));
-  }
 
   OverlayPeer(OverlayNode node) : node_(std::move(node)) {
     id_ = node_.adnl_id_short();
@@ -120,14 +118,6 @@ class OverlayPeer {
 
   void set_permanent(bool value) {
     is_permanent_member_ = value;
-  }
-
-  void clear_certificate() {
-    node_.clear_certificate();
-  }
-
-  auto certificate() const {
-    return node_.certificate();
   }
 
   bool has_full_id() const {
@@ -184,7 +174,6 @@ struct BroadcastsLimiter {
 struct AuthorizedKeyLimiter {
   td::RateLimiterWindow certificate_check_rate_limiter_{60.0, 60};
   td::LRUCache<std::pair<PublicKeyHash, td::Bits256>, td::Unit> checked_certificates_lru_{100};
-  td::LRUCache<std::pair<adnl::AdnlNodeIdShort, td::Bits256>, td::Unit> checked_member_certificates_lru_{100};
   BroadcastsLimiter broadcasts_;
   bool broadcasts_inited_ = false;
 };
@@ -195,17 +184,14 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<OverlayManager> manager,
               td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
               OverlayType overlay_type, std::vector<adnl::AdnlNodeIdShort> nodes,
-              std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert,
               std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
               td::string scope = "{ \"type\": \"undefined\" }", OverlayOptions opts = {});
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }
 
-  void receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
-                       td::BufferSlice data) override;
-  void receive_query(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
-                     td::BufferSlice data, td::Promise<td::BufferSlice> promise) override;
+  void receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) override;
+  void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override;
   void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
   void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                           td::BufferSlice extra) override;
@@ -238,7 +224,6 @@ class OverlayImpl : public Overlay {
   void add_certificate(PublicKeyHash key, std::shared_ptr<Certificate> cert) override {
     certs_[key] = std::move(cert);
   }
-  void update_member_certificate(OverlayMemberCertificate cert) override;
 
   void receive_dht_nodes(dht::DhtValue v);
   void dht_lookup_finished(td::Status S);
@@ -327,12 +312,11 @@ class OverlayImpl : public Overlay {
 
   void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) override;
 
-  void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids, std::vector<PublicKeyHash> root_public_keys,
-                               OverlayMemberCertificate cert, OverlayPrivacyRules rules) override;
+  void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids, OverlayPrivacyRules rules) override;
   void get_plumtree_stats_records(
       td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) override;
 
-  bool check_src_peer(const adnl::AdnlNodeIdShort &id, const ton_api::overlay_MemberCertificate *certificate);
+  bool check_src_peer(const adnl::AdnlNodeIdShort &id);
   bool is_persistent_node(const adnl::AdnlNodeIdShort &id);
   bool is_twostep_intermediate_node(const adnl::AdnlNodeIdShort &id);
   size_t persistent_node_count();
@@ -351,8 +335,10 @@ class OverlayImpl : public Overlay {
     return 16;
   }
 
-  td::uint32 max_peers() const {
-    return opts_.max_peers_;
+  size_t max_peers() const {
+    // Reserve room for permanent validators and registry members, with 10 spare slots.
+    return std::max<size_t>(opts_.max_peers_,
+                            peer_list_.persistent_node_count_ + authorized_semiprivate_nodes_.size() + 10);
   }
 
   td::uint32 nodes_to_send() const {
@@ -363,7 +349,7 @@ class OverlayImpl : public Overlay {
     return opts_.propagate_broadcast_to_;
   }
 
-  bool has_valid_membership_certificate();
+  bool is_local_member();
   bool has_valid_broadcast_certificate(const PublicKeyHash &source, size_t size, bool is_fec, bool is_any_sender);
 
   void forget_peer(adnl::AdnlNodeIdShort peer_id) override {
@@ -432,10 +418,6 @@ class OverlayImpl : public Overlay {
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
                                       tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg);
 
-  td::Status validate_peer_certificate(const adnl::AdnlNodeIdShort &node, const OverlayMemberCertificate &cert,
-                                       bool received_from_node = false);
-  td::Status validate_peer_certificate(const adnl::AdnlNodeIdShort &node, const OverlayMemberCertificate *cert);
-  td::Status validate_peer_certificate(const adnl::AdnlNodeIdShort &node, ton_api::overlay_MemberCertificate *cert);
   void add_peer(OverlayNode node, bool verified, bool checked_signature = false);
   void add_peers(std::vector<OverlayNode> nodes, bool verified, bool checked_signature = false);
   void add_peers(const tl_object_ptr<ton_api::overlay_nodes> &nodes, bool verified, bool checked_signature = false);
@@ -446,7 +428,6 @@ class OverlayImpl : public Overlay {
   void del_peer(const adnl::AdnlNodeIdShort &id);
   bool should_remove_peer(const OverlayPeer &peer, double now);
   OverlayPeer *get_random_peer(bool only_alive = false);
-  bool is_root_public_key(const PublicKeyHash &key) const;
   void update_peers_mtu();
 
   void finish_dht_query() {
@@ -535,18 +516,10 @@ class OverlayImpl : public Overlay {
   std::map<PublicKeyHash, std::unique_ptr<CachedEncryptor>> encryptor_map_;
 
   struct PeerList {
-    struct SlaveKey {
-      td::int32 expire_at{0};
-      adnl::AdnlNodeIdShort node{};
-    };
-    using SlaveKeys = std::vector<SlaveKey>;
-    std::map<PublicKeyHash, SlaveKeys> root_public_keys_;
-    OverlayMemberCertificate cert_;
     td::DecTree<adnl::AdnlNodeIdShort, OverlayPeer> peers_;
     size_t persistent_node_count_ = 0;
     td::DecTree<adnl::AdnlNodeIdShort, OverlayNode> pending_peers_;
 
-    td::Timestamp local_cert_is_valid_until_;
     td::uint32 local_member_flags_{0};
   } peer_list_;
   TrafficStats total_traffic, total_traffic_ctr;

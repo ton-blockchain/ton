@@ -413,14 +413,13 @@ void FullNodeProtectedOverlay::init() {
   options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   options.local_overlay_member_flags_ =
       receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
-  options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_PROTECTED_OVERLAY_CLIENTS;
 
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
   options.send_twostep_broadcast_ = true;
   options.enable_plumtree_broadcast_ = true;
   options.is_original_sender_ = is_original_sender;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
-                          overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
+                          overlay_id_full_.clone(), current_validators_adnl_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
   td::actor::send_closure(overlays_, &overlay::Overlays::update_semiprivate_authorized_nodes, local_id_, overlay_id_,
                           std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
@@ -451,13 +450,11 @@ void FullNodeProtectedOverlay::tear_down() {
   }
 }
 
-void FullNodeProtectedOverlay::set_validators(std::vector<PublicKeyHash> root_public_keys,
-                                              std::vector<adnl::AdnlNodeIdShort> current_validators_adnl) {
-  if (root_public_keys_ == root_public_keys && current_validators_adnl_ == current_validators_adnl) {
+void FullNodeProtectedOverlay::set_validators(std::vector<adnl::AdnlNodeIdShort> current_validators_adnl) {
+  if (current_validators_adnl_ == current_validators_adnl) {
     return;
   }
   bool was_original_sender = is_validator_adnl(local_id_);
-  root_public_keys_ = std::move(root_public_keys);
   current_validators_adnl_ = std::move(current_validators_adnl);
   bool is_original_sender = is_validator_adnl(local_id_);
   for (auto it = peers_info_.begin(); it != peers_info_.end();) {
@@ -476,17 +473,8 @@ void FullNodeProtectedOverlay::set_validators(std::vector<PublicKeyHash> root_pu
       init();
     } else {
       td::actor::send_closure(overlays_, &overlay::Overlays::update_root_member_list, local_id_, overlay_id_,
-                              current_validators_adnl_, root_public_keys_, member_certificate_,
-                              make_protected_overlay_privacy_rules(current_validators_adnl_));
+                              current_validators_adnl_, make_protected_overlay_privacy_rules(current_validators_adnl_));
     }
-  }
-}
-
-void FullNodeProtectedOverlay::set_member_certificate(overlay::OverlayMemberCertificate member_certificate) {
-  member_certificate_ = std::move(member_certificate);
-  if (inited_) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::update_member_certificate, local_id_, overlay_id_,
-                            member_certificate_);
   }
 }
 
@@ -572,12 +560,6 @@ void FullNodeProtectedOverlay::get_stats_extra(td::Promise<std::string> promise)
   res->shard_ = shard_.to_str();
   for (const auto &x : current_validators_adnl_) {
     res->validators_adnl_.push_back(x.bits256_value());
-  }
-  for (const auto &x : root_public_keys_) {
-    res->root_public_keys_.push_back(x.bits256_value());
-  }
-  if (!member_certificate_.empty()) {
-    res->member_certificate_ = member_certificate_.tl();
   }
   res->receive_broadcasts_ = receive_plumtree_broadcasts_;
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
@@ -714,8 +696,7 @@ double FullNodeProtectedOverlays::update_overlays(
     td::Ref<MasterchainState> state, const std::set<PublicKeyHash> &local_keys,
     std::set<adnl::AdnlNodeIdShort> my_adnl_ids, const std::set<adnl::AdnlNodeIdShort> &local_collator_adnl_ids,
     std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
-    const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
-    const td::actor::ActorId<overlay::Overlays> &overlays,
+    const td::actor::ActorId<adnl::Adnl> &adnl, const td::actor::ActorId<overlay::Overlays> &overlays,
     const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
     const td::actor::ActorId<FullNode> &full_node) {
   auto new_registry_state = ValidatorRegistryState::fetch(state);
@@ -756,7 +737,6 @@ double FullNodeProtectedOverlays::update_overlays(
   if (!last_key_block_seqno_ || last_key_block_seqno_.value() != state->last_key_block_id().seqno()) {
     updated_validators = true;
     last_key_block_seqno_ = state->last_key_block_id().seqno();
-    root_public_keys_.clear();
     current_validators_adnl_.clear();
     validator_key_to_adnl_ids_.clear();
     validator_authority_until_.clear();
@@ -784,15 +764,12 @@ double FullNodeProtectedOverlays::update_overlays(
       for (const ValidatorDescr &val : val_set->export_vector()) {
         PublicKeyHash public_key_hash = ValidatorFullId{val.key}.compute_short_id();
         adnl::AdnlNodeIdShort adnl_id{val.addr.is_zero() ? public_key_hash.bits256_value() : val.addr};
-        root_public_keys_.push_back(public_key_hash);
         current_validators_adnl_.push_back(adnl_id);
         validator_key_to_adnl_ids_.emplace(public_key_hash, adnl_id);
         validator_authority_until_[public_key_hash] =
             std::max(validator_authority_until_[public_key_hash], set_authority_until[i + 1]);
       }
     }
-    std::sort(root_public_keys_.begin(), root_public_keys_.end());
-    root_public_keys_.erase(std::unique(root_public_keys_.begin(), root_public_keys_.end()), root_public_keys_.end());
     std::sort(current_validators_adnl_.begin(), current_validators_adnl_.end());
     current_validators_adnl_.erase(std::unique(current_validators_adnl_.begin(), current_validators_adnl_.end()),
                                    current_validators_adnl_.end());
@@ -827,101 +804,37 @@ double FullNodeProtectedOverlays::update_overlays(
     }
   }
 
-  if (updated_validators) {
-    for (auto &[local_id, overlays_info] : id_to_overlays_) {
-      overlays_info.is_validator_ =
-          std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
-      for (auto &[_, overlay] : overlays_info.overlays_) {
-        td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_validators, root_public_keys_,
-                                current_validators_adnl_);
-      }
-    }
-  }
-
-  // Cleanup outdated certificates
-  double now = td::Clocks::system();
-  for (auto &[_, certificates] : member_certificates_) {
-    certificates.erase(std::remove_if(certificates.begin(), certificates.end(),
-                                      [&](const overlay::OverlayMemberCertificate &certificate) {
-                                        return certificate.is_expired(now);
-                                      }),
-                       certificates.end());
-  }
-
   for (adnl::AdnlNodeIdShort local_id : my_adnl_ids) {
-    bool is_new = !id_to_overlays_.count(local_id);
-    auto &overlays_info = id_to_overlays_[local_id];
-    // Update local roles and current_certificate
-    if (is_new) {
-      overlays_info.is_validator_ =
-          std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
-    }
-    overlays_info.is_collator_ = local_collator_adnl_ids.contains(local_id);
-    bool changed_certificate = false;
-    // Check if certificate is outdated or no longer authorized by current root keys
-    if (!overlays_info.current_certificate_.empty() && overlays_info.current_certificate_.is_expired(now)) {
-      changed_certificate = true;
-      overlays_info.current_certificate_ = {};
-    }
-    if (!overlays_info.current_certificate_.empty() && updated_validators &&
-        !std::binary_search(root_public_keys_.begin(), root_public_keys_.end(),
-                            overlays_info.current_certificate_.issued_by().compute_short_id())) {
-      changed_certificate = true;
-      overlays_info.current_certificate_ = {};
-    }
-    auto certificate_authority_until = [&](const overlay::OverlayMemberCertificate &certificate) {
-      auto issuer = validator_authority_until_.find(certificate.issued_by().compute_short_id());
-      return issuer == validator_authority_until_.end()
-                 ? 0.0
-                 : std::min(static_cast<double>(certificate.expire_at()), static_cast<double>(issuer->second));
-    };
-    double current_certificate_authority_until = overlays_info.current_certificate_.empty()
-                                                     ? 0.0
-                                                     : certificate_authority_until(overlays_info.current_certificate_);
-    auto it = member_certificates_.find(local_id);
-    if (it != member_certificates_.end()) {
-      for (const overlay::OverlayMemberCertificate &certificate : it->second) {
-        double candidate_authority_until = certificate_authority_until(certificate);
-        if (candidate_authority_until > current_certificate_authority_until ||
-            (candidate_authority_until == current_certificate_authority_until &&
-             certificate.is_newer(overlays_info.current_certificate_))) {
-          changed_certificate = true;
-          overlays_info.current_certificate_ = certificate;
-          current_certificate_authority_until = candidate_authority_until;
-        }
-      }
-    }
-
-    // Remove if it is not authorized
-    if (!overlays_info.is_validator_ && overlays_info.current_certificate_.empty() &&
-        !authorized_nodes_.contains(local_id)) {
+    bool is_validator = std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
+    bool is_authorized = authorized_nodes_.contains(local_id);
+    if (!is_validator && !is_authorized) {
       id_to_overlays_.erase(local_id);
       continue;
     }
-    authority_until = std::max(authority_until, current_certificate_authority_until);
-    if (authorized_nodes_.contains(local_id)) {
+    if (is_authorized) {
       authority_until = std::max<double>(authority_until, state->get_unix_time() + 3600 * 12);
     }
+    auto &overlays_info = id_to_overlays_[local_id];
+    overlays_info.is_validator_ = is_validator;
+    bool is_collator = local_collator_adnl_ids.contains(local_id);
 
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
-      bool receive_plumtree_broadcasts =
-          !overlays_info.is_validator_ && !overlays_info.is_collator_ && monitoring_shards.contains(shard);
+      bool receive_plumtree_broadcasts = !is_validator && !is_collator && monitoring_shards.contains(shard);
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeProtectedOverlay>(
-            PSTRING() << "ProtectedOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
-            current_validators_adnl_, overlays_info.current_certificate_, receive_plumtree_broadcasts, config_,
-            broadcast_speed_multiplier, keyring, adnl, overlays, validator_manager, full_node);
+            PSTRING() << "ProtectedOv" << shard, local_id, shard, zero_state_file_hash, current_validators_adnl_,
+            receive_plumtree_broadcasts, config_, broadcast_speed_multiplier, adnl, overlays, validator_manager,
+            full_node);
         td::actor::send_closure(overlay, &FullNodeProtectedOverlay::update_authorized_nodes,
                                 std::vector(authorized_nodes_.begin(), authorized_nodes_.end()),
                                 std::vector<adnl::AdnlNodeIdShort>());
       } else {
-        td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_params, receive_plumtree_broadcasts);
-        if (changed_certificate) {
-          td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_member_certificate,
-                                  overlays_info.current_certificate_);
+        if (updated_validators) {
+          td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_validators, current_validators_adnl_);
         }
+        td::actor::send_closure(overlay, &FullNodeProtectedOverlay::set_params, receive_plumtree_broadcasts);
         if (!authorized_nodes_add.empty() || !authorized_nodes_remove.empty()) {
           td::actor::send_closure(overlay, &FullNodeProtectedOverlay::update_authorized_nodes, authorized_nodes_add,
                                   authorized_nodes_remove);
@@ -931,26 +844,6 @@ double FullNodeProtectedOverlays::update_overlays(
   }
 
   return authority_until;
-}
-
-void FullNodeProtectedOverlays::add_member_certificate(adnl::AdnlNodeIdShort local_id,
-                                                       overlay::OverlayMemberCertificate member_certificate) {
-  if (member_certificate.empty() || member_certificate.is_expired()) {
-    return;
-  }
-  auto &certificates = member_certificates_[local_id];
-  auto issued_by = member_certificate.issued_by().compute_short_id();
-  for (auto &certificate : certificates) {
-    if (certificate.issued_by().compute_short_id() == issued_by) {
-      if (member_certificate.is_newer(certificate)) {
-        certificate = std::move(member_certificate);
-      }
-      return;
-    }
-  }
-
-  certificates.push_back(std::move(member_certificate));
-  // Overlays will be updated in the next update_overlays
 }
 
 }  // namespace ton::validator::fullnode

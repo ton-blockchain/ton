@@ -131,13 +131,13 @@ void OverlayManager::update_dht_node(td::actor::ActorId<dht::Dht> dht) {
   dht_node_ = dht;
   for (auto &X : overlays_) {
     for (auto &Y : X.second) {
-      td::actor::send_closure(Y.second.overlay, &Overlay::update_dht_node, dht);
+      td::actor::send_closure(Y.second, &Overlay::update_dht_node, dht);
     }
   }
 }
 
 void OverlayManager::register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                                      OverlayMemberCertificate cert, td::actor::ActorOwn<Overlay> overlay) {
+                                      td::actor::ActorOwn<Overlay> overlay) {
   auto it = overlays_.find(local_id);
   VLOG(overlay, INFO) << this << ": registering overlay " << overlay_id << "@" << local_id;
   if (it == overlays_.end()) {
@@ -147,6 +147,7 @@ void OverlayManager::register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdS
     td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id,
                             adnl::Adnl::int_to_bytestring(ton_api::overlay_query::ID),
                             std::make_unique<AdnlCallback>(actor_id(this)));
+    // Older peers still send these envelopes; parse them, but ignore membership certificates.
     td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id,
                             adnl::Adnl::int_to_bytestring(ton_api::overlay_messageWithExtra::ID),
                             std::make_unique<AdnlCallback>(actor_id(this)));
@@ -154,7 +155,7 @@ void OverlayManager::register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdS
                             adnl::Adnl::int_to_bytestring(ton_api::overlay_queryWithExtra::ID),
                             std::make_unique<AdnlCallback>(actor_id(this)));
   }
-  overlays_[local_id][overlay_id] = OverlayDescription{std::move(overlay), std::move(cert)};
+  overlays_[local_id][overlay_id] = std::move(overlay);
 
   auto buffered = buffered_requests_.extract_for_overlay(local_id, overlay_id);
   if (!buffered.empty()) {
@@ -172,25 +173,24 @@ void OverlayManager::register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdS
   if (!with_db_) {
     return;
   }
-  auto P =
-      td::PromiseCreator::lambda([id = overlays_[local_id][overlay_id].overlay.get()](td::Result<DbType::GetResult> R) {
-        R.ensure();
-        auto value = R.move_as_ok();
-        if (value.status == td::KeyValue::GetStatus::Ok) {
-          auto F = fetch_tl_object<ton_api::overlay_db_Nodes>(std::move(value.value), true);
-          F.ensure();
-          ton_api::downcast_call(
-              *F.move_as_ok(), td::overloaded(
-                                   [&](ton_api::overlay_db_nodes &V) {
-                                     auto nodes = std::move(V.nodes_);
-                                     td::actor::send_closure(id, &Overlay::receive_nodes_from_db, std::move(nodes));
-                                   },
-                                   [&](ton_api::overlay_db_nodesV2 &V) {
-                                     auto nodes = std::move(V.nodes_);
-                                     td::actor::send_closure(id, &Overlay::receive_nodes_from_db_v2, std::move(nodes));
-                                   }));
-        }
-      });
+  auto P = td::PromiseCreator::lambda([id = overlays_[local_id][overlay_id].get()](td::Result<DbType::GetResult> R) {
+    R.ensure();
+    auto value = R.move_as_ok();
+    if (value.status == td::KeyValue::GetStatus::Ok) {
+      auto F = fetch_tl_object<ton_api::overlay_db_Nodes>(std::move(value.value), true);
+      F.ensure();
+      ton_api::downcast_call(*F.move_as_ok(),
+                             td::overloaded(
+                                 [&](ton_api::overlay_db_nodes &V) {
+                                   auto nodes = std::move(V.nodes_);
+                                   td::actor::send_closure(id, &Overlay::receive_nodes_from_db, std::move(nodes));
+                                 },
+                                 [&](ton_api::overlay_db_nodesV2 &V) {
+                                   auto nodes = std::move(V.nodes_);
+                                   td::actor::send_closure(id, &Overlay::receive_nodes_from_db_v2, std::move(nodes));
+                                 }));
+    }
+  });
   auto key = create_hash_tl_object<ton_api::overlay_db_key_nodes>(local_id.bits256_value(), overlay_id.bits256_value());
   db_.get(key, std::move(P));
 }
@@ -226,7 +226,7 @@ void OverlayManager::create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, Ov
   CHECK(!dht_node_.empty());
   auto id = overlay_id.compute_short_id();
   register_overlay(
-      local_id, id, OverlayMemberCertificate{},
+      local_id, id,
       Overlay::create_public(keyring_, adnl_, quic_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
                              std::move(callback), std::move(rules), scope, std::move(opts)));
 }
@@ -244,7 +244,7 @@ void OverlayManager::create_private_overlay_ex(adnl::AdnlNodeIdShort local_id, O
                                                std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
                                                std::string scope, OverlayOptions opts) {
   auto id = overlay_id.compute_short_id();
-  register_overlay(local_id, id, OverlayMemberCertificate{},
+  register_overlay(local_id, id,
                    Overlay::create_private(keyring_, adnl_, quic_, actor_id(this), dht_node_, local_id,
                                            std::move(overlay_id), std::move(nodes), std::move(callback),
                                            std::move(rules), std::move(scope), std::move(opts)));
@@ -252,26 +252,21 @@ void OverlayManager::create_private_overlay_ex(adnl::AdnlNodeIdShort local_id, O
 
 void OverlayManager::create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                                 std::vector<adnl::AdnlNodeIdShort> nodes,
-                                                std::vector<PublicKeyHash> root_public_keys,
-                                                OverlayMemberCertificate certificate,
                                                 std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
                                                 td::string scope, OverlayOptions opts) {
   auto id = overlay_id.compute_short_id();
-  register_overlay(
-      local_id, id, certificate,
-      Overlay::create_semiprivate(keyring_, adnl_, quic_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                                  std::move(nodes), std::move(root_public_keys), certificate, std::move(callback),
-                                  std::move(rules), std::move(scope), std::move(opts)));
+  register_overlay(local_id, id,
+                   Overlay::create_semiprivate(keyring_, adnl_, quic_, actor_id(this), dht_node_, local_id,
+                                               std::move(overlay_id), std::move(nodes), std::move(callback),
+                                               std::move(rules), std::move(scope), std::move(opts)));
 }
 
 void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
   OverlayIdShort overlay_id;
-  tl_object_ptr<ton_api::overlay_messageExtra> extra;
   td::Slice parsed_data = data;
   auto R = fetch_tl_prefix<ton_api::overlay_messageWithExtra>(parsed_data, true);
   if (R.is_ok()) {
     overlay_id = OverlayIdShort{R.ok()->overlay_};
-    extra = std::move(R.ok()->extra_);
   } else {
     auto R2 = fetch_tl_prefix<ton_api::overlay_message>(parsed_data, true);
     if (R2.is_ok()) {
@@ -304,19 +299,17 @@ void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeId
   }
 
   data.confirm_read(data.size() - parsed_data.size());
-  td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_in_ctr, src, data.size(), false, false);
-  td::actor::send_closure(it2->second.overlay, &Overlay::receive_message, src, std::move(extra), std::move(data));
+  td::actor::send_closure(it2->second, &Overlay::update_throughput_in_ctr, src, data.size(), false, false);
+  td::actor::send_closure(it2->second, &Overlay::receive_message, src, std::move(data));
 }
 
 void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                    td::Promise<td::BufferSlice> promise) {
   OverlayIdShort overlay_id;
-  tl_object_ptr<ton_api::overlay_messageExtra> extra;
   td::Slice parsed_data = data;
   auto R = fetch_tl_prefix<ton_api::overlay_queryWithExtra>(parsed_data, true);
   if (R.is_ok()) {
     overlay_id = OverlayIdShort{R.ok()->overlay_};
-    extra = std::move(R.ok()->extra_);
   } else {
     auto R2 = fetch_tl_prefix<ton_api::overlay_query>(parsed_data, true);
     if (R2.is_ok()) {
@@ -353,16 +346,14 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
   }
 
   data.confirm_read(data.size() - parsed_data.size());
-  td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_in_ctr, src, data.size(), true, false);
-  promise = [overlay = it2->second.overlay.get(), promise = std::move(promise),
-             src](td::Result<td::BufferSlice> R) mutable {
+  td::actor::send_closure(it2->second, &Overlay::update_throughput_in_ctr, src, data.size(), true, false);
+  promise = [overlay = it2->second.get(), promise = std::move(promise), src](td::Result<td::BufferSlice> R) mutable {
     if (R.is_ok()) {
       td::actor::send_closure(overlay, &Overlay::update_throughput_out_ctr, src, R.ok().size(), false, true);
     }
     promise.set_result(std::move(R));
   };
-  td::actor::send_closure(it2->second.overlay, &Overlay::receive_query, src, std::move(extra), std::move(data),
-                          std::move(promise));
+  td::actor::send_closure(it2->second, &Overlay::receive_query, src, std::move(data), std::move(promise));
 }
 
 void OverlayManager::send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
@@ -370,33 +361,23 @@ void OverlayManager::send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort
                                 td::BufferSlice query, td::uint64 max_answer_size) {
   CHECK(query.size() <= adnl::Adnl::huge_packet_max_size());
 
-  auto extra = create_tl_object<ton_api::overlay_messageExtra>();
-  extra->flags_ = 0;
-
   auto it = overlays_.find(src);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_out_ctr, dst, query.size(), true, false);
-      promise = [overlay = it2->second.overlay.get(), promise = std::move(promise),
+      td::actor::send_closure(it2->second, &Overlay::update_throughput_out_ctr, dst, query.size(), true, false);
+      promise = [overlay = it2->second.get(), promise = std::move(promise),
                  dst](td::Result<td::BufferSlice> R) mutable {
         if (R.is_ok()) {
           td::actor::send_closure(overlay, &Overlay::update_throughput_in_ctr, dst, R.ok().size(), false, true);
         }
         promise.set_result(std::move(R));
       };
-      if (!it2->second.member_certificate.empty()) {
-        extra->flags_ |= 1;
-        extra->certificate_ = it2->second.member_certificate.tl();
-      }
     }
   }
 
-  auto extra_flags = extra->flags_;
   td::BufferSlice serialized_query =
-      (extra_flags ? create_serialize_tl_object_suffix<ton_api::overlay_queryWithExtra>(
-                         query.as_slice(), overlay_id.tl(), std::move(extra))
-                   : create_serialize_tl_object_suffix<ton_api::overlay_query>(query.as_slice(), overlay_id.tl()));
+      create_serialize_tl_object_suffix<ton_api::overlay_query>(query.as_slice(), overlay_id.tl());
 
   td::actor::send_closure(quic_, &adnl::AdnlSenderInterface::send_query_ex, src, dst, std::move(name),
                           std::move(promise), timeout, std::move(serialized_query), max_answer_size);
@@ -404,31 +385,16 @@ void OverlayManager::send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort
 
 void OverlayManager::send_message(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                                   td::BufferSlice object) {
-  auto extra = create_tl_object<ton_api::overlay_messageExtra>();
-  extra->flags_ = 0;
-
   auto it = overlays_.find(src);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_out_ctr, dst, object.size(), false,
-                              false);
-      if (!it2->second.member_certificate.empty()) {
-        // do not send certificate here, we hope that all our neighbours already know of out certificate
-        // we send it every second to some random nodes. Here we don't want to increase the size of the message
-        if (false) {
-          extra->flags_ |= 1;
-          extra->certificate_ = it2->second.member_certificate.tl();
-        }
-      }
+      td::actor::send_closure(it2->second, &Overlay::update_throughput_out_ctr, dst, object.size(), false, false);
     }
   }
 
-  auto extra_flags = extra->flags_;
   td::BufferSlice serialized_message =
-      (extra_flags ? create_serialize_tl_object_suffix<ton_api::overlay_messageWithExtra>(
-                         object.as_slice(), overlay_id.tl(), std::move(extra))
-                   : create_serialize_tl_object_suffix<ton_api::overlay_message>(object.as_slice(), overlay_id.tl()));
+      create_serialize_tl_object_suffix<ton_api::overlay_message>(object.as_slice(), overlay_id.tl());
 
   td::actor::send_closure(quic_, &adnl::AdnlSenderInterface::send_message, src, dst, std::move(serialized_message));
 }
@@ -445,7 +411,7 @@ void OverlayManager::send_broadcast_ex(adnl::AdnlNodeIdShort local_id, OverlayId
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
       broadcasts_.at(metrics::Direction::out).account(object.as_slice());
-      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast, send_as, flags, std::move(object));
+      td::actor::send_closure(it2->second, &Overlay::send_broadcast, send_as, flags, std::move(object));
     }
   }
 }
@@ -469,7 +435,7 @@ void OverlayManager::send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort local_i
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
       broadcasts_.at(metrics::Direction::out).account(object.as_slice());
-      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_fec, send_as, flags, std::move(object),
+      td::actor::send_closure(it2->second, &Overlay::send_broadcast_fec, send_as, flags, std::move(object),
                               std::move(extra));
     }
   }
@@ -483,8 +449,7 @@ void OverlayManager::send_broadcast_plumtree_fec(adnl::AdnlNodeIdShort local_id,
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
       broadcasts_.at(metrics::Direction::out).account(object.as_slice());
-      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree_fec, send_as, flags,
-                              std::move(object));
+      td::actor::send_closure(it2->second, &Overlay::send_broadcast_plumtree_fec, send_as, flags, std::move(object));
     }
   }
 }
@@ -498,7 +463,7 @@ void OverlayManager::send_broadcast_plumtree(adnl::AdnlNodeIdShort local_id, Ove
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
       broadcasts_.at(metrics::Direction::out).account(object.as_slice());
-      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree, send_as, flags, broadcast_id,
+      td::actor::send_closure(it2->second, &Overlay::send_broadcast_plumtree, send_as, flags, broadcast_id,
                               std::move(object));
     }
   }
@@ -511,7 +476,7 @@ void OverlayManager::get_plumtree_stats_records(
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::get_plumtree_stats_records, std::move(promise));
+      td::actor::send_closure(it2->second, &Overlay::get_plumtree_stats_records, std::move(promise));
       return;
     }
   }
@@ -524,7 +489,7 @@ void OverlayManager::set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayId
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::set_privacy_rules, std::move(rules));
+      td::actor::send_closure(it2->second, &Overlay::set_privacy_rules, std::move(rules));
     }
   }
 }
@@ -535,34 +500,18 @@ void OverlayManager::update_certificate(adnl::AdnlNodeIdShort local_id, OverlayI
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::add_certificate, key, std::move(cert));
-    }
-  }
-}
-
-void OverlayManager::update_member_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                                               OverlayMemberCertificate certificate) {
-  auto it = overlays_.find(local_id);
-  if (it != overlays_.end()) {
-    auto it2 = it->second.find(overlay_id);
-    if (it2 != it->second.end()) {
-      it2->second.member_certificate = certificate;
-      td::actor::send_closure(it2->second.overlay, &Overlay::update_member_certificate, certificate);
+      td::actor::send_closure(it2->second, &Overlay::add_certificate, key, std::move(cert));
     }
   }
 }
 
 void OverlayManager::update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                                             std::vector<adnl::AdnlNodeIdShort> nodes,
-                                             std::vector<PublicKeyHash> root_public_keys,
-                                             OverlayMemberCertificate certificate, OverlayPrivacyRules rules) {
+                                             std::vector<adnl::AdnlNodeIdShort> nodes, OverlayPrivacyRules rules) {
   auto it = overlays_.find(local_id);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      it2->second.member_certificate = certificate;
-      td::actor::send_closure(it2->second.overlay, &Overlay::update_root_member_list, std::move(nodes),
-                              std::move(root_public_keys), std::move(certificate), std::move(rules));
+      td::actor::send_closure(it2->second, &Overlay::update_root_member_list, std::move(nodes), std::move(rules));
     }
   }
 }
@@ -580,7 +529,7 @@ void OverlayManager::get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, Ov
     promise.set_error(td::Status::Error(PSTRING() << "no such overlay " << overlay_id));
     return;
   }
-  td::actor::send_closure(it2->second.overlay, &Overlay::get_overlay_random_peers, max_peers, std::move(promise));
+  td::actor::send_closure(it2->second, &Overlay::get_overlay_random_peers, max_peers, std::move(promise));
 }
 
 td::actor::ActorOwn<Overlays> Overlays::create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
@@ -664,7 +613,7 @@ void OverlayManager::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validat
   for (auto &a : overlays_) {
     for (auto &b : a.second) {
       td::actor::send_closure(act, &Cb::incr_pending);
-      td::actor::send_closure(b.second.overlay, &Overlay::get_stats,
+      td::actor::send_closure(b.second, &Overlay::get_stats,
                               [act](td::Result<tl_object_ptr<ton_api::engine_validator_overlayStats>> R) {
                                 if (R.is_ok()) {
                                   td::actor::send_closure(act, &Cb::receive_answer, R.move_as_ok());
@@ -688,7 +637,7 @@ void OverlayManager::forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort 
   if (it2 == it->second.end()) {
     return;
   }
-  td::actor::send_closure(it2->second.overlay, &Overlay::forget_peer, peer_id);
+  td::actor::send_closure(it2->second, &Overlay::forget_peer, peer_id);
 }
 
 void PublicOverlayMetrics::collect(metrics::Context ctx) const {
@@ -705,8 +654,8 @@ td::actor::Task<> OverlayManager::collect(metrics::Context ctx) {
   std::vector<td::actor::StartedTask<td::Unit>> drains;
   public_metrics_ = {};
   for (const auto &[local_id, by_overlay] : overlays_) {
-    for (const auto &[overlay_id, desc] : by_overlay) {
-      drains.push_back(td::actor::ask(desc.overlay.get(), &Overlay::collect_metrics));
+    for (const auto &[overlay_id, overlay] : by_overlay) {
+      drains.push_back(td::actor::ask(overlay.get(), &Overlay::collect_metrics));
     }
   }
   co_await td::actor::all_wrap(std::move(drains));
@@ -736,7 +685,7 @@ void OverlayManager::update_semiprivate_authorized_nodes(adnl::AdnlNodeIdShort l
   if (it2 == it->second.end()) {
     return;
   }
-  td::actor::send_closure(it2->second.overlay, &Overlay::update_semiprivate_authorized_nodes, std::move(add),
+  td::actor::send_closure(it2->second, &Overlay::update_semiprivate_authorized_nodes, std::move(add),
                           std::move(remove));
 }
 
@@ -853,35 +802,6 @@ tl_object_ptr<ton_api::overlay_Certificate> Certificate::tl() const {
 
 tl_object_ptr<ton_api::overlay_Certificate> Certificate::empty_tl() {
   return create_tl_object<ton_api::overlay_emptyCertificate>();
-}
-
-OverlayMemberCertificate::OverlayMemberCertificate(const ton_api::overlay_MemberCertificate *cert) {
-  if (!cert) {
-    expire_at_ = std::numeric_limits<td::int32>::max();
-    return;
-  }
-  if (cert->get_id() == ton_api::overlay_emptyMemberCertificate::ID) {
-    expire_at_ = std::numeric_limits<td::int32>::max();
-    return;
-  }
-  CHECK(cert->get_id() == ton_api::overlay_memberCertificate::ID);
-  const auto *real_cert = static_cast<const ton_api::overlay_memberCertificate *>(cert);
-  signed_by_ = PublicKey(real_cert->issued_by_);
-  flags_ = real_cert->flags_;
-  slot_ = real_cert->slot_;
-  expire_at_ = real_cert->expire_at_;
-  signature_ = td::SharedSlice(real_cert->signature_.as_slice());
-}
-
-td::Status OverlayMemberCertificate::check_signature(const adnl::AdnlNodeIdShort &node) {
-  if (is_expired()) {
-    return td::Status::Error(ErrorCode::notready, "certificate is expired");
-  }
-  td::BufferSlice data_to_sign = to_sign_data(node);
-
-  TRY_RESULT(encryptor, signed_by_.create_encryptor());
-  TRY_STATUS(encryptor->check_signature(data_to_sign.as_slice(), signature_.as_slice()));
-  return td::Status::OK();
 }
 
 }  // namespace overlay

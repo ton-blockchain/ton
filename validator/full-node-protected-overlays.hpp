@@ -69,9 +69,7 @@ class FullNodeProtectedOverlay : public td::actor::Actor {
   void tear_down() override;
   void alarm() override;
 
-  void set_validators(std::vector<PublicKeyHash> root_public_keys,
-                      std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
-  void set_member_certificate(overlay::OverlayMemberCertificate member_certificate);
+  void set_validators(std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
   void set_params(bool receive_plumtree_broadcasts);
   void set_config(FullNodeConfig config) {
     config_ = std::move(config);
@@ -81,24 +79,18 @@ class FullNodeProtectedOverlay : public td::actor::Actor {
   td::actor::Task<QuerySender> get_query_sender();
 
   FullNodeProtectedOverlay(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, FileHash zero_state_file_hash,
-                           std::vector<PublicKeyHash> root_public_keys,
-                           std::vector<adnl::AdnlNodeIdShort> current_validators_adnl,
-                           overlay::OverlayMemberCertificate member_certificate, bool receive_plumtree_broadcasts,
+                           std::vector<adnl::AdnlNodeIdShort> current_validators_adnl, bool receive_plumtree_broadcasts,
                            FullNodeConfig config, double broadcast_speed_multiplier,
-                           td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                           td::actor::ActorId<overlay::Overlays> overlays,
+                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlays,
                            td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                            td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
       , shard_(shard)
-      , root_public_keys_(std::move(root_public_keys))
       , current_validators_adnl_(std::move(current_validators_adnl))
-      , member_certificate_(std::move(member_certificate))
       , receive_plumtree_broadcasts_(receive_plumtree_broadcasts)
       , config_(std::move(config))
       , broadcast_speed_multiplier_(broadcast_speed_multiplier)
       , zero_state_file_hash_(zero_state_file_hash)
-      , keyring_(keyring)
       , adnl_(adnl)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
@@ -108,16 +100,13 @@ class FullNodeProtectedOverlay : public td::actor::Actor {
  private:
   adnl::AdnlNodeIdShort local_id_;
   ShardIdFull shard_;
-  std::vector<PublicKeyHash> root_public_keys_;
   std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
-  overlay::OverlayMemberCertificate member_certificate_;
   bool receive_plumtree_broadcasts_;
   FullNodeConfig config_;
   double broadcast_speed_multiplier_;
   FileHash zero_state_file_hash_;
   std::set<adnl::AdnlNodeIdShort> authorized_nodes_;
 
-  td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
@@ -170,27 +159,21 @@ class FullNodeProtectedOverlays {
                          std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
                          const std::set<adnl::AdnlNodeIdShort>& local_collator_adnl_ids,
                          std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
-                         double broadcast_speed_multiplier, const td::actor::ActorId<keyring::Keyring>& keyring,
-                         const td::actor::ActorId<adnl::Adnl>& adnl,
+                         double broadcast_speed_multiplier, const td::actor::ActorId<adnl::Adnl>& adnl,
                          const td::actor::ActorId<overlay::Overlays>& overlays,
                          const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
                          const td::actor::ActorId<FullNode>& full_node);
-  void add_member_certificate(adnl::AdnlNodeIdShort local_id, overlay::OverlayMemberCertificate member_certificate);
 
  private:
   struct Overlays {
     std::map<ShardIdFull, td::actor::ActorOwn<FullNodeProtectedOverlay>> overlays_;
-    overlay::OverlayMemberCertificate current_certificate_;
     bool is_validator_{false};
-    bool is_collator_{false};
   };
 
   std::map<adnl::AdnlNodeIdShort, Overlays> id_to_overlays_;  // local_id -> overlays
-  std::map<adnl::AdnlNodeIdShort, std::vector<overlay::OverlayMemberCertificate>> member_certificates_;
   FullNodeConfig config_;
 
   td::optional<BlockSeqno> last_key_block_seqno_;
-  std::vector<PublicKeyHash> root_public_keys_;
   std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
   std::multimap<PublicKeyHash, adnl::AdnlNodeIdShort> validator_key_to_adnl_ids_;
   std::map<PublicKeyHash, UnixTime> validator_authority_until_;

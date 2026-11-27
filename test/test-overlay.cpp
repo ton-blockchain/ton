@@ -70,19 +70,17 @@
 #include <sstream>
 
 struct Node {
-  ton::PrivateKey pk;
   ton::PublicKeyHash id;
-  ton::PublicKey id_full;
   ton::adnl::AdnlNodeIdShort adnl_id;
   ton::adnl::AdnlNodeIdFull adnl_id_full;
   bool has_dnr_flag;
 };
 
 static std::vector<Node> root_nodes;
-static std::vector<Node> slave_nodes;
+static std::vector<Node> registry_nodes;
 static std::vector<Node *> all_nodes;
 static td::uint32 total_nodes = 4;
-static td::int32 node_slaves_cnt = 3;
+static td::uint32 registry_nodes_count = 12;
 static std::atomic<size_t> remaining{0};
 static td::Bits256 bcast_hash;
 
@@ -179,7 +177,7 @@ int main(int argc, char *argv[]) {
   for (td::uint32 start = att; att < start + 5; att++) {
     LOG(WARNING) << "Test #" << att;
     root_nodes.resize(total_nodes);
-    slave_nodes.resize(total_nodes * node_slaves_cnt);
+    registry_nodes.resize(registry_nodes_count);
 
     auto overlay_id_full =
         ton::create_serialize_tl_object<ton::ton_api::pub_overlay>(td::BufferSlice(PSTRING() << "TEST" << att));
@@ -187,14 +185,13 @@ int main(int argc, char *argv[]) {
     auto overlay_id_short = overlay_id.compute_short_id();
 
     ton::overlay::OverlayOptions opts;
-    opts.max_slaves_in_semiprivate_overlay_ = node_slaves_cnt;
     opts.default_permanent_members_flags_ = ton::overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
 
     ton::overlay::OverlayPrivacyRules rules(
         20 << 20, ton::overlay::CertificateFlags::AllowFec | ton::overlay::CertificateFlags::Trusted, {});
 
-    std::vector<ton::PublicKeyHash> root_keys;
     std::vector<ton::adnl::AdnlNodeIdShort> root_adnl;
+    std::vector<ton::adnl::AdnlNodeIdShort> registry_adnl;
 
     size_t node_index = 0;
 
@@ -217,19 +214,16 @@ int main(int argc, char *argv[]) {
 
         auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub2 = pk2.compute_public_key();
-        n.id_full = pub2;
         n.id = pub2.compute_short_id();
-        n.pk = pk2;
         td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
 
         all_nodes.push_back(&n);
-        root_keys.push_back(n.id);
         root_adnl.push_back(n.adnl_id);
       }
 
-      for (auto &n : slave_nodes) {
+      for (auto &n : registry_nodes) {
         n.has_dnr_flag = node_index++ % 2 != 0;
 
         auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
@@ -244,13 +238,12 @@ int main(int argc, char *argv[]) {
 
         auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub2 = pk2.compute_public_key();
-        n.id_full = pub2;
         n.id = pub2.compute_short_id();
-        n.pk = pk2;
         td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
         all_nodes.push_back(&n);
+        registry_adnl.push_back(n.adnl_id);
       }
 
       for (auto &n1 : all_nodes) {
@@ -259,31 +252,15 @@ int main(int argc, char *argv[]) {
         }
       }
 
-      for (auto &n1 : root_nodes) {
+      for (auto *n1 : all_nodes) {
         opts.local_overlay_member_flags_ =
-            (n1.has_dnr_flag ? ton::overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts : 0);
-        td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::create_semiprivate_overlay, n1.adnl_id,
-                                ton::overlay::OverlayIdFull(overlay_id_full.clone()), root_adnl, root_keys,
-                                ton::overlay::OverlayMemberCertificate{}, std::make_unique<Callback>(), rules, "",
-                                opts);
-      }
-      for (size_t i = 0; i < slave_nodes.size(); i++) {
-        auto &n1 = slave_nodes[i];
-        opts.local_overlay_member_flags_ =
-            (n1.has_dnr_flag ? ton::overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts : 0);
-
-        ton::overlay::OverlayMemberCertificate cert(root_nodes[i / node_slaves_cnt].id_full, 0, i % node_slaves_cnt,
-                                                    2000000000, td::BufferSlice());
-        auto buf = cert.to_sign_data(n1.adnl_id);
-        auto dec = root_nodes[i / node_slaves_cnt].pk.create_decryptor().move_as_ok();
-        auto signature = dec->sign(buf.as_slice()).move_as_ok();
-        cert.set_signature(signature.as_slice());
-        auto enc = root_nodes[i / node_slaves_cnt].id_full.create_encryptor().move_as_ok();
-        enc->check_signature(cert.to_sign_data(n1.adnl_id), cert.signature()).ensure();
-
-        td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::create_semiprivate_overlay, n1.adnl_id,
-                                ton::overlay::OverlayIdFull(overlay_id_full.clone()), root_adnl, root_keys, cert,
+            (n1->has_dnr_flag ? ton::overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts : 0);
+        td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::create_semiprivate_overlay, n1->adnl_id,
+                                ton::overlay::OverlayIdFull(overlay_id_full.clone()), root_adnl,
                                 std::make_unique<Callback>(), rules, "", opts);
+        td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::update_semiprivate_authorized_nodes,
+                                n1->adnl_id, overlay_id_short, registry_adnl,
+                                std::vector<ton::adnl::AdnlNodeIdShort>{});
       }
     });
 
@@ -358,7 +335,7 @@ int main(int argc, char *argv[]) {
 
     scheduler.run_in_context([&] {
       root_nodes.clear();
-      slave_nodes.clear();
+      registry_nodes.clear();
       all_nodes.clear();
     });
   }
@@ -377,7 +354,6 @@ int main(int argc, char *argv[]) {
     ton::overlay::OverlayPrivacyRules rules(
         20 << 20, ton::overlay::CertificateFlags::AllowFec | ton::overlay::CertificateFlags::Trusted, {});
 
-    std::vector<ton::PublicKeyHash> root_keys;
     std::vector<ton::adnl::AdnlNodeIdShort> root_adnl;
 
     size_t real_members = 0;
@@ -399,15 +375,12 @@ int main(int argc, char *argv[]) {
 
         auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub2 = pk2.compute_public_key();
-        n.id_full = pub2;
         n.id = pub2.compute_short_id();
-        n.pk = pk2;
         td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
 
         all_nodes.push_back(&n);
-        root_keys.push_back(n.id);
         root_adnl.push_back(n.adnl_id);
       }
 
@@ -478,7 +451,6 @@ int main(int argc, char *argv[]) {
 
     scheduler.run_in_context([&] {
       root_nodes.clear();
-      slave_nodes.clear();
       all_nodes.clear();
     });
   }

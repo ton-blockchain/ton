@@ -37,8 +37,6 @@ namespace ton {
 
 namespace overlay {
 
-const OverlayMemberCertificate OverlayNode::empty_certificate_{};
-
 static std::string overlay_actor_name(const OverlayIdFull &overlay_id, const OverlayOptions &opts) {
   if (opts.name_.empty()) {
     return PSTRING() << "overlay." << overlay_id.compute_short_id().bits256_value().to_hex().substr(0, 4);
@@ -61,10 +59,10 @@ td::actor::ActorOwn<Overlay> Overlay::create_public(
     td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
     std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) {
   std::string actor_name = overlay_actor_name(overlay_id, opts);
-  return td::actor::create_actor<OverlayImpl>(
-      std::move(actor_name), keyring, adnl, quic, manager, dht_node, local_id, std::move(overlay_id),
-      OverlayType::Public, std::vector<adnl::AdnlNodeIdShort>(), std::vector<PublicKeyHash>(),
-      OverlayMemberCertificate{}, std::move(callback), std::move(rules), std::move(scope), std::move(opts));
+  return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, quic, manager, dht_node, local_id,
+                                              std::move(overlay_id), OverlayType::Public,
+                                              std::vector<adnl::AdnlNodeIdShort>(), std::move(callback),
+                                              std::move(rules), std::move(scope), std::move(opts));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_private(
@@ -76,7 +74,6 @@ td::actor::ActorOwn<Overlay> Overlay::create_private(
   std::string actor_name = overlay_actor_name(overlay_id, opts);
   return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, quic, manager, dht_node, local_id,
                                               std::move(overlay_id), OverlayType::FixedMemberList, std::move(nodes),
-                                              std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
                                               std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
@@ -84,21 +81,18 @@ td::actor::ActorOwn<Overlay> Overlay::create_semiprivate(
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<OverlayManager> manager,
     td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-    std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
-    OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
+    std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
     std::string scope, OverlayOptions opts) {
   std::string actor_name = overlay_actor_name(overlay_id, opts);
   return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, quic, manager, dht_node, local_id,
-                                              std::move(overlay_id), OverlayType::CertificatedMembers, std::move(nodes),
-                                              std::move(root_public_keys), std::move(cert), std::move(callback),
-                                              std::move(rules), std::move(scope), std::move(opts));
+                                              std::move(overlay_id), OverlayType::Semiprivate, std::move(nodes),
+                                              std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                          td::actor::ActorId<adnl::AdnlSenderEx> quic, td::actor::ActorId<OverlayManager> manager,
                          td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
                          OverlayIdFull overlay_id, OverlayType overlay_type, std::vector<adnl::AdnlNodeIdShort> nodes,
-                         std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert,
                          std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules, td::string scope,
                          OverlayOptions opts)
     : keyring_(keyring)
@@ -120,8 +114,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
 
   VLOG(overlay, INFO) << this << ": creating";
 
-  OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert),
-                                       std::move(rules));
+  OverlayImpl::update_root_member_list(std::move(nodes), std::move(rules));
 
   if (overlay_type_ == OverlayType::Public && opts_.send_twostep_broadcast_) {
     VLOG(overlay, WARNING) << "Cannot enable twostep broadcasts in public overlay";
@@ -189,9 +182,8 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_repa
 }
 */
 
-void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
-                                td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
-  if (!check_src_peer(src, extra ? extra->certificate_.get() : nullptr)) {
+void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
+  if (!check_src_peer(src)) {
     VLOG(overlay, WARNING) << this << ": received query in private overlay from unknown source " << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "overlay is not public"));
     return;
@@ -348,9 +340,8 @@ void OverlayImpl::get_plumtree_stats_records(
   promise.set_value(broadcasts_plumtree_.collect_stats_records());
 }
 
-void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
-                                  td::BufferSlice data) {
-  if (!check_src_peer(src, extra ? extra->certificate_.get() : nullptr)) {
+void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
+  if (!check_src_peer(src)) {
     VLOG(overlay, WARNING) << this << ": received message in private overlay from unknown source " << src;
     return;
   }
@@ -421,7 +412,7 @@ void OverlayImpl::alarm() {
   }
 
   if (overlay_type_ != OverlayType::FixedMemberList) {
-    if (has_valid_membership_certificate()) {
+    if (is_local_member()) {
       auto send_random_peers_query = [&](const adnl::AdnlNodeIdShort &peer) {
         if (overlay_type_ == OverlayType::Public) {
           send_random_peers(peer, {});
@@ -440,8 +431,7 @@ void OverlayImpl::alarm() {
         send_random_peers_query(peer_id);
       }
     } else {
-      VLOG(overlay, WARNING) << "member certificate ist invalid, valid_until="
-                             << peer_list_.local_cert_is_valid_until_.at_unix();
+      VLOG(overlay, WARNING) << "local node is not an overlay member";
     }
     if (next_dht_query_ && next_dht_query_.is_in_past() && overlay_type_ == OverlayType::Public) {
       next_dht_query_ = td::Timestamp::never();
@@ -625,9 +615,8 @@ void OverlayImpl::bcast_gc() {
 }
 
 void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
-  if (!has_valid_membership_certificate()) {
-    VLOG(overlay, WARNING) << "member certificate is invalid, valid_until="
-                           << peer_list_.local_cert_is_valid_until_.at_unix();
+  if (!is_local_member()) {
+    VLOG(overlay, WARNING) << "local node is not an overlay member";
     return;
   }
   if (!has_valid_broadcast_certificate(send_as, data.size(), /* is_fec = */ false,
@@ -641,9 +630,8 @@ void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::Bu
 
 void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                                      td::BufferSlice extra) {
-  if (!has_valid_membership_certificate()) {
-    VLOG(overlay, WARNING) << "member certificate is invalid, valid_until="
-                           << peer_list_.local_cert_is_valid_until_.at_unix();
+  if (!is_local_member()) {
+    VLOG(overlay, WARNING) << "local node is not an overlay member";
     return;
   }
   bool twostep = opts_.send_twostep_broadcast_ && !(flags & Overlays::BroadcastFlagNoTwostep());
@@ -665,9 +653,8 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
 }
 
 bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size, td::uint32 flags) {
-  if (!has_valid_membership_certificate()) {
-    VLOG(overlay, WARNING) << "member certificate is invalid, valid_until="
-                           << peer_list_.local_cert_is_valid_until_.at_unix();
+  if (!is_local_member()) {
+    VLOG(overlay, WARNING) << "local node is not an overlay member";
     return false;
   }
   if (!opts_.enable_plumtree_broadcast_) {
@@ -783,9 +770,7 @@ td::actor::Task<OverlayNode> OverlayImpl::get_self_node_coro() {
     auto future = self_node_future_;
     auto node = co_await future->get();
     auto now = static_cast<td::int32>(td::Clocks::system());
-    if ((node.version() >= now - 5 && node.flags() == peer_list_.local_member_flags_ &&
-         *node.certificate() == peer_list_.cert_) ||
-        iter > 0) {
+    if ((node.version() >= now - 5 && node.flags() == peer_list_.local_member_flags_) || iter > 0) {
       co_return node;
     }
     if (self_node_future_ == future) {
@@ -802,7 +787,6 @@ td::actor::Task<OverlayNode> OverlayImpl::get_self_node_inner() {
                                                   local_id_.pubkey_hash(), std::move(to_sign));
   s.update_signature(std::move(signature));
   s.update_adnl_id(adnl::AdnlNodeIdFull{std::move(key)});
-  s.update_certificate(peer_list_.cert_);
   VLOG(overlay, DEBUG) << "get_self_node_inner: signed";
   co_return s;
 }
@@ -1023,7 +1007,7 @@ td::Status OverlayImpl::check_signature_from_peer(PublicKey key, td::Slice messa
 
 void OverlayImpl::cleanup_authorized_key_limiters() {
   for (auto it = authorized_key_limiters_.begin(); it != authorized_key_limiters_.end();) {
-    if (rules_.is_authorized_key(it->first) || peer_list_.root_public_keys_.contains(it->first)) {
+    if (rules_.is_authorized_key(it->first)) {
       ++it;
     } else {
       it = authorized_key_limiters_.erase(it);
