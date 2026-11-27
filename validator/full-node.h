@@ -165,8 +165,6 @@ class FullNode : public td::actor::Actor {
                                    tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
                                    std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) = 0;
 
-  virtual void import_protected_overlay_member_certificate(adnl::AdnlNodeIdShort local_id,
-                                                           overlay::OverlayMemberCertificate cert) = 0;
   virtual void initial_config_loaded() = 0;
 
   virtual td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
@@ -185,7 +183,6 @@ class FullNode : public td::actor::Actor {
   }
   enum { broadcast_mode_public = 1, broadcast_mode_protected = 2, broadcast_mode_custom = 4, broadcast_mode_all = 7 };
 
-  static constexpr td::int32 MAX_PROTECTED_OVERLAY_CLIENTS = 5;
   static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;
   static constexpr td::uint32 PROTO_VERSION_MINOR = 4;
 

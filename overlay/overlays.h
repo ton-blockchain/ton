@@ -40,7 +40,7 @@ namespace ton {
 
 namespace overlay {
 
-enum class OverlayType { Public, FixedMemberList, CertificatedMembers };
+enum class OverlayType { Public, FixedMemberList, Semiprivate };
 
 enum class OverlayChain { master, shard };
 inline constexpr metrics::LabelEnum<OverlayChain, 2> ton_metric_label(OverlayChain) {
@@ -201,112 +201,10 @@ class Certificate {
   td::SharedSlice signature_;
 };
 
-class OverlayMemberCertificate {
- public:
-  OverlayMemberCertificate() {
-    expire_at_ = std::numeric_limits<td::int32>::max();
-  }
-  OverlayMemberCertificate(PublicKey signed_by, td::uint32 flags, td::int32 slot, td::int32 expire_at,
-                           td::BufferSlice signature)
-      : signed_by_(std::move(signed_by))
-      , flags_(flags)
-      , slot_(slot)
-      , expire_at_(expire_at)
-      , signature_(std::move(signature)) {
-  }
-  OverlayMemberCertificate(const OverlayMemberCertificate &other)
-      : signed_by_(other.signed_by_)
-      , flags_(other.flags_)
-      , slot_(other.slot_)
-      , expire_at_(other.expire_at_)
-      , signature_(other.signature_.clone()) {
-  }
-  OverlayMemberCertificate(OverlayMemberCertificate &&) = default;
-  OverlayMemberCertificate &operator=(OverlayMemberCertificate &&) = default;
-  OverlayMemberCertificate &operator=(const OverlayMemberCertificate &other) {
-    signed_by_ = other.signed_by_;
-    flags_ = other.flags_;
-    slot_ = other.slot_;
-    expire_at_ = other.expire_at_;
-    signature_ = other.signature_.clone();
-    return *this;
-  }
-  explicit OverlayMemberCertificate(const ton_api::overlay_MemberCertificate *cert);
-  td::Status check_signature(const adnl::AdnlNodeIdShort &node);
-
-  bool is_expired() const {
-    return expire_at_ < td::Clocks::system() - 3;
-  }
-
-  bool is_expired(double cur_time) const {
-    return expire_at_ < cur_time - 3;
-  }
-
-  tl_object_ptr<ton_api::overlay_MemberCertificate> tl() const {
-    if (empty()) {
-      return create_tl_object<ton_api::overlay_emptyMemberCertificate>();
-    }
-    return create_tl_object<ton_api::overlay_memberCertificate>(signed_by_.tl(), flags_, slot_, expire_at_,
-                                                                signature_.clone_as_buffer_slice());
-  }
-
-  const auto &issued_by() const {
-    return signed_by_;
-  }
-
-  td::Slice signature() const {
-    return signature_.as_slice();
-  }
-
-  td::BufferSlice to_sign_data(const adnl::AdnlNodeIdShort &node) const {
-    return ton::create_serialize_tl_object<ton::ton_api::overlay_memberCertificateId>(node.tl(), flags_, slot_,
-                                                                                      expire_at_);
-  }
-
-  bool empty() const {
-    return signed_by_.empty();
-  }
-
-  bool is_newer(const OverlayMemberCertificate &other) const {
-    return !empty() && expire_at_ > other.expire_at_;
-  }
-
-  auto slot() const {
-    return slot_;
-  }
-
-  auto expire_at() const {
-    return expire_at_;
-  }
-
-  void set_signature(td::Slice signature) {
-    signature_ = td::SharedSlice(signature);
-  }
-  void set_signature(td::SharedSlice signature) {
-    signature_ = std::move(signature);
-  }
-
-  bool operator==(const OverlayMemberCertificate &other) const {
-    if (empty() && other.empty()) {
-      return true;
-    }
-    return signed_by_ == other.signed_by_ && flags_ == other.flags_ && slot_ == other.slot_ &&
-           expire_at_ == other.expire_at_ && signature_ == other.signature_;
-  }
-
- private:
-  PublicKey signed_by_;
-  td::uint32 flags_;
-  td::int32 slot_;
-  td::int32 expire_at_ = std::numeric_limits<td::int32>::max();
-  td::SharedSlice signature_;
-};
-
 struct OverlayOptions {
   std::string name_ = "";
   bool announce_self_ = true;
   td::uint32 local_overlay_member_flags_ = 0;
-  td::int32 max_slaves_in_semiprivate_overlay_ = 5;
   td::uint32 max_peers_ = 300;
   td::uint32 nodes_to_send_ = 4;
   td::uint32 propagate_broadcast_to_ = 5;
@@ -445,9 +343,7 @@ class Overlays : public td::actor::Actor {
                                         std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope,
                                         OverlayOptions opts) = 0;
   virtual void create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                          std::vector<adnl::AdnlNodeIdShort> nodes,
-                                          std::vector<PublicKeyHash> root_public_keys,
-                                          OverlayMemberCertificate certificate, std::unique_ptr<Callback> callback,
+                                          std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                                           OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) = 0;
   virtual void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                       std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
@@ -492,12 +388,8 @@ class Overlays : public td::actor::Actor {
   virtual void update_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, PublicKeyHash key,
                                   std::shared_ptr<Certificate> cert) = 0;
 
-  virtual void update_member_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                                         OverlayMemberCertificate certificate) = 0;
   virtual void update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                                       std::vector<adnl::AdnlNodeIdShort> nodes,
-                                       std::vector<PublicKeyHash> root_public_keys,
-                                       OverlayMemberCertificate certificate, OverlayPrivacyRules rules) = 0;
+                                       std::vector<adnl::AdnlNodeIdShort> nodes, OverlayPrivacyRules rules) = 0;
 
   virtual void get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, td::uint32 max_peers,
                                         td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) = 0;

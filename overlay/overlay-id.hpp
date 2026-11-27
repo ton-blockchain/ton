@@ -18,9 +18,6 @@
 */
 #pragma once
 
-#include <limits>
-#include <memory>
-
 #include "adnl/adnl-node-id.hpp"
 #include "auto/tl/ton_api.h"
 #include "keys/encryptor.h"
@@ -30,7 +27,6 @@
 #include "td/utils/buffer.h"
 #include "td/utils/overloaded.h"
 #include "td/utils/port/StdStreams.h"
-#include "td/utils/unique_ptr.h"
 
 namespace ton {
 
@@ -50,10 +46,9 @@ class OverlayNode {
   }
   static td::Result<OverlayNode> create(const tl_object_ptr<ton_api::overlay_nodeV2> &node) {
     TRY_RESULT(source, adnl::AdnlNodeIdFull::create(node->id_));
-    auto res = OverlayNode{source, OverlayIdShort{node->overlay_}, (td::uint32)node->flags_, node->version_,
-                           node->signature_.as_slice()};
-    res.update_certificate(OverlayMemberCertificate(node->certificate_.get()));
-    return res;
+    // Legacy membership certificates are parsed for wire compatibility, but no longer grant membership.
+    return OverlayNode{source, OverlayIdShort{node->overlay_}, (td::uint32)node->flags_, node->version_,
+                       node->signature_.as_slice()};
   }
   OverlayNode(td::Variant<adnl::AdnlNodeIdFull, adnl::AdnlNodeIdShort> source, OverlayIdShort overlay, td::uint32 flags,
               td::int32 version, td::Slice signature)
@@ -135,37 +130,15 @@ class OverlayNode {
     return obj;
   }
   tl_object_ptr<ton_api::overlay_nodeV2> tl_v2() const {
-    tl_object_ptr<ton_api::overlay_MemberCertificate> cert;
-    if (cert_ && !cert_->empty()) {
-      cert = cert_->tl();
-    } else {
-      cert = create_tl_object<ton_api::overlay_emptyMemberCertificate>();
-    }
     auto obj = create_tl_object<ton_api::overlay_nodeV2>(nullptr, overlay_.tl(), flags_, version_,
-                                                         signature_.clone_as_buffer_slice(), std::move(cert));
+                                                         signature_.clone_as_buffer_slice(),
+                                                         create_tl_object<ton_api::overlay_emptyMemberCertificate>());
     source_.visit(td::overloaded([&](const adnl::AdnlNodeIdShort &id) { UNREACHABLE(); },
                                  [&](const adnl::AdnlNodeIdFull &id) { obj->id_ = id.tl(); }));
     return obj;
   }
   OverlayNode clone() const {
-    auto res = OverlayNode{source_, overlay_, flags_, version_, signature_.clone()};
-    if (cert_) {
-      res.cert_ = td::make_unique<OverlayMemberCertificate>(*cert_);
-    }
-    return res;
-  }
-
-  const OverlayMemberCertificate *certificate() const {
-    if (cert_) {
-      return cert_.get();
-    }
-    return &empty_certificate_;
-  }
-
-  void update_certificate(OverlayMemberCertificate cert) {
-    if (!cert_ || cert_->empty() || cert_->is_expired() || cert.is_newer(*cert_)) {
-      cert_ = td::make_unique<OverlayMemberCertificate>(std::move(cert));
-    }
+    return OverlayNode{source_, overlay_, flags_, version_, signature_.clone()};
   }
 
   void update(OverlayNode from) {
@@ -176,13 +149,6 @@ class OverlayNode {
       version_ = from.version_;
       signature_ = from.signature_.clone();
     }
-    if (from.cert_ && !from.cert_->empty()) {
-      update_certificate(std::move(*from.cert_));
-    }
-  }
-
-  void clear_certificate() {
-    cert_ = nullptr;
   }
 
   bool has_full_id() const {
@@ -194,9 +160,7 @@ class OverlayNode {
   OverlayIdShort overlay_;
   td::uint32 flags_;
   td::int32 version_;
-  td::unique_ptr<OverlayMemberCertificate> cert_;
   td::SharedSlice signature_;
-  static const OverlayMemberCertificate empty_certificate_;
 };
 
 }  // namespace overlay

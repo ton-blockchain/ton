@@ -432,8 +432,8 @@ void FullNodeImpl::update_protected_and_public_overlays() {
     }
     authority_until = protected_overlays_.update_overlays(
         last_masterchain_state_, local_keys_, std::move(my_adnl_ids), local_collator_adnl_ids, last_monitoring_shards_,
-        zero_state_file_hash_, opts_.protected_broadcast_speed_multiplier_, keyring_, adnl_, overlays_,
-        validator_manager_, actor_id(this));
+        zero_state_file_hash_, opts_.protected_broadcast_speed_multiplier_, adnl_, overlays_, validator_manager_,
+        actor_id(this));
   }
   update_public_overlay_mode(authority_until);
 }

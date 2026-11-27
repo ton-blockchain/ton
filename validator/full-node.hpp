@@ -127,14 +127,6 @@ class FullNodeImpl : public FullNode {
                            std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) override;
   void alarm() override;
 
-  void import_protected_overlay_member_certificate(adnl::AdnlNodeIdShort local_id,
-                                                   overlay::OverlayMemberCertificate cert) override {
-    VLOG(full_node, DEBUG) << "Importing protected overlay certificate for " << local_id << " issued by "
-                           << cert.issued_by().compute_short_id() << " expires in "
-                           << (double)cert.expire_at() - td::Clocks::system();
-    protected_overlays_.add_member_certificate(local_id, std::move(cert));
-    update_protected_and_public_overlays();
-  }
   void initial_config_loaded() override;
 
   td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
