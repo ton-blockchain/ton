@@ -70,6 +70,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
 
 namespace {
 
+constexpr unsigned kImprovedStructureMaxNodeCount = (1u << 20);
+
 inline void append_uint(td::BitString& bs, unsigned long long val, unsigned bits) {
   bs.reserve_bitslice(bits).bits().store_uint(val, bits);
 }
@@ -191,6 +193,10 @@ class ImprovedStructureCompressor {
         }
       }
       return it->second;
+    }
+
+    if (boc_graph_.size() >= kImprovedStructureMaxNodeCount) {
+      return td::Status::Error("BOC compression failed: too many cells");
     }
 
     unsigned current_cell_id = td::narrow_cast<unsigned>(boc_graph_.size());
@@ -551,7 +557,6 @@ class ImprovedStructureDecompressor {
 
  private:
   static constexpr unsigned kMaxCellDataLengthBits = 1024;
-  static constexpr unsigned kMaxNodeCount = (1u << 20);
   static constexpr unsigned kNoNode = std::numeric_limits<unsigned>::max();
 
   // The bit reader and cell-data views borrow from this buffer for the whole operation.
@@ -626,7 +631,7 @@ class ImprovedStructureDecompressor {
     if (node_count_ == 0) {
       return td::Status::Error("BOC decompression failed: invalid node count");
     }
-    if (node_count_ > kMaxNodeCount) {
+    if (node_count_ > kImprovedStructureMaxNodeCount) {
       return td::Status::Error("BOC decompression failed: invalid node count");
     }
 
