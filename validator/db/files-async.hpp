@@ -101,7 +101,27 @@ class ReadFile : public td::actor::Actor {
  public:
   enum Flags : td::uint32 { f_disable_log = 1 };
   void start_up() override {
-    auto S = td::read_file(file_name_, max_length_, offset_);
+    // Use mmap-backed read for whole-file reads when the file is large.
+    // This cuts peak RSS by the file size during state deserialization: the kernel
+    // pages content in on demand instead of the process holding all of it in heap.
+    // We only use mmap for whole-file reads (offset 0, no size cap) since mmap maps
+    // the entire file at once.
+    constexpr td::int64 kMmapThreshold = 64 << 20;  // 64 MB
+    td::Result<td::BufferSlice> S;
+    if (offset_ == 0 && max_length_ == -1) {
+      auto stat = td::stat(file_name_);
+      if (stat.is_ok() && stat.ok().size_ >= kMmapThreshold) {
+        S = td::read_file_mmap(file_name_);
+        if (S.is_error()) {
+          // mmap may legitimately fail (e.g., /proc files, special FS); fall back.
+          S = td::read_file(file_name_, max_length_, offset_);
+        }
+      } else {
+        S = td::read_file(file_name_, max_length_, offset_);
+      }
+    } else {
+      S = td::read_file(file_name_, max_length_, offset_);
+    }
     if (S.is_ok()) {
       promise_.set_result(S.move_as_ok());
     } else {
